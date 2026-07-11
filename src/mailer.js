@@ -50,14 +50,20 @@ function readResponse(socket) {
     };
     const onError = (err) => {
       cleanup();
-      reject(err);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error('A conexão com o servidor de e-mail foi encerrada antes de responder (verifique host/porta/firewall).'));
     };
     const cleanup = () => {
       socket.removeListener('data', onData);
       socket.removeListener('error', onError);
+      socket.removeListener('close', onClose);
     };
     socket.on('data', onData);
     socket.on('error', onError);
+    socket.once('close', onClose);
   });
 }
 
@@ -83,13 +89,33 @@ async function sendMail({ to, toName, subject, html, text }) {
     );
   }
 
+  const CONNECT_TIMEOUT_MS = 15000;
   const useImplicitTLS = c.port === 465;
   let socket = await new Promise((resolve, reject) => {
     const sock = useImplicitTLS
-      ? tls.connect({ host: c.host, port: c.port, servername: c.host }, () => resolve(sock))
-      : net.connect({ host: c.host, port: c.port }, () => resolve(sock));
-    sock.once('error', reject);
+      ? tls.connect({ host: c.host, port: c.port, servername: c.host }, () => {
+          clearTimeout(timer);
+          resolve(sock);
+        })
+      : net.connect({ host: c.host, port: c.port }, () => {
+          clearTimeout(timer);
+          resolve(sock);
+        });
+    const timer = setTimeout(() => {
+      sock.destroy();
+      reject(
+        new Error(
+          `Tempo esgotado ao conectar em ${c.host}:${c.port}. O provedor de hospedagem pode estar bloqueando conexões SMTP de saída nessa porta.`
+        )
+      );
+    }, CONNECT_TIMEOUT_MS);
+    sock.once('error', (err) => {
+      clearTimeout(timer);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    });
   });
+
+  socket.setTimeout(20000, () => socket.destroy());
 
   try {
     checkCode(await readResponse(socket), 220);
@@ -99,8 +125,9 @@ async function sendMail({ to, toName, subject, html, text }) {
       checkCode(await sendCommand(socket, 'STARTTLS'), 220);
       socket = await new Promise((resolve, reject) => {
         const secure = tls.connect({ socket, servername: c.host }, () => resolve(secure));
-        secure.once('error', reject);
+        secure.once('error', (err) => reject(err instanceof Error ? err : new Error(String(err))));
       });
+      socket.setTimeout(20000, () => socket.destroy());
       checkCode(await sendCommand(socket, `EHLO goldensaas.local`), 250);
     }
 

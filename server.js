@@ -580,7 +580,8 @@ async function handler(req, res) {
         await sendMail({ to: os.cliente_email, toName: os.cliente_nome, subject: content.subject, html: content.html, text: content.text });
         setFlash(session.sessionId, 'success', `E-mail enviado para ${os.cliente_email}.`);
       } catch (err) {
-        setFlash(session.sessionId, 'error', 'Não foi possível enviar o e-mail: ' + err.message);
+        console.error('[email] Falha ao enviar e-mail (enviar-email):', err);
+        setFlash(session.sessionId, 'error', 'Não foi possível enviar o e-mail: ' + (err && err.message ? err.message : 'erro desconhecido, veja os Logs do servidor.'));
       }
       return redirect(res, `/os/${m.id}`);
     }
@@ -606,7 +607,8 @@ async function handler(req, res) {
           await sendMail({ to: os.cliente_email, toName: os.cliente_nome, subject: content.subject, html: content.html, text: content.text });
           msg += ` Cliente avisado por e-mail (${os.cliente_email}).`;
         } catch (err) {
-          msg += ` Porém não foi possível enviar o e-mail automático: ${err.message}`;
+          console.error('[email] Falha ao enviar e-mail (finalizar):', err);
+          msg += ` Porém não foi possível enviar o e-mail automático: ${err && err.message ? err.message : 'erro desconhecido, veja os Logs do servidor.'}`;
           flashType = 'error';
         }
       } else {
