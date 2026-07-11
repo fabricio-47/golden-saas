@@ -663,5 +663,5 @@ async function handler(req, res) {
 const server = http.createServer(handler);
 server.listen(PORT, () => {
   console.log(`Golden SaaS rodando em http://localhost:${PORT}`);
-  console.log(mailConfigured() ? '[email] Envio de e-mail configurado.' : '[email] Envio de e-mail NÃO configurado (defina SMTP_HOST, SMTP_USER, SMTP_PASS nas variáveis de ambiente).');
+  console.log(mailConfigured() ? '[email] Envio de e-mail configurado.' : '[email] Envio de e-mail NÃO configurado (defina BREVO_API_KEY e EMAIL_FROM nas variáveis de ambiente).');
 });

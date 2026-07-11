@@ -28,23 +28,34 @@ Este projeto já está publicado em: **https://golden-saas.onrender.com**
 
 ## 2. Configurar o envio de e-mails (obrigatório para os botões de e-mail funcionarem)
 
-O envio de e-mail não vem configurado por padrão — sem isso, os botões de e-mail mostram um erro explicando o que falta. Para ativar, defina estas variáveis de ambiente no painel do Render (**Dashboard → seu serviço → Environment → Add Environment Variable**):
+O envio de e-mail não vem configurado por padrão — sem isso, os botões de e-mail mostram um erro explicando o que falta.
+
+**Importante:** o sistema envia e-mail através da **API da Brevo** (serviço gratuito de envio de e-mail), e não por SMTP direto. Isso é necessário porque o Render, no plano gratuito, **bloqueia conexões SMTP de saída** (portas 25/465/587) desde setembro de 2025, para evitar abuso de spam — então SMTP tradicional simplesmente não funciona em planos gratuitos de hospedagem. A API da Brevo usa a porta 443 (a mesma do site normal), que nunca é bloqueada.
+
+### Passo 1 — Criar conta gratuita na Brevo
+1. Acesse **app.brevo.com** e crie uma conta gratuita (não pede cartão de crédito).
+2. O plano gratuito permite **300 e-mails por dia**, mais que suficiente para uma oficina.
+
+### Passo 2 — Validar o e-mail remetente
+1. Dentro da Brevo, vá em **Configurações (engrenagem) → Remetentes e IP → Remetentes**.
+2. Adicione o e-mail que vai aparecer como remetente das mensagens (ex: seu e-mail da oficina).
+3. A Brevo manda um código (OTP) para esse e-mail — confirme o código. Não precisa mexer em DNS nem no domínio do site.
+
+### Passo 3 — Gerar a chave de API
+1. Vá em **Configurações → SMTP e API → Chaves de API**.
+2. Clique em **Gerar uma nova chave de API**, dê um nome como "Golden SaaS".
+3. Copie a chave gerada (só aparece uma vez).
+
+### Passo 4 — Configurar no Render
+No painel do Render (**seu serviço → Environment → Add Environment Variable**), adicione:
 
 | Variável | Exemplo | Observação |
 |---|---|---|
-| `SMTP_HOST` | `smtp.gmail.com` | Servidor do seu provedor de e-mail |
-| `SMTP_PORT` | `465` | 465 = conexão segura direta (recomendado) |
-| `SMTP_USER` | `suaoficina@gmail.com` | O e-mail que vai enviar as mensagens |
-| `SMTP_PASS` | `xxxx xxxx xxxx xxxx` | **Senha de aplicativo**, não a senha normal da conta |
-| `SMTP_FROM` | `suaoficina@gmail.com` | (opcional) padrão = SMTP_USER |
-| `SMTP_FROM_NAME` | `Golden SaaS` | (opcional) nome que aparece como remetente |
+| `BREVO_API_KEY` | `xkeysib-xxxxxxxx...` | Chave gerada no Passo 3 |
+| `EMAIL_FROM` | `suaoficina@gmail.com` | Precisa ser o e-mail validado no Passo 2 |
+| `EMAIL_FROM_NAME` | `Golden SaaS` | (opcional) nome que aparece como remetente |
 
-### Como gerar uma senha de aplicativo no Gmail (gratuito)
-1. Acesse **myaccount.google.com/apppasswords** (é preciso ter a verificação em duas etapas ativada na conta).
-2. Crie uma senha de aplicativo com o nome "Golden SaaS".
-3. Copie o código gerado (16 letras) e use como `SMTP_PASS`.
-
-Depois de adicionar as variáveis no Render, clique em **Save, rebuild, and deploy** (ou similar) para aplicar.
+Depois de adicionar as variáveis, clique em **Save, rebuild, and deploy** para aplicar. Se algo der errado no envio, o motivo completo aparece na aba **Logs** do Render (procure por linhas com `[email]`).
 
 ## 3. Aviso sobre armazenamento no plano gratuito
 
