@@ -4,8 +4,8 @@ const { layout } = require('./layout');
 const { escapeHtml, formatDate, formatMoney } = require('../utils');
 
 const STATUS_LABELS = {
-  aberta: 'Aberta',
-  em_andamento: 'Em andamento',
+  orcamento: 'Orçamento',
+  execucao: 'Execução',
   concluida: 'Concluída',
 };
 
@@ -20,6 +20,28 @@ const CHECKLIST_ITEMS = [
   'Sistema de transmissão',
 ];
 
+function totalValor(os) {
+  const pecas = Number(os.valor_pecas) || 0;
+  const maoObra = Number(os.valor_mao_obra) || 0;
+  return pecas + maoObra;
+}
+
+const FORMA_PAGAMENTO_LABELS = {
+  pix: 'Pix',
+  dinheiro: 'Dinheiro',
+  debito: 'Cartão de débito',
+  credito: 'Cartão de crédito',
+};
+
+function formaPagamentoLabel(os) {
+  if (!os.forma_pagamento) return '-';
+  const base = FORMA_PAGAMENTO_LABELS[os.forma_pagamento] || os.forma_pagamento;
+  if (os.forma_pagamento === 'credito' && os.parcelas && os.parcelas > 1) {
+    return `${base} (${os.parcelas}x)`;
+  }
+  return base;
+}
+
 function ordensListPage({ user, flash, ordens, statusFilter }) {
   const rows = ordens
     .map(
@@ -29,7 +51,7 @@ function ordensListPage({ user, flash, ordens, statusFilter }) {
       <td>${escapeHtml(os.cliente_nome)}</td>
       <td>${escapeHtml(os.marca || '')} ${escapeHtml(os.modelo)}</td>
       <td><span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span></td>
-      <td>${formatMoney(os.valor_estimado)}</td>
+      <td>${formatMoney(totalValor(os))}</td>
       <td>${formatDate(os.data_entrada)}</td>
     </tr>`
     )
@@ -53,8 +75,8 @@ function ordensListPage({ user, flash, ordens, statusFilter }) {
       </div>
       <div class="actions-row" style="margin-top:0;margin-bottom:20px;">
         ${filterLink('', 'Todas')}
-        ${filterLink('aberta', 'Abertas')}
-        ${filterLink('em_andamento', 'Em andamento')}
+        ${filterLink('orcamento', 'Orçamento')}
+        ${filterLink('execucao', 'Execução')}
         ${filterLink('concluida', 'Concluídas')}
       </div>
       <div class="card">
@@ -111,7 +133,7 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
     )
     .join('');
 
-  const statusOptions = ['aberta', 'em_andamento', 'concluida']
+  const statusOptions = ['orcamento', 'execucao', 'concluida']
     .map((s) => `<option value="${s}" ${os && os.status === s ? 'selected' : ''}>${STATUS_LABELS[s]}</option>`)
     .join('');
 
@@ -139,7 +161,7 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
               </select>
             </div>
             <div class="field">
-              <label for="bicicleta_id">Bicicleta *</label>
+              <label for="bicicleta_id">Veículo *</label>
               <select id="bicicleta_id" name="bicicleta_id" required>
                 <option value="">Selecione o cliente primeiro...</option>
                 ${bicicletaOptionsHtml}
@@ -153,9 +175,13 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             </div>`
                 : ''
             }
-            <div class="field">
-              <label for="valor_estimado">Valor estimado (R$)</label>
-              <input type="number" id="valor_estimado" name="valor_estimado" min="0" step="0.01" value="${os && os.valor_estimado !== null ? os.valor_estimado : ''}">
+          </div>
+
+          <h2 style="margin-top:24px;">Problema relatado pelo cliente</h2>
+          <div class="form-grid">
+            <div class="field full">
+              <label for="problema_relatado">O que o cliente relatou ao trazer o veículo</label>
+              <textarea id="problema_relatado" name="problema_relatado" placeholder="Ex: cliente relata ruído no motor e autonomia baixa">${escapeHtml(os ? os.problema_relatado : '')}</textarea>
             </div>
           </div>
 
@@ -175,10 +201,37 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             </div>
           </div>
 
+          <h2 style="margin-top:24px;">Valores</h2>
+          <div class="form-grid">
+            <div class="field">
+              <label for="valor_pecas">Valor de peças (R$)</label>
+              <input type="number" id="valor_pecas" name="valor_pecas" min="0" step="0.01" value="${os && os.valor_pecas !== null ? os.valor_pecas : ''}">
+            </div>
+            <div class="field">
+              <label for="valor_mao_obra">Valor de mão de obra (R$)</label>
+              <input type="number" id="valor_mao_obra" name="valor_mao_obra" min="0" step="0.01" value="${os && os.valor_mao_obra !== null ? os.valor_mao_obra : ''}">
+            </div>
+            <div class="field">
+              <label for="forma_pagamento">Forma de pagamento</label>
+              <select id="forma_pagamento" name="forma_pagamento" onchange="toggleParcelas()">
+                <option value="">Não definida</option>
+                <option value="pix" ${os && os.forma_pagamento === 'pix' ? 'selected' : ''}>Pix</option>
+                <option value="dinheiro" ${os && os.forma_pagamento === 'dinheiro' ? 'selected' : ''}>Dinheiro</option>
+                <option value="debito" ${os && os.forma_pagamento === 'debito' ? 'selected' : ''}>Cartão de débito</option>
+                <option value="credito" ${os && os.forma_pagamento === 'credito' ? 'selected' : ''}>Cartão de crédito</option>
+              </select>
+            </div>
+            <div class="field" id="campo-parcelas">
+              <label for="parcelas">Parcelado em quantas vezes</label>
+              <input type="number" id="parcelas" name="parcelas" min="1" max="24" value="${os && os.parcelas ? os.parcelas : 1}">
+            </div>
+          </div>
+
           <div class="actions-row">
             <button class="btn" type="submit">${isEdit ? 'Salvar alterações' : 'Abrir Ordem de Serviço'}</button>
             <a class="btn btn-secondary" href="${isEdit ? `/os/${os.id}` : '/os'}">Cancelar</a>
           </div>
+          ${!isEdit ? '<p class="muted" style="margin-top:12px;">Depois de salvar, você poderá adicionar fotos e vídeos da checagem e dos serviços realizados.</p>' : ''}
         </form>
       </div>
 
@@ -193,7 +246,7 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
           select.innerHTML = '';
           var placeholder = document.createElement('option');
           placeholder.value = '';
-          placeholder.textContent = clienteId ? 'Selecione a bicicleta...' : 'Selecione o cliente primeiro...';
+          placeholder.textContent = clienteId ? 'Selecione o veículo...' : 'Selecione o cliente primeiro...';
           select.appendChild(placeholder);
           allBikeOptions.filter(function(o) { return !clienteId || o.cliente === clienteId; }).forEach(function(o) {
             var opt = document.createElement('option');
@@ -205,12 +258,38 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
         }
         document.getElementById('cliente_id').addEventListener('change', filterBicicletas);
         if (document.getElementById('cliente_id').value) { filterBicicletas(); }
+
+        function toggleParcelas() {
+          var forma = document.getElementById('forma_pagamento').value;
+          document.getElementById('campo-parcelas').style.display = forma === 'credito' ? '' : 'none';
+        }
+        toggleParcelas();
       </script>
     `,
   });
 }
 
-function ordemShowPage({ user, flash, os, csrfToken }) {
+function mediaGrid(midias, osId, csrfToken) {
+  if (!midias.length) return '<p class="muted">Nenhum arquivo enviado ainda.</p>';
+  return `<div class="media-grid">${midias
+    .map(
+      (m) => `
+    <div class="media-item">
+      ${
+        m.tipo_arquivo === 'video'
+          ? `<video src="/uploads/${m.caminho_arquivo}" controls preload="metadata"></video>`
+          : `<a href="/uploads/${m.caminho_arquivo}" target="_blank"><img src="/uploads/${m.caminho_arquivo}" alt="${escapeHtml(m.nome_arquivo)}" loading="lazy"></a>`
+      }
+      <form method="POST" action="/os/${osId}/midias/${m.id}/excluir" style="display:inline;" onsubmit="return confirm('Remover este arquivo?');">
+        <input type="hidden" name="csrf" value="${csrfToken}">
+        <button class="media-del" type="submit" title="Remover">×</button>
+      </form>
+    </div>`
+    )
+    .join('')}</div>`;
+}
+
+function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, csrfToken }) {
   const checklist = os.checklist_json ? JSON.parse(os.checklist_json) : [];
   const checklistRows = checklist
     .map(
@@ -235,16 +314,45 @@ function ordemShowPage({ user, flash, os, csrfToken }) {
           <p class="subtitle">
             Cliente: <a class="link-btn" href="/clientes/${os.cliente_id}">${escapeHtml(os.cliente_nome)}</a>
             &nbsp;·&nbsp;
-            Bicicleta: <a class="link-btn" href="/bicicletas/${os.bicicleta_id}">${escapeHtml(os.marca || '')} ${escapeHtml(os.modelo)}</a>
+            Veículo: <a class="link-btn" href="/bicicletas/${os.bicicleta_id}">${escapeHtml(os.marca || '')} ${escapeHtml(os.modelo)}</a>
           </p>
         </div>
-        <a class="btn btn-secondary" href="/os/${os.id}/editar">Editar</a>
+        <div class="actions-row" style="margin-top:0;">
+          <form method="POST" action="/os/${os.id}/enviar-email" onsubmit="return confirm('Enviar um resumo desta O.S. por e-mail para o cliente?');">
+            <input type="hidden" name="csrf" value="${csrfToken}">
+            <button class="btn btn-secondary" type="submit">✉ Enviar por e-mail</button>
+          </form>
+          <a class="btn btn-secondary" href="/os/${os.id}/editar">Editar</a>
+          ${
+            os.status !== 'concluida'
+              ? `<form method="POST" action="/os/${os.id}/finalizar" onsubmit="return confirm('Finalizar esta O.S. e avisar o cliente por e-mail que o serviço está pronto?');">
+            <input type="hidden" name="csrf" value="${csrfToken}">
+            <button class="btn" type="submit">✔ Finalizar e avisar cliente</button>
+          </form>`
+              : ''
+          }
+        </div>
       </div>
 
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${formatMoney(os.valor_estimado)}</div><div class="label">Valor estimado</div></div>
+        <div class="stat-card"><div class="num">${formatMoney(totalValor(os))}</div><div class="label">Valor total (peças + mão de obra)</div></div>
         <div class="stat-card"><div class="num">${formatDate(os.data_entrada).split(' ')[0]}</div><div class="label">Data de entrada</div></div>
         <div class="stat-card"><div class="num">${os.data_conclusao ? formatDate(os.data_conclusao).split(' ')[0] : '-'}</div><div class="label">Data de conclusão</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Valores</h2>
+        <div class="value-breakdown">
+          <div class="item"><div class="muted">Peças</div><div style="font-size:18px;font-weight:600;">${formatMoney(os.valor_pecas)}</div></div>
+          <div class="item"><div class="muted">Mão de obra</div><div style="font-size:18px;font-weight:600;">${formatMoney(os.valor_mao_obra)}</div></div>
+          <div class="item"><div class="muted">Total</div><div style="font-size:18px;font-weight:600;color:#1f6b3a;">${formatMoney(totalValor(os))}</div></div>
+          <div class="item"><div class="muted">Pagamento</div><div style="font-size:18px;font-weight:600;">${formaPagamentoLabel(os)}</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Problema relatado pelo cliente</h2>
+        <p>${os.problema_relatado ? escapeHtml(os.problema_relatado).replace(/\n/g, '<br>') : '<span class="muted">Nenhum problema relatado registrado.</span>'}</p>
       </div>
 
       <div class="card">
@@ -254,6 +362,16 @@ function ordemShowPage({ user, flash, os, csrfToken }) {
             ? `<table><thead><tr><th>Item</th><th>Status</th><th>Observação</th></tr></thead><tbody>${checklistRows}</tbody></table>`
             : '<div class="empty">Nenhum checklist preenchido.</div>'
         }
+        <h2 style="margin-top:20px;">Fotos da checagem</h2>
+        ${mediaGrid(midiasChecklist, os.id, csrfToken)}
+        <form method="POST" action="/os/${os.id}/midias" enctype="multipart/form-data" style="margin-top:12px;">
+          <input type="hidden" name="csrf" value="${csrfToken}">
+          <input type="hidden" name="categoria" value="checklist">
+          <div class="upload-box">
+            <input type="file" name="arquivos" accept="image/*" multiple capture="environment">
+            <button class="btn btn-sm" type="submit" style="margin-top:10px;">Enviar fotos da checagem</button>
+          </div>
+        </form>
       </div>
 
       <div class="card">
@@ -264,6 +382,17 @@ function ordemShowPage({ user, flash, os, csrfToken }) {
       <div class="card">
         <h2>Serviços realizados</h2>
         <p>${os.servicos_realizados ? escapeHtml(os.servicos_realizados).replace(/\n/g, '<br>') : '<span class="muted">Nenhum serviço registrado ainda.</span>'}</p>
+        <h2 style="margin-top:20px;">Fotos e vídeos dos serviços realizados</h2>
+        ${mediaGrid(midiasServico, os.id, csrfToken)}
+        <form method="POST" action="/os/${os.id}/midias" enctype="multipart/form-data" style="margin-top:12px;">
+          <input type="hidden" name="csrf" value="${csrfToken}">
+          <input type="hidden" name="categoria" value="servico">
+          <div class="upload-box">
+            <input type="file" name="arquivos" accept="image/*,video/*" multiple capture="environment">
+            <button class="btn btn-sm" type="submit" style="margin-top:10px;">Enviar fotos/vídeos do serviço</button>
+          </div>
+        </form>
+        <p class="muted" style="margin-top:8px;">Arquivos até 20MB cada. No plano gratuito de hospedagem, esses arquivos podem ser apagados quando o servidor "dormir" por inatividade.</p>
       </div>
 
       <form method="POST" action="/os/${os.id}/excluir" onsubmit="return confirm('Tem certeza que deseja excluir esta ordem de serviço?');">
@@ -274,4 +403,13 @@ function ordemShowPage({ user, flash, os, csrfToken }) {
   });
 }
 
-module.exports = { ordensListPage, ordemFormPage, ordemShowPage, CHECKLIST_ITEMS, STATUS_LABELS };
+module.exports = {
+  ordensListPage,
+  ordemFormPage,
+  ordemShowPage,
+  CHECKLIST_ITEMS,
+  STATUS_LABELS,
+  totalValor,
+  formaPagamentoLabel,
+  FORMA_PAGAMENTO_LABELS,
+};

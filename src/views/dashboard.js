@@ -4,8 +4,8 @@ const { layout } = require('./layout');
 const { escapeHtml, formatDate } = require('../utils');
 
 const STATUS_LABELS = {
-  aberta: 'Aberta',
-  em_andamento: 'Em andamento',
+  orcamento: 'Orçamento',
+  execucao: 'Execução',
   concluida: 'Concluída',
 };
 
@@ -50,11 +50,11 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes }) {
       </div>
 
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${counts.aberta}</div><div class="label">O.S. Abertas</div></div>
-        <div class="stat-card"><div class="num">${counts.em_andamento}</div><div class="label">Em Andamento</div></div>
+        <div class="stat-card"><div class="num">${counts.orcamento}</div><div class="label">Em Orçamento</div></div>
+        <div class="stat-card"><div class="num">${counts.execucao}</div><div class="label">Em Execução</div></div>
         <div class="stat-card"><div class="num">${counts.concluida}</div><div class="label">Concluídas</div></div>
         <div class="stat-card"><div class="num">${counts.clientes}</div><div class="label">Clientes</div></div>
-        <div class="stat-card"><div class="num">${counts.bicicletas}</div><div class="label">Bicicletas cadastradas</div></div>
+        <div class="stat-card"><div class="num">${counts.bicicletas}</div><div class="label">Veículos cadastrados</div></div>
       </div>
 
       <div class="card">

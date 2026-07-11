@@ -100,11 +100,19 @@ const STYLE = `
   tr:hover td { background: #fbfaf6; }
   .empty { color: #8a8474; padding: 24px; text-align: center; font-size: 14px; }
   .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-  .badge-aberta { background: #fde8d8; color: var(--warn); }
-  .badge-em_andamento { background: #dbe9f5; color: #2c6ea8; }
+  .badge-orcamento { background: #fde8d8; color: var(--warn); }
+  .badge-execucao { background: #dbe9f5; color: #2c6ea8; }
   .badge-concluida { background: #dcf0e2; color: var(--ok); }
   .badge-ok { background: #dcf0e2; color: var(--ok); }
   .badge-atencao { background: #fbe3d8; color: var(--danger); }
+  .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 12px; }
+  .media-item { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid #e5e2d8; background: #000; aspect-ratio: 1 / 1; }
+  .media-item img, .media-item video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .media-item .media-del { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 4px; width: 22px; height: 22px; font-size: 12px; cursor: pointer; }
+  .upload-box { border: 2px dashed #d8d4c6; border-radius: 8px; padding: 16px; text-align: center; }
+  .upload-box input[type=file] { width: 100%; }
+  .value-breakdown { display: flex; gap: 24px; flex-wrap: wrap; }
+  .value-breakdown .item { flex: 1; min-width: 140px; }
   form .field { margin-bottom: 16px; }
   label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #4a463b; }
   input[type=text], input[type=email], input[type=tel], input[type=number], input[type=password], textarea, select {

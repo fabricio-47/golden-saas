@@ -36,6 +36,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS bicicletas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    tipo_veiculo TEXT NOT NULL DEFAULT 'bicicleta',
     marca TEXT,
     modelo TEXT NOT NULL,
     cor TEXT,
@@ -54,22 +55,66 @@ db.exec(`
     numero TEXT NOT NULL UNIQUE,
     cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
     bicicleta_id INTEGER NOT NULL REFERENCES bicicletas(id) ON DELETE CASCADE,
-    status TEXT NOT NULL DEFAULT 'aberta',
+    status TEXT NOT NULL DEFAULT 'orcamento',
     checklist_json TEXT,
+    problema_relatado TEXT,
     diagnostico TEXT,
     servicos_realizados TEXT,
+    valor_pecas REAL,
+    valor_mao_obra REAL,
     valor_estimado REAL,
+    forma_pagamento TEXT,
+    parcelas INTEGER,
     data_entrada TEXT NOT NULL DEFAULT (datetime('now')),
     data_conclusao TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS os_midias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ordem_servico_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    categoria TEXT NOT NULL,
+    tipo_arquivo TEXT NOT NULL,
+    nome_arquivo TEXT NOT NULL,
+    caminho_arquivo TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS bicicleta_midias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bicicleta_id INTEGER NOT NULL REFERENCES bicicletas(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,
+    tipo_arquivo TEXT NOT NULL,
+    nome_arquivo TEXT NOT NULL,
+    caminho_arquivo TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_bicicletas_cliente ON bicicletas(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_cliente ON ordens_servico(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_bicicleta ON ordens_servico(bicicleta_id);
   CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico(status);
+  CREATE INDEX IF NOT EXISTS idx_midias_os ON os_midias(ordem_servico_id);
+  CREATE INDEX IF NOT EXISTS idx_midias_bicicleta ON bicicleta_midias(bicicleta_id);
 `);
+
+// --- migrações leves para bancos criados por versões anteriores ---
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+ensureColumn('bicicletas', 'tipo_veiculo', "TEXT NOT NULL DEFAULT 'bicicleta'");
+ensureColumn('ordens_servico', 'problema_relatado', 'TEXT');
+ensureColumn('ordens_servico', 'valor_pecas', 'REAL');
+ensureColumn('ordens_servico', 'valor_mao_obra', 'REAL');
+ensureColumn('ordens_servico', 'forma_pagamento', 'TEXT');
+ensureColumn('ordens_servico', 'parcelas', 'INTEGER');
+// migra status antigo para o novo fluxo orcamento -> execucao -> concluida
+db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
+db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");
 
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
@@ -95,15 +140,15 @@ function seed() {
     const r2 = insCliente.run('Mariana Costa', '(21) 98888-0002', 'mariana@email.com', 'Av. Atlântica, 500 - Rio de Janeiro/RJ', '');
 
     const insBike = db.prepare(
-      `INSERT INTO bicicletas (cliente_id, marca, modelo, cor, motor_serial, controladora_serial, bateria_serial, bateria_soh_percent, bateria_ciclos_carga, km_estimado, observacoes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bicicletas (cliente_id, tipo_veiculo, marca, modelo, cor, motor_serial, controladora_serial, bateria_serial, bateria_soh_percent, bateria_ciclos_carga, km_estimado, observacoes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    const b1 = insBike.run(r1.lastInsertRowid, 'Voltz', 'EB-100 Cargo', 'Preta', 'MOT-VZ-88231', 'CTRL-VZ-44120', 'BAT-VZ-99201', 87, 340, 4200, 'Uso intenso em delivery');
-    const b2 = insBike.run(r2.lastInsertRowid, 'Caloi', 'E-Vibe Urban', 'Branca', 'MOT-CL-11029', 'CTRL-CL-22087', 'BAT-CL-55310', 96, 60, 850, '');
+    const b1 = insBike.run(r1.lastInsertRowid, 'bicicleta', 'Voltz', 'EB-100 Cargo', 'Preta', 'MOT-VZ-88231', 'CTRL-VZ-44120', 'BAT-VZ-99201', 87, 340, 4200, 'Uso intenso em delivery');
+    const b2 = insBike.run(r2.lastInsertRowid, 'bicicleta', 'Caloi', 'E-Vibe Urban', 'Branca', 'MOT-CL-11029', 'CTRL-CL-22087', 'BAT-CL-55310', 96, 60, 850, '');
 
     const insOS = db.prepare(
-      `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, diagnostico, servicos_realizados, valor_estimado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, valor_estimado, forma_pagamento, parcelas)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const checklistExemplo = JSON.stringify([
       { item: 'Inspeção visual do quadro', status: 'ok', observacao: '' },
@@ -115,7 +160,12 @@ function seed() {
       { item: 'Pneus e câmaras', status: 'ok', observacao: '' },
       { item: 'Sistema de transmissão', status: 'ok', observacao: '' },
     ]);
-    insOS.run('OS-0001', r1.lastInsertRowid, b1.lastInsertRowid, 'em_andamento', checklistExemplo, 'Motor com desgaste leve de rolamento. Recomenda-se revisão preventiva em 500km.', '', 180.0);
+    insOS.run(
+      'OS-0001', r1.lastInsertRowid, b1.lastInsertRowid, 'execucao', checklistExemplo,
+      'Cliente relata ruído estranho no motor durante a pedalada e autonomia menor que o normal.',
+      'Motor com desgaste leve de rolamento. Recomenda-se revisão preventiva em 500km.', '',
+      60.0, 120.0, 180.0, 'pix', null
+    );
   }
 }
 

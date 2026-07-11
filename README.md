@@ -1,8 +1,10 @@
 # Golden SaaS — MVP do módulo Oficina Inteligente
 
-Este é o primeiro pedaço funcional do Golden SaaS: o módulo de **Oficina Inteligente / Ordens de Serviço**, com cadastro de clientes, cadastro de bicicletas elétricas (com dados técnicos de motor, controladora e bateria) e o checklist de entrada especializado que é o grande diferencial do produto.
+Módulo de **Oficina Inteligente / Ordens de Serviço** do Golden SaaS: cadastro de clientes, cadastro de bicicletas e motos elétricas (com dados técnicos de motor, controladora e bateria), checklist de entrada especializado, fotos/vídeos, orçamento → execução → conclusão, valores separados por peça/mão de obra, formas de pagamento e envio automático de e-mail para o cliente.
 
-Foi construído para rodar sem complicação: **não precisa instalar nada além do Node.js**. Não há passo de `npm install` — o sistema usa apenas recursos nativos do Node (incluindo um banco de dados SQLite embutido), então funciona assim que você tiver o Node instalado.
+Roda sem complicação: **não precisa instalar nada além do Node.js**. Não há passo de `npm install` obrigatório — o sistema usa apenas recursos nativos do Node (incluindo banco de dados SQLite embutido), então funciona assim que você tiver o Node instalado.
+
+Este projeto já está publicado em: **https://golden-saas.onrender.com**
 
 ---
 
@@ -10,89 +12,83 @@ Foi construído para rodar sem complicação: **não precisa instalar nada além
 
 - **Login** com usuário e senha.
 - **Clientes**: cadastrar, listar, editar, ver detalhes, excluir.
-- **Bicicletas**: cadastro vinculado a um cliente, com número de série do motor, da controladora e da bateria, saúde da bateria (SOH %), ciclos de carga e quilometragem estimada.
-- **Ordens de Serviço**: abertura de O.S. vinculada a cliente + bicicleta, com o checklist de entrada especializado (inspeção de quadro, motor, fiação, display, bateria, freios, pneus, transmissão), diagnóstico técnico, serviços realizados, valor estimado e status (aberta / em andamento / concluída).
-- **Dashboard**: contadores de O.S. por status e alerta automático de bicicletas com saúde de bateria abaixo de 90%.
+- **Veículos (bicicleta ou moto elétrica)**: cadastro vinculado a um cliente, com número de série do motor, da controladora e da bateria, saúde da bateria (SOH %), ciclos de carga e quilometragem estimada.
+  - Para **motos elétricas**, é **obrigatório** anexar foto do chassi e foto do número de série da bateria no cadastro.
+- **Ordens de Serviço**:
+  - Problema relatado pelo cliente (registrado antes do diagnóstico).
+  - Checklist de entrada especializado (quadro, motor, fiação, display, bateria, freios, pneus, transmissão).
+  - Diagnóstico técnico e serviços realizados.
+  - Fotos da checagem de entrada e fotos/vídeos dos serviços realizados (upload direto pelo celular ou computador).
+  - Valores separados em **peças** e **mão de obra**, com total calculado automaticamente.
+  - Forma de pagamento: Pix, dinheiro, cartão de débito ou cartão de crédito (com número de parcelas).
+  - Fluxo de status: **Orçamento → Execução → Concluída**.
+  - Botão **"Enviar por e-mail"**: manda um resumo completo da O.S. para o e-mail do cliente.
+  - Botão **"Finalizar e avisar cliente"**: marca a O.S. como concluída e avisa automaticamente o cliente por e-mail que o serviço está pronto.
+- **Dashboard**: contadores de O.S. por status e alerta automático de veículos com saúde de bateria abaixo de 90%.
 
-O sistema já vem com um usuário e alguns dados de exemplo (um cliente frotista e uma O.S. em andamento) só para você visualizar como fica na prática.
+## 2. Configurar o envio de e-mails (obrigatório para os botões de e-mail funcionarem)
 
-## 2. O que ainda NÃO está nesta versão (próximos passos combinados no roteiro)
+O envio de e-mail não vem configurado por padrão — sem isso, os botões de e-mail mostram um erro explicando o que falta. Para ativar, defina estas variáveis de ambiente no painel do Render (**Dashboard → seu serviço → Environment → Add Environment Variable**):
+
+| Variável | Exemplo | Observação |
+|---|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` | Servidor do seu provedor de e-mail |
+| `SMTP_PORT` | `465` | 465 = conexão segura direta (recomendado) |
+| `SMTP_USER` | `suaoficina@gmail.com` | O e-mail que vai enviar as mensagens |
+| `SMTP_PASS` | `xxxx xxxx xxxx xxxx` | **Senha de aplicativo**, não a senha normal da conta |
+| `SMTP_FROM` | `suaoficina@gmail.com` | (opcional) padrão = SMTP_USER |
+| `SMTP_FROM_NAME` | `Golden SaaS` | (opcional) nome que aparece como remetente |
+
+### Como gerar uma senha de aplicativo no Gmail (gratuito)
+1. Acesse **myaccount.google.com/apppasswords** (é preciso ter a verificação em duas etapas ativada na conta).
+2. Crie uma senha de aplicativo com o nome "Golden SaaS".
+3. Copie o código gerado (16 letras) e use como `SMTP_PASS`.
+
+Depois de adicionar as variáveis no Render, clique em **Save, rebuild, and deploy** (ou similar) para aplicar.
+
+## 3. Aviso sobre armazenamento no plano gratuito
+
+O plano gratuito do Render **não guarda dados permanentemente**: ele "dorme" após 15 minutos sem uso e, ao acordar, o banco de dados e os arquivos enviados (fotos/vídeos) voltam ao ponto inicial. Ou seja, esse ambiente é ótimo para testar e mostrar o sistema, mas **ainda não deve ser usado para cadastrar clientes e ordens de serviço reais**. Quando quiser migrar para uso real, é preciso um plano pago com disco persistente (ou um banco de dados/armazenamento externo) — posso te ajudar nisso quando chegar a hora.
+
+## 4. O que ainda NÃO está nesta versão (próximos passos combinados no roteiro)
 
 - Módulo de **Estoque** (rastreabilidade de peças por número de série, previsão de reposição).
 - Módulo de **Vendas / CRM** (contratos de manutenção, cobrança recorrente, notas fiscais).
-- Envio automático de alertas por **WhatsApp/e-mail**.
+- Envio automático de alertas por **WhatsApp**.
 - Suporte a múltiplas oficinas (multi-tenant) e múltiplos usuários com permissões diferentes.
-- Deploy em um endereço público na internet (hoje roda só no seu computador).
+- Anexar as fotos/vídeos diretamente dentro do e-mail (hoje o e-mail traz o texto completo, mas as fotos ficam só dentro do sistema).
 
-Ou seja: isto é uma base real e funcional do "coração" do produto — não é só uma tela bonita, os dados são salvos de verdade — mas ainda falta bastante para virar o SaaS completo do roteiro original.
-
-## 3. Como rodar no seu computador (passo a passo)
+## 5. Como rodar no seu computador (opcional, além do link publicado)
 
 ### Passo 1 — Instalar o Node.js
-Se você ainda não tem o Node.js instalado:
-1. Acesse https://nodejs.org
-2. Baixe a versão **LTS** mais recente (é a recomendada para a maioria das pessoas) — mas confirme que é a versão **22.5 ou mais recente** (este projeto usa um recurso de banco de dados que só existe a partir do Node 22.5). Se o site oferecer só uma versão mais antiga, baixe em https://nodejs.org/en/download/current para pegar a versão "Current".
-3. Instale normalmente (Avançar, Avançar, Concluir).
+1. Acesse https://nodejs.org e baixe a versão **22.5 ou mais recente** (se o site só oferecer uma mais antiga, use https://nodejs.org/en/download/current).
+2. Instale normalmente.
+3. Confira com `node -v` no Terminal/Prompt de Comando — deve mostrar `v22.x.x` ou mais.
 
-Para conferir se deu certo, abra o **Terminal** (Mac/Linux) ou **Prompt de Comando/PowerShell** (Windows) e digite:
-```
-node -v
-```
-Deve aparecer algo como `v22.x.x`.
-
-### Passo 2 — Abrir a pasta do projeto
-Descompacte o arquivo `golden-saas.zip` que você recebeu em qualquer pasta do seu computador (ex: Área de Trabalho). Depois, no Terminal/Prompt de Comando, entre nessa pasta. Exemplo:
-```
-cd Desktop/golden-saas
-```
-
-### Passo 3 — Iniciar o sistema
-Ainda no Terminal, digite:
+### Passo 2 — Rodar
+Descompacte o projeto, abra o Terminal/Prompt de Comando na pasta e rode:
 ```
 node server.js
 ```
-Você verá uma mensagem como:
-```
-Golden SaaS rodando em http://localhost:3000
-```
+Acesse http://localhost:3000 no navegador.
 
-### Passo 4 — Acessar no navegador
-Abra o navegador (Chrome, Edge, etc.) e acesse:
-```
-http://localhost:3000
-```
+Login: **admin@goldensaas.com** / senha: **golden123**
 
-Você será redirecionado para a tela de login. Use:
-- **E-mail:** admin@goldensaas.com
-- **Senha:** golden123
+### Onde ficam os dados salvos localmente?
+Em `data/golden-saas.db` (banco) e `data/uploads/` (fotos e vídeos). Para zerar tudo, apague esses arquivos/pastas e rode `node server.js` de novo.
 
-> ⚠️ Troque essa senha antes de usar com dados reais. Por enquanto, para trocar, é preciso editar diretamente o banco de dados ou pedir para eu adicionar uma tela de "alterar senha" na próxima etapa.
+## 6. Por que este projeto não usa React/Next.js/frameworks?
 
-Para parar o sistema, volte ao Terminal e pressione `Ctrl + C`.
+Foi construído num ambiente sem acesso à internet para baixar pacotes, então tudo usa apenas recursos nativos do Node.js (incluindo um parser de upload de arquivos e um cliente de e-mail escritos do zero). Na prática isso significa: sem `npm install`, sem dependências para quebrar — só Node.js e pronto.
 
-### Onde ficam os dados salvos?
-Tudo é salvo em um arquivo dentro da pasta `data/golden-saas.db`. Se quiser "zerar" o sistema e voltar aos dados de exemplo, basta apagar esse arquivo e iniciar o sistema de novo (`node server.js`) — ele recria tudo automaticamente.
+## 7. Próximos passos sugeridos
 
-**Importante:** faça backup desse arquivo `.db` de vez em quando (é só copiar o arquivo para outro lugar), porque é nele que ficam todos os seus clientes, bicicletas e ordens de serviço.
-
-## 4. Por que este MVP não usa React/Next.js/banco de dados na nuvem?
-
-O ambiente onde eu construí este projeto está sem acesso à internet para baixar pacotes (bloqueio de rede da conta/organização), então não consegui instalar frameworks como Next.js ou bibliotecas como Prisma. Para não travar o andamento, construí o sistema usando **apenas recursos nativos do Node.js** — o que, na prática, é até uma vantagem para você agora: você não precisa rodar `npm install` nem lidar com dependências quebradas, é só ter o Node.js instalado e rodar um comando.
-
-Quando quisermos:
-- Colocar isso no ar num link público (ex: para sua equipe acessar de qualquer lugar),
-- Ou continuar evoluindo com um banco mais robusto (Postgres) e frameworks modernos,
-
-isso é perfeitamente possível como próximo passo — inclusive migrando este mesmo código aos poucos, sem precisar recomeçar do zero.
-
-## 5. Próximos passos sugeridos
-
-1. Você testa esta versão e me diz o que ajustar (textos, campos que faltam, fluxo confuso, etc.).
-2. Colocamos o sistema em um endereço público na internet (deploy), para você acessar de qualquer lugar e mostrar para outras pessoas.
-3. Construímos o módulo de **Estoque**.
-4. Construímos o módulo de **Vendas / CRM**.
-5. Adicionamos múltiplos usuários, permissões e (se fizer sentido) suporte a mais de uma oficina no mesmo sistema.
+1. Configurar o e-mail (seção 2) para os botões de e-mail funcionarem de verdade.
+2. Testar o cadastro de motos elétricas e o upload de fotos/vídeos.
+3. Construir o módulo de **Estoque**.
+4. Construir o módulo de **Vendas / CRM**.
+5. Migrar para um plano com armazenamento permanente quando for usar com clientes reais.
 
 ---
 
-Qualquer dúvida ao rodar, me chame — posso te guiar passo a passo ou ajustar o que for preciso.
+Qualquer dúvida, me chame — posso te guiar passo a passo ou ajustar o que for preciso.
