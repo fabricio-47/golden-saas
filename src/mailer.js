@@ -31,7 +31,7 @@ function isConfigured() {
   return !!(c.apiKey && c.from);
 }
 
-async function sendMail({ to, toName, subject, html, text }) {
+async function sendMail({ to, toName, subject, html, text, attachments }) {
   const c = config();
   if (!isConfigured()) {
     throw new Error(
@@ -39,12 +39,19 @@ async function sendMail({ to, toName, subject, html, text }) {
     );
   }
 
+  // attachments (opcional): [{ name: 'arquivo.zip', content: Buffer }]
+  const attachmentPayload =
+    attachments && attachments.length
+      ? attachments.map((a) => ({ name: a.name, content: a.content.toString('base64') }))
+      : undefined;
+
   const payload = JSON.stringify({
     sender: { email: c.from, name: c.fromName },
     to: [{ email: to, name: toName || undefined }],
     subject,
     htmlContent: html || undefined,
     textContent: text || undefined,
+    attachment: attachmentPayload,
   });
 
   const REQUEST_TIMEOUT_MS = 20000;

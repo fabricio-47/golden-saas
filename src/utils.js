@@ -78,4 +78,17 @@ function formatDateOnly(isoString) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-module.exports = { escapeHtml, parseCookies, readBody, parseFormBody, formatDate, formatDateOnly, formatMoney };
+function formatBytes(bytes) {
+  const n = Number(bytes);
+  if (!n || isNaN(n) || n <= 0) return '0 KB';
+  const units = ['bytes', 'KB', 'MB', 'GB'];
+  let value = n;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+module.exports = { escapeHtml, parseCookies, readBody, parseFormBody, formatDate, formatDateOnly, formatMoney, formatBytes };

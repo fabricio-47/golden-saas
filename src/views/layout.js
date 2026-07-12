@@ -208,6 +208,7 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'lojas', href: '/lojas', label: 'Lojas' },
         { key: 'usuarios', href: '/usuarios', label: 'Usuários' },
         { key: 'auditoria', href: '/auditoria', label: 'Auditoria' },
+        { key: 'backup', href: '/backup', label: 'Backup' },
       ],
     });
   }

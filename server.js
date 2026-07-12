@@ -14,7 +14,7 @@ const {
   setSessionCookie,
   clearSessionCookie,
 } = require('./src/auth');
-const { readBody, parseFormBody, escapeHtml, formatMoney } = require('./src/utils');
+const { readBody, parseFormBody, escapeHtml, formatMoney, formatBytes } = require('./src/utils');
 const { readRawBody, getBoundary, parseMultipart } = require('./src/multipart');
 const { saveUploadedFile, deleteUploadedFile, resolveUploadPath, mimeForPath, MAX_REQUEST_BYTES } = require('./src/uploads');
 const { sendMail, isConfigured: mailConfigured } = require('./src/mailer');
@@ -41,6 +41,8 @@ const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornec
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
+const { backupPage } = require('./src/views/backup');
+const { runAutoBackup, buildFullBackupZip, readState: readBackupState } = require('./src/backup');
 
 const PORT = process.env.PORT || 3000;
 
@@ -75,6 +77,13 @@ function notFound(res) {
 
 function forbidden(res) {
   send(res, 403, '<h1>403 - Você não tem permissão para acessar esta página.</h1><a href="/">Voltar</a>');
+}
+
+function getBackupRecipients() {
+  return db
+    .prepare("SELECT email FROM users WHERE role = 'direcao' AND ativo = 1 AND email IS NOT NULL AND email != ''")
+    .all()
+    .map((r) => r.email);
 }
 
 function clientIp(req) {
@@ -1732,6 +1741,58 @@ async function handler(req, res) {
       return send(res, 200, auditoriaPage({ user, flash: takeFlash(session.sessionId), logs }));
     }
 
+    // ---------------- BACKUP (Direção e Gerência apenas) ----------------
+    if (pathname === '/backup' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, backupPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        csrfToken: session.csrfToken,
+        state: readBackupState(),
+        emailIsConfigured: mailConfigured(),
+        recipients: getBackupRecipients(),
+      }));
+    }
+
+    if (pathname === '/backup/executar' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      try {
+        const result = await runAutoBackup(db, { recipients: getBackupRecipients() });
+        setFlash(
+          session.sessionId,
+          result.emailError ? 'error' : 'success',
+          result.emailed
+            ? `Backup feito com sucesso (${formatBytes(result.sizeBytes)}) e enviado por e-mail.`
+            : result.emailError
+            ? `Backup salvo no servidor (${formatBytes(result.sizeBytes)}), mas o envio por e-mail falhou: ${result.emailError}`
+            : `Backup salvo no servidor (${formatBytes(result.sizeBytes)}). E-mail não configurado ou sem destinatários — veja os avisos acima.`
+        );
+      } catch (err) {
+        console.error('[backup] Falha ao executar backup manual:', err);
+        setFlash(session.sessionId, 'error', 'Falha ao fazer backup: ' + (err && err.message ? err.message : 'erro desconhecido, veja os Logs do servidor.'));
+      }
+      return redirect(res, '/backup');
+    }
+
+    if (pathname === '/backup/baixar' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      try {
+        const zip = await buildFullBackupZip(db);
+        const filename = `golden-saas-backup-completo-${new Date().toISOString().slice(0, 10)}.zip`;
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Content-Length': zip.length,
+        });
+        res.end(zip);
+        return;
+      } catch (err) {
+        console.error('[backup] Falha ao gerar backup completo:', err);
+        setFlash(session.sessionId, 'error', 'Falha ao gerar o backup completo: ' + (err && err.message ? err.message : 'erro desconhecido, veja os Logs do servidor.'));
+        return redirect(res, '/backup');
+      }
+    }
+
     return notFound(res);
   } catch (err) {
     console.error(err);
@@ -1744,3 +1805,22 @@ server.listen(PORT, () => {
   console.log(`Golden SaaS rodando em http://localhost:${PORT}`);
   console.log(mailConfigured() ? '[email] Envio de e-mail configurado.' : '[email] Envio de e-mail NÃO configurado (defina BREVO_API_KEY e EMAIL_FROM nas variáveis de ambiente).');
 });
+
+// ---------------- BACKUP AUTOMÁTICO DIÁRIO ----------------
+// Roda dentro do próprio processo: a cada hora, confere se já rodou hoje;
+// se não rodou, dispara o backup. Como o servidor fica sempre ligado (plano
+// Starter+ do Render, sem "soneca"), isso garante 1 backup por dia sem
+// precisar de nenhum serviço externo de agendamento (ex: cron job).
+async function maybeRunDailyBackup() {
+  try {
+    const state = readBackupState();
+    const today = new Date().toISOString().slice(0, 10);
+    if (state.lastAutoBackupDate === today) return;
+    const result = await runAutoBackup(db, { recipients: getBackupRecipients() });
+    console.log(`[backup] Backup automático diário concluído (${result.sizeBytes} bytes, e-mail: ${result.emailed ? 'enviado' : result.emailError || 'não configurado'}).`);
+  } catch (err) {
+    console.error('[backup] Falha no backup automático diário:', err);
+  }
+}
+setTimeout(maybeRunDailyBackup, 30 * 1000);
+setInterval(maybeRunDailyBackup, 60 * 60 * 1000);
