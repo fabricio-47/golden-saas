@@ -97,6 +97,11 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }
         </select>
       </div>`;
 
+  const semLojaAtivaHtml =
+    !lojaFixaNome && lojas.length === 0
+      ? `<div class="flash flash-error">Não há nenhuma loja ativa cadastrada, então o campo Loja só vai mostrar "Geral". <a class="link-btn" href="/lojas">Cadastre ou reative uma loja em Configurações → Lojas</a> antes de continuar.</div>`
+      : '';
+
   return layout({
     title: 'Nova Venda',
     activeNav: 'vendas',
@@ -109,6 +114,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }
           <p class="subtitle">Depois de salvar, você adiciona as peças vendidas na tela seguinte</p>
         </div>
       </div>
+      ${semLojaAtivaHtml}
       <div class="card">
         <form method="POST" action="/vendas">
           <input type="hidden" name="csrf" value="${csrfToken}">

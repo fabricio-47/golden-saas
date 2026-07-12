@@ -1,6 +1,6 @@
 {
   "name": "golden-saas",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "MVP do Golden SaaS - gestão de oficina de bicicletas elétricas (módulo Oficina Inteligente / O.S.)",
   "main": "server.js",
   "scripts": {

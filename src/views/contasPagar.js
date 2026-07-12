@@ -115,6 +115,11 @@ function contaPagarFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNome
     .map((f) => `<option value="${f.id}" ${conta && String(conta.fornecedor_id) === String(f.id) ? 'selected' : ''}>${escapeHtml(f.nome)}</option>`)
     .join('');
 
+  const semLojaAtivaHtml =
+    !lojaFixaNome && lojas.length === 0
+      ? `<div class="flash flash-error">Não há nenhuma loja ativa cadastrada, então o campo Loja só vai mostrar "Geral". <a class="link-btn" href="/lojas">Cadastre ou reative uma loja em Configurações → Lojas</a>, se quiser vincular esta conta a uma loja específica.</div>`
+      : '';
+
   return layout({
     title: isEdit ? 'Editar conta a pagar' : 'Nova conta a pagar',
     activeNav: 'contas-pagar',
@@ -122,6 +127,7 @@ function contaPagarFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNome
     flash,
     children: `
       <div class="page-header"><div><h1>${isEdit ? 'Editar conta a pagar' : 'Nova conta a pagar'}</h1></div></div>
+      ${semLojaAtivaHtml}
       <div class="card">
         <form method="POST" action="${isEdit ? `/contas-pagar/${conta.id}` : '/contas-pagar'}">
           <input type="hidden" name="csrf" value="${csrfToken}">

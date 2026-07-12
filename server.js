@@ -724,6 +724,12 @@ async function handler(req, res) {
         return send(res, 400, lojaFormPage({ user, flash: { type: 'error', message: 'Nome da loja é obrigatório.' }, loja: { ...loja, ...body }, csrfToken: session.csrfToken }));
       }
       const ativo = body.ativo === '0' ? 0 : 1;
+      if (ativo === 0 && loja.ativo === 1) {
+        const lojasAtivas = db.prepare('SELECT COUNT(*) c FROM lojas WHERE ativo = 1').get().c;
+        if (lojasAtivas <= 1) {
+          return send(res, 400, lojaFormPage({ user, flash: { type: 'error', message: 'Não é possível desativar a última loja ativa do sistema — sem nenhuma loja ativa, ninguém consegue cadastrar peças, vendas ou lançamentos financeiros. Cadastre outra loja antes de desativar esta.' }, loja: { ...loja, ...body }, csrfToken: session.csrfToken }));
+        }
+      }
       db.prepare('UPDATE lojas SET nome=?, endereco=?, telefone=?, ativo=? WHERE id=?').run(
         body.nome.trim(), body.endereco || '', body.telefone || '', ativo, m.id
       );

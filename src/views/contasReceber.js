@@ -121,6 +121,11 @@ function contaReceberFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNo
     .map((c) => `<option value="${c.id}" ${conta && String(conta.cliente_id) === String(c.id) ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`)
     .join('');
 
+  const semLojaAtivaHtml =
+    !lojaFixaNome && lojas.length === 0
+      ? `<div class="flash flash-error">Não há nenhuma loja ativa cadastrada, então o campo Loja só vai mostrar "Geral". <a class="link-btn" href="/lojas">Cadastre ou reative uma loja em Configurações → Lojas</a>, se quiser vincular esta conta a uma loja específica.</div>`
+      : '';
+
   return layout({
     title: isEdit ? 'Editar conta a receber' : 'Nova conta a receber',
     activeNav: 'contas-receber',
@@ -128,6 +133,7 @@ function contaReceberFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNo
     flash,
     children: `
       <div class="page-header"><div><h1>${isEdit ? 'Editar conta a receber' : 'Nova conta a receber'}</h1></div></div>
+      ${semLojaAtivaHtml}
       ${
         geradaPorOs
           ? `<div class="flash flash-success">Esta conta foi gerada automaticamente pela Ordem de Serviço <a class="link-btn" href="/os/${conta.ordem_servico_id}">${escapeHtml(conta.os_numero || '')}</a> (parcela ${conta.numero_parcela} de ${conta.total_parcelas}).</div>`

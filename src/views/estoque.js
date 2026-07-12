@@ -120,6 +120,11 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
         </select>
       </div>`;
 
+  const semLojaAtivaHtml =
+    !lojaFixaNome && lojas.length === 0
+      ? `<div class="flash flash-error">Não há nenhuma loja ativa cadastrada. <a class="link-btn" href="/lojas">Cadastre ou reative uma loja em Configurações → Lojas</a> antes de cadastrar uma peça.</div>`
+      : '';
+
   return layout({
     title: isEdit ? `Editar ${peca.nome}` : 'Nova Peça',
     activeNav: 'estoque',
@@ -132,6 +137,7 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
           <p class="subtitle">Cadastro de peça no estoque</p>
         </div>
       </div>
+      ${semLojaAtivaHtml}
       <div class="card">
         <form method="POST" action="${isEdit ? `/estoque/${peca.id}` : '/estoque'}">
           <input type="hidden" name="csrf" value="${csrfToken}">
