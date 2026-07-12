@@ -2,9 +2,10 @@
 
 const http = require('node:http');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const { URL } = require('node:url');
 
-const { db } = require('./src/db');
+const { db, hashPassword } = require('./src/db');
 const {
   createSession,
   destroySession,
@@ -17,6 +18,7 @@ const { readBody, parseFormBody, escapeHtml, formatMoney } = require('./src/util
 const { readRawBody, getBoundary, parseMultipart } = require('./src/multipart');
 const { saveUploadedFile, deleteUploadedFile, resolveUploadPath, mimeForPath, MAX_REQUEST_BYTES } = require('./src/uploads');
 const { sendMail, isConfigured: mailConfigured } = require('./src/mailer');
+const { ROLES, hasManagementAccess } = require('./src/roles');
 
 const { loginPage } = require('./src/views/login');
 const { dashboardPage } = require('./src/views/dashboard');
@@ -30,6 +32,9 @@ const {
   totalValor,
   formaPagamentoLabel,
 } = require('./src/views/ordens');
+const { pecasListPage, pecaFormPage } = require('./src/views/estoque');
+const { usuariosListPage, usuarioFormPage } = require('./src/views/usuarios');
+const { auditoriaPage } = require('./src/views/auditoria');
 
 const PORT = process.env.PORT || 3000;
 
@@ -60,6 +65,16 @@ function redirect(res, location) {
 
 function notFound(res) {
   send(res, 404, '<h1>404 - Página não encontrada</h1><a href="/">Voltar</a>');
+}
+
+function forbidden(res) {
+  send(res, 403, '<h1>403 - Você não tem permissão para acessar esta página.</h1><a href="/">Voltar</a>');
+}
+
+function clientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : '';
 }
 
 function matchRoute(pattern, pathname) {
@@ -107,6 +122,17 @@ function toFloatOrNull(v) {
   if (v === undefined || v === null || v === '') return null;
   const n = parseFloat(v);
   return isNaN(n) ? null : n;
+}
+
+function recomputeValorPecas(osId) {
+  const soma = db
+    .prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM os_pecas WHERE ordem_servico_id = ?')
+    .get(osId).total;
+  const os = db.prepare('SELECT valor_mao_obra FROM ordens_servico WHERE id = ?').get(osId);
+  const valorMaoObra = os ? Number(os.valor_mao_obra) || 0 : 0;
+  db.prepare(
+    `UPDATE ordens_servico SET valor_pecas = ?, valor_estimado = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(soma, soma + valorMaoObra, osId);
 }
 
 function replaceBicicletaMedia(bicicletaId, tipo, file) {
@@ -180,7 +206,7 @@ async function handler(req, res) {
     const method = req.method;
 
     const session = getSession(req);
-    const user = session ? { id: session.userId, name: session.name, email: session.email } : null;
+    const user = session ? { id: session.userId, name: session.name, email: session.email, role: session.role } : null;
 
     // --- auth gate ---
     if (!PUBLIC_PATHS.has(pathname) && !user) {
@@ -228,7 +254,11 @@ async function handler(req, res) {
 
     if (pathname === '/login' && method === 'POST') {
       const { email, password } = body;
-      const found = verifyPassword((email || '').trim().toLowerCase(), password || '');
+      const emailNorm = (email || '').trim().toLowerCase();
+      const found = verifyPassword(emailNorm, password || '');
+      db.prepare('INSERT INTO login_audit (email_tentativo, user_id, sucesso, ip) VALUES (?, ?, ?, ?)').run(
+        emailNorm, found ? found.id : null, found ? 1 : 0, clientIp(req)
+      );
       if (!found) {
         return send(res, 200, loginPage({ error: 'E-mail ou senha inválidos.', email }));
       }
@@ -256,9 +286,9 @@ async function handler(req, res) {
     // ---------------- DASHBOARD ----------------
     if (pathname === '/' && method === 'GET') {
       const counts = {
-        orcamento: db.prepare("SELECT COUNT(*) c FROM ordens_servico WHERE status='orcamento'").get().c,
-        execucao: db.prepare("SELECT COUNT(*) c FROM ordens_servico WHERE status='execucao'").get().c,
-        concluida: db.prepare("SELECT COUNT(*) c FROM ordens_servico WHERE status='concluida'").get().c,
+        orcamento: db.prepare("SELECT COUNT(*) c FROM ordens_servico WHERE status='orcamento' AND ativo=1").get().c,
+        execucao: db.prepare("SELECT COUNT(*) c FROM ordens_servico WHERE status='execucao' AND ativo=1").get().c,
+        concluida: db.prepare("SELECT COUNT(*) c FROM ordens_servico WHERE status='concluida' AND ativo=1").get().c,
         clientes: db.prepare('SELECT COUNT(*) c FROM clientes').get().c,
         bicicletas: db.prepare('SELECT COUNT(*) c FROM bicicletas').get().c,
       };
@@ -268,6 +298,7 @@ async function handler(req, res) {
            FROM ordens_servico os
            JOIN clientes c ON c.id = os.cliente_id
            JOIN bicicletas b ON b.id = os.bicicleta_id
+           WHERE os.ativo = 1
            ORDER BY os.created_at DESC LIMIT 8`
         )
         .all();
@@ -279,7 +310,10 @@ async function handler(req, res) {
            ORDER BY bi.bateria_soh_percent ASC LIMIT 8`
         )
         .all();
-      return send(res, 200, dashboardPage({ user, flash: takeFlash(session.sessionId), counts, recentOS, lowBatteryBikes }));
+      const pecasBaixoEstoque = db
+        .prepare('SELECT * FROM pecas WHERE quantidade <= estoque_minimo ORDER BY quantidade ASC LIMIT 10')
+        .all();
+      return send(res, 200, dashboardPage({ user, flash: takeFlash(session.sessionId), counts, recentOS, lowBatteryBikes, pecasBaixoEstoque }));
     }
 
     // ---------------- CLIENTES ----------------
@@ -453,20 +487,82 @@ async function handler(req, res) {
       return send(res, 200, bicicletaShowPage({ user, flash: takeFlash(session.sessionId), bicicleta, ordensServico, midias, csrfToken: session.csrfToken }));
     }
 
+    // ---------------- ESTOQUE ----------------
+    if (pathname === '/estoque' && method === 'GET') {
+      const pecas = db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all();
+      return send(res, 200, pecasListPage({ user, flash: takeFlash(session.sessionId), pecas, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/estoque/novo' && method === 'GET') {
+      return send(res, 200, pecaFormPage({ user, flash: takeFlash(session.sessionId), peca: null, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/estoque' && method === 'POST') {
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: body, csrfToken: session.csrfToken }));
+      }
+      const precoVenda = toFloatOrNull(body.preco_venda) || 0;
+      const info = db
+        .prepare(
+          `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          body.nome.trim(), body.categoria || '', body.numero_serie || '',
+          toIntOrNull(body.quantidade) || 0, toIntOrNull(body.estoque_minimo) || 0,
+          toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || ''
+        );
+      setFlash(session.sessionId, 'success', 'Peça cadastrada no estoque.');
+      return redirect(res, `/estoque/${info.lastInsertRowid}/editar`);
+    }
+
+    if ((m = matchRoute('/estoque/:id/editar', pathname)) && method === 'GET') {
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(m.id);
+      if (!peca) return notFound(res);
+      return send(res, 200, pecaFormPage({ user, flash: takeFlash(session.sessionId), peca, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/estoque/:id/excluir', pathname)) && method === 'POST') {
+      db.prepare('DELETE FROM pecas WHERE id = ?').run(m.id);
+      setFlash(session.sessionId, 'success', 'Peça excluída do estoque.');
+      return redirect(res, '/estoque');
+    }
+
+    if ((m = matchRoute('/estoque/:id', pathname)) && method === 'POST') {
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(m.id);
+      if (!peca) return notFound(res);
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: { ...peca, ...body }, csrfToken: session.csrfToken }));
+      }
+      const precoVenda = toFloatOrNull(body.preco_venda) || 0;
+      db.prepare(
+        `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, updated_at=datetime('now') WHERE id=?`
+      ).run(
+        body.nome.trim(), body.categoria || '', body.numero_serie || '',
+        toIntOrNull(body.quantidade) || 0, toIntOrNull(body.estoque_minimo) || 0,
+        toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', m.id
+      );
+      setFlash(session.sessionId, 'success', 'Peça atualizada.');
+      return redirect(res, `/estoque/${m.id}/editar`);
+    }
+
     // ---------------- ORDENS DE SERVIÇO ----------------
     if (pathname === '/os' && method === 'GET') {
       const statusFilter = url.searchParams.get('status') || '';
+      const mostrarDesativadas = url.searchParams.get('desativadas') === '1';
       let query = `SELECT os.*, c.nome as cliente_nome, b.marca, b.modelo
                     FROM ordens_servico os
                     JOIN clientes c ON c.id = os.cliente_id
-                    JOIN bicicletas b ON b.id = os.bicicleta_id`;
-      let ordens;
+                    JOIN bicicletas b ON b.id = os.bicicleta_id
+                    WHERE os.ativo = ?`;
+      const params = [mostrarDesativadas ? 0 : 1];
       if (statusFilter) {
-        ordens = db.prepare(query + ' WHERE os.status = ? ORDER BY os.created_at DESC').all(statusFilter);
-      } else {
-        ordens = db.prepare(query + ' ORDER BY os.created_at DESC').all();
+        query += ' AND os.status = ?';
+        params.push(statusFilter);
       }
-      return send(res, 200, ordensListPage({ user, flash: takeFlash(session.sessionId), ordens, statusFilter }));
+      query += ' ORDER BY os.created_at DESC';
+      const ordens = db.prepare(query).all(...params);
+      return send(res, 200, ordensListPage({ user, flash: takeFlash(session.sessionId), ordens, statusFilter, mostrarDesativadas }));
     }
 
     if (pathname === '/os/novo' && method === 'GET') {
@@ -520,13 +616,24 @@ async function handler(req, res) {
       if (!os) return notFound(res);
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
-      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken }));
+      const temPecasVinculadas = db.prepare('SELECT COUNT(*) c FROM os_pecas WHERE ordem_servico_id = ?').get(m.id).c > 0;
+      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken, temPecasVinculadas }));
     }
 
-    if ((m = matchRoute('/os/:id/excluir', pathname)) && method === 'POST') {
-      db.prepare('DELETE FROM ordens_servico WHERE id = ?').run(m.id);
-      setFlash(session.sessionId, 'success', 'Ordem de Serviço excluída.');
-      return redirect(res, '/os');
+    if ((m = matchRoute('/os/:id/desativar', pathname)) && method === 'POST') {
+      const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
+      if (!os) return notFound(res);
+      db.prepare("UPDATE ordens_servico SET ativo = 0, updated_at = datetime('now') WHERE id = ?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Ordem de Serviço desativada. O histórico continua salvo e pode ser reativado quando quiser.');
+      return redirect(res, `/os/${m.id}`);
+    }
+
+    if ((m = matchRoute('/os/:id/reativar', pathname)) && method === 'POST') {
+      const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
+      if (!os) return notFound(res);
+      db.prepare("UPDATE ordens_servico SET ativo = 1, updated_at = datetime('now') WHERE id = ?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Ordem de Serviço reativada.');
+      return redirect(res, `/os/${m.id}`);
     }
 
     if ((m = matchRoute('/os/:id/midias', pathname)) && method === 'POST') {
@@ -558,6 +665,48 @@ async function handler(req, res) {
         deleteUploadedFile(midia.caminho_arquivo);
         db.prepare('DELETE FROM os_midias WHERE id = ?').run(m.midiaId);
         setFlash(session.sessionId, 'success', 'Arquivo removido.');
+      }
+      return redirect(res, `/os/${m.id}`);
+    }
+
+    if ((m = matchRoute('/os/:id/pecas', pathname)) && method === 'POST') {
+      const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
+      if (!os) return notFound(res);
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
+      const quantidade = toIntOrNull(body.quantidade) || 1;
+      if (!peca) {
+        setFlash(session.sessionId, 'error', 'Peça não encontrada no estoque.');
+        return redirect(res, `/os/${m.id}`);
+      }
+      if (quantidade < 1) {
+        setFlash(session.sessionId, 'error', 'Quantidade inválida.');
+        return redirect(res, `/os/${m.id}`);
+      }
+      db.prepare(
+        'INSERT INTO os_pecas (ordem_servico_id, peca_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)'
+      ).run(m.id, peca.id, peca.nome, quantidade, peca.preco_venda);
+      const novaQuantidade = peca.quantidade - quantidade;
+      db.prepare("UPDATE pecas SET quantidade = ?, updated_at = datetime('now') WHERE id = ?").run(novaQuantidade, peca.id);
+      recomputeValorPecas(m.id);
+      setFlash(
+        session.sessionId,
+        novaQuantidade <= 0 ? 'error' : 'success',
+        novaQuantidade <= 0
+          ? `Peça "${peca.nome}" adicionada à O.S. Atenção: o estoque dessa peça ficou zerado ou negativo (${novaQuantidade}).`
+          : `Peça "${peca.nome}" adicionada à O.S.`
+      );
+      return redirect(res, `/os/${m.id}`);
+    }
+
+    if ((m = matchRoute('/os/:id/pecas/:itemId/excluir', pathname)) && method === 'POST') {
+      const item = db.prepare('SELECT * FROM os_pecas WHERE id = ? AND ordem_servico_id = ?').get(m.itemId, m.id);
+      if (item) {
+        if (item.peca_id) {
+          db.prepare("UPDATE pecas SET quantidade = quantidade + ?, updated_at = datetime('now') WHERE id = ?").run(item.quantidade, item.peca_id);
+        }
+        db.prepare('DELETE FROM os_pecas WHERE id = ?').run(item.id);
+        recomputeValorPecas(m.id);
+        setFlash(session.sessionId, 'success', 'Peça removida da O.S. e devolvida ao estoque.');
       }
       return redirect(res, `/os/${m.id}`);
     }
@@ -650,7 +799,110 @@ async function handler(req, res) {
       if (!os) return notFound(res);
       const midiasChecklist = db.prepare("SELECT * FROM os_midias WHERE ordem_servico_id = ? AND categoria = 'checklist' ORDER BY created_at DESC").all(m.id);
       const midiasServico = db.prepare("SELECT * FROM os_midias WHERE ordem_servico_id = ? AND categoria = 'servico' ORDER BY created_at DESC").all(m.id);
-      return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, csrfToken: session.csrfToken }));
+      const osPecas = db.prepare('SELECT * FROM os_pecas WHERE ordem_servico_id = ? ORDER BY created_at DESC').all(m.id);
+      const pecasDisponiveis = db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all();
+      return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, csrfToken: session.csrfToken }));
+    }
+
+    // ---------------- USUÁRIOS (Direção e Gerência apenas) ----------------
+    if (pathname === '/usuarios' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const usuarios = db.prepare('SELECT * FROM users ORDER BY name ASC').all();
+      return send(res, 200, usuariosListPage({ user, flash: takeFlash(session.sessionId), usuarios, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/usuarios/novo' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario: null, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/usuarios' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const nome = (body.name || '').trim();
+      const emailNovo = (body.email || '').trim().toLowerCase();
+      const role = ROLES.includes(body.role) ? body.role : 'mecanico';
+      if (!nome || !emailNovo || !body.password) {
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome, e-mail e senha são obrigatórios.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+      }
+      const existente = db.prepare('SELECT id FROM users WHERE email = ?').get(emailNovo);
+      if (existente) {
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe um usuário com esse e-mail.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+      }
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(body.password, salt);
+      db.prepare('INSERT INTO users (name, email, password_hash, password_salt, role) VALUES (?, ?, ?, ?, ?)').run(nome, emailNovo, hash, salt, role);
+      setFlash(session.sessionId, 'success', 'Usuário cadastrado.');
+      return redirect(res, '/usuarios');
+    }
+
+    if ((m = matchRoute('/usuarios/:id/editar', pathname)) && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const usuario = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
+      if (!usuario) return notFound(res);
+      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/usuarios/:id', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const usuario = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
+      if (!usuario) return notFound(res);
+      const nome = (body.name || '').trim();
+      const emailNovo = (body.email || '').trim().toLowerCase();
+      const role = ROLES.includes(body.role) ? body.role : usuario.role;
+      if (!nome || !emailNovo) {
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome e e-mail são obrigatórios.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+      }
+      const dupEmail = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(emailNovo, m.id);
+      if (dupEmail) {
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe outro usuário com esse e-mail.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+      }
+      if (body.password && body.password.trim()) {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const hash = hashPassword(body.password, salt);
+        db.prepare('UPDATE users SET name=?, email=?, role=?, password_hash=?, password_salt=? WHERE id=?').run(nome, emailNovo, role, hash, salt, m.id);
+      } else {
+        db.prepare('UPDATE users SET name=?, email=?, role=? WHERE id=?').run(nome, emailNovo, role, m.id);
+      }
+      setFlash(session.sessionId, 'success', 'Usuário atualizado.');
+      return redirect(res, '/usuarios');
+    }
+
+    if ((m = matchRoute('/usuarios/:id/desativar', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      if (String(user.id) === String(m.id)) {
+        setFlash(session.sessionId, 'error', 'Você não pode desativar seu próprio usuário.');
+        return redirect(res, '/usuarios');
+      }
+      const alvo = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
+      if (!alvo) return notFound(res);
+      const direcaoAtivos = db.prepare("SELECT COUNT(*) c FROM users WHERE role='direcao' AND ativo=1").get().c;
+      if (alvo.role === 'direcao' && direcaoAtivos <= 1) {
+        setFlash(session.sessionId, 'error', 'Não é possível desativar o último usuário de Direção ativo.');
+        return redirect(res, '/usuarios');
+      }
+      db.prepare('UPDATE users SET ativo = 0 WHERE id = ?').run(m.id);
+      setFlash(session.sessionId, 'success', 'Usuário desativado.');
+      return redirect(res, '/usuarios');
+    }
+
+    if ((m = matchRoute('/usuarios/:id/ativar', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      db.prepare('UPDATE users SET ativo = 1 WHERE id = ?').run(m.id);
+      setFlash(session.sessionId, 'success', 'Usuário reativado.');
+      return redirect(res, '/usuarios');
+    }
+
+    // ---------------- AUDITORIA DE LOGIN (Direção e Gerência apenas) ----------------
+    if (pathname === '/auditoria' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const logs = db
+        .prepare(
+          `SELECT la.*, u.name as user_name FROM login_audit la
+           LEFT JOIN users u ON u.id = la.user_id
+           ORDER BY la.created_at DESC LIMIT 200`
+        )
+        .all();
+      return send(res, 200, auditoriaPage({ user, flash: takeFlash(session.sessionId), logs }));
     }
 
     return notFound(res);

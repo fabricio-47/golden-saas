@@ -1,6 +1,8 @@
 'use strict';
 
 const { escapeHtml } = require('../utils');
+const { version: APP_VERSION } = require('../../package.json');
+const { ROLE_LABELS } = require('../roles');
 
 const STYLE = `
   :root {
@@ -56,7 +58,9 @@ const STYLE = `
   .nav-item.active { color: var(--gold-soft); border-left-color: var(--gold); background: rgba(212,175,55,0.08); font-weight: 600; }
   .sidebar-footer { margin-top: auto; padding: 16px 24px 0; border-top: 1px solid var(--border); }
   .sidebar-user { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+  .sidebar-role { font-size: 11px; color: var(--gold-soft); margin-bottom: 8px; }
   .btn-logout { font-size: 13px; color: var(--gold-soft); }
+  .sidebar-version { font-size: 11px; color: var(--text-muted); margin-top: 12px; opacity: 0.7; }
   .main { flex: 1; padding: 32px 40px; max-width: 1100px; }
   h1 { font-size: 24px; margin: 0 0 4px; }
   h2 { font-size: 18px; margin: 0 0 16px; }
@@ -105,6 +109,8 @@ const STYLE = `
   .badge-concluida { background: #dcf0e2; color: var(--ok); }
   .badge-ok { background: #dcf0e2; color: var(--ok); }
   .badge-atencao { background: #fbe3d8; color: var(--danger); }
+  .badge-desativada { background: #e5e2d8; color: #6b6558; }
+  .badge-role { background: #e8e4d8; color: #4a463b; }
   .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 12px; }
   .media-item { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid #e5e2d8; background: #000; aspect-ratio: 1 / 1; }
   .media-item img, .media-item video { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -151,12 +157,18 @@ const STYLE = `
 `;
 
 function layout({ title, activeNav, user, flash, children }) {
+  const canManage = !!user && (user.role === 'direcao' || user.role === 'gerencia');
   const navItems = [
     { key: 'dashboard', href: '/', label: 'Dashboard' },
     { key: 'clientes', href: '/clientes', label: 'Clientes' },
     { key: 'bicicletas', href: '/bicicletas', label: 'Bicicletas' },
     { key: 'os', href: '/os', label: 'Ordens de Serviço' },
+    { key: 'estoque', href: '/estoque', label: 'Estoque' },
   ];
+  if (canManage) {
+    navItems.push({ key: 'usuarios', href: '/usuarios', label: 'Usuários' });
+    navItems.push({ key: 'auditoria', href: '/auditoria', label: 'Auditoria' });
+  }
 
   const navHtml = navItems
     .map(
@@ -168,6 +180,8 @@ function layout({ title, activeNav, user, flash, children }) {
   const flashHtml = flash
     ? `<div class="flash flash-${flash.type}">${escapeHtml(flash.message)}</div>`
     : '';
+
+  const roleLabelHtml = user && user.role ? `<div class="sidebar-role">${escapeHtml(ROLE_LABELS[user.role] || user.role)}</div>` : '';
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -184,7 +198,9 @@ function layout({ title, activeNav, user, flash, children }) {
       <nav>${navHtml}</nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">${escapeHtml(user ? user.name : '')}</div>
+        ${roleLabelHtml}
         <form method="POST" action="/logout"><button class="btn-logout" style="background:none;border:none;cursor:pointer;padding:0;">Sair</button></form>
+        <div class="sidebar-version">Golden SaaS v${escapeHtml(APP_VERSION)}</div>
       </div>
     </aside>
     <main class="main">
@@ -212,6 +228,7 @@ function loginLayout({ title, error, children }) {
       <p class="subtitle">O padrão de ouro em gestão de e-bikes</p>
       ${error ? `<div class="flash flash-error">${escapeHtml(error)}</div>` : ''}
       ${children}
+      <div class="sidebar-version" style="text-align:center;margin-top:20px;">Golden SaaS v${escapeHtml(APP_VERSION)}</div>
     </div>
   </div>
 </body>

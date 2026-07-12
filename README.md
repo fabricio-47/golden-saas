@@ -24,7 +24,17 @@ Este projeto já está publicado em: **https://golden-saas.onrender.com**
   - Fluxo de status: **Orçamento → Execução → Concluída**.
   - Botão **"Enviar por e-mail"**: manda um resumo completo da O.S. para o e-mail do cliente.
   - Botão **"Finalizar e avisar cliente"**: marca a O.S. como concluída e avisa automaticamente o cliente por e-mail que o serviço está pronto.
-- **Dashboard**: contadores de O.S. por status e alerta automático de veículos com saúde de bateria abaixo de 90%.
+- **Estoque de peças**: cadastro de peças com categoria, número de série (opcional), quantidade, estoque mínimo, custo unitário e preço de venda.
+  - Direto na tela da Ordem de Serviço, dá pra vincular peças do estoque usadas naquele serviço — a quantidade é descontada do estoque automaticamente, e o "Valor de peças" da O.S. é recalculado sozinho.
+  - Se remover uma peça vinculada de uma O.S., a quantidade volta pro estoque automaticamente.
+  - Alerta automático no Dashboard quando uma peça está com estoque igual ou abaixo do mínimo definido.
+- **Dashboard**: contadores de O.S. por status, alerta automático de veículos com saúde de bateria abaixo de 90% e alerta de peças em estoque baixo.
+- **Usuários e níveis de acesso**: 4 níveis — **Direção**, **Gerência**, **Vendedor** e **Mecânico**. Direção e Gerência podem cadastrar/editar/desativar usuários (menu **Usuários**) e ver o log de auditoria de login (menu **Auditoria**); Vendedor e Mecânico têm acesso operacional completo (clientes, veículos, O.S., estoque) mas não veem esses dois menus.
+  - Usuário nunca é excluído de verdade, só **desativado** (fica registrado no histórico, mas não consegue mais entrar).
+  - Não é possível desativar o próprio usuário nem o último usuário de Direção ativo, pra evitar ficar sem acesso ao sistema.
+- **Auditoria de login**: toda tentativa de entrar no sistema (com sucesso ou falha) fica registrada com data/hora, e-mail usado e IP.
+- **Ordens de Serviço nunca são excluídas**, só **desativadas** — o botão "Excluir" virou "Desativar O.S."; o histórico completo continua salvo e pode ser reativado a qualquer momento pela própria tela da O.S. ou pelo filtro "Ver desativadas" na listagem.
+- **Número da versão** do sistema aparece sempre no rodapé do menu lateral e na tela de login.
 
 ## 2. Configurar o envio de e-mails (obrigatório para os botões de e-mail funcionarem)
 
@@ -63,11 +73,14 @@ O plano gratuito do Render **não guarda dados permanentemente**: ele "dorme" ap
 
 ## 4. O que ainda NÃO está nesta versão (próximos passos combinados no roteiro)
 
-- Módulo de **Estoque** (rastreabilidade de peças por número de série, previsão de reposição).
+- **Agenda de atendimentos** (cliente marcar horário, visão de agenda do dia/semana).
+- **Financeiro / fluxo de caixa** (resumo de entradas por período e forma de pagamento).
 - Módulo de **Vendas / CRM** (contratos de manutenção, cobrança recorrente, notas fiscais).
 - Envio automático de alertas por **WhatsApp**.
-- Suporte a múltiplas oficinas (multi-tenant) e múltiplos usuários com permissões diferentes.
+- Orçamento/O.S. em **PDF** para imprimir ou enviar.
+- Suporte a múltiplas oficinas (multi-tenant) — hoje é uma oficina só, mas já com múltiplos usuários e níveis de permissão.
 - Anexar as fotos/vídeos diretamente dentro do e-mail (hoje o e-mail traz o texto completo, mas as fotos ficam só dentro do sistema).
+- Movimentações de estoque com histórico (hoje a quantidade só é ajustada direto; um "log" de entradas/saídas pode ser adicionado depois).
 
 ## 5. Como rodar no seu computador (opcional, além do link publicado)
 
@@ -83,7 +96,7 @@ node server.js
 ```
 Acesse http://localhost:3000 no navegador.
 
-Login: **admin@goldensaas.com** / senha: **golden123**
+Login: **admin@goldensaas.com** / senha: **golden123** (nível Direção — cadastre os demais usuários da equipe pelo menu "Usuários" depois de entrar).
 
 ### Onde ficam os dados salvos localmente?
 Em `data/golden-saas.db` (banco) e `data/uploads/` (fotos e vídeos). Para zerar tudo, apague esses arquivos/pastas e rode `node server.js` de novo.

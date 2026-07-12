@@ -9,7 +9,7 @@ const STATUS_LABELS = {
   concluida: 'Concluída',
 };
 
-function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes }) {
+function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBaixoEstoque }) {
   const rows = recentOS
     .map(
       (os) => `
@@ -31,6 +31,18 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes }) {
       <td>${escapeHtml(b.cliente_nome)}</td>
       <td>${b.bateria_soh_percent !== null ? b.bateria_soh_percent + '%' : '-'}</td>
       <td>${b.bateria_ciclos_carga !== null ? b.bateria_ciclos_carga : '-'}</td>
+    </tr>`
+    )
+    .join('');
+
+  const pecaRows = (pecasBaixoEstoque || [])
+    .map(
+      (p) => `
+    <tr>
+      <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a></td>
+      <td>${escapeHtml(p.categoria || '-')}</td>
+      <td>${p.quantidade}</td>
+      <td>${p.estoque_minimo}</td>
     </tr>`
     )
     .join('');
@@ -78,6 +90,19 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes }) {
           <tbody>${bikeRows}</tbody>
         </table>`
             : '<div class="empty">Nenhuma bicicleta com bateria em atenção no momento.</div>'
+        }
+      </div>
+
+      <div class="card">
+        <h2>⚠ Peças com estoque baixo ou zerado</h2>
+        ${
+          (pecasBaixoEstoque || []).length
+            ? `<table>
+          <thead><tr><th>Peça</th><th>Categoria</th><th>Quantidade</th><th>Estoque mínimo</th></tr></thead>
+          <tbody>${pecaRows}</tbody>
+        </table>
+        <a class="link-btn" href="/estoque">Ver estoque completo</a>`
+            : '<div class="empty">Nenhuma peça em estoque baixo no momento. <a class="link-btn" href="/estoque">Ver estoque</a></div>'
         }
       </div>
     `,

@@ -20,6 +20,17 @@ db.exec(`
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'direcao',
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS login_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_tentativo TEXT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    sucesso INTEGER NOT NULL DEFAULT 0,
+    ip TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -56,6 +67,7 @@ db.exec(`
     cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
     bicicleta_id INTEGER NOT NULL REFERENCES bicicletas(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'orcamento',
+    ativo INTEGER NOT NULL DEFAULT 1,
     checklist_json TEXT,
     problema_relatado TEXT,
     diagnostico TEXT,
@@ -91,12 +103,39 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS pecas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    categoria TEXT,
+    numero_serie TEXT,
+    quantidade INTEGER NOT NULL DEFAULT 0,
+    estoque_minimo INTEGER NOT NULL DEFAULT 1,
+    custo_unitario REAL,
+    preco_venda REAL NOT NULL DEFAULT 0,
+    observacoes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS os_pecas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ordem_servico_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    peca_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    nome_peca TEXT NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 1,
+    preco_unitario REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_bicicletas_cliente ON bicicletas(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_cliente ON ordens_servico(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_bicicleta ON ordens_servico(bicicleta_id);
   CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico(status);
   CREATE INDEX IF NOT EXISTS idx_midias_os ON os_midias(ordem_servico_id);
   CREATE INDEX IF NOT EXISTS idx_midias_bicicleta ON bicicleta_midias(bicicleta_id);
+  CREATE INDEX IF NOT EXISTS idx_os_pecas_os ON os_pecas(ordem_servico_id);
+  CREATE INDEX IF NOT EXISTS idx_os_pecas_peca ON os_pecas(peca_id);
+  CREATE INDEX IF NOT EXISTS idx_login_audit_created ON login_audit(created_at);
 `);
 
 // --- migrações leves para bancos criados por versões anteriores ---
@@ -112,6 +151,9 @@ ensureColumn('ordens_servico', 'valor_pecas', 'REAL');
 ensureColumn('ordens_servico', 'valor_mao_obra', 'REAL');
 ensureColumn('ordens_servico', 'forma_pagamento', 'TEXT');
 ensureColumn('ordens_servico', 'parcelas', 'INTEGER');
+ensureColumn('ordens_servico', 'ativo', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('users', 'role', "TEXT NOT NULL DEFAULT 'direcao'");
+ensureColumn('users', 'ativo', 'INTEGER NOT NULL DEFAULT 1');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");
@@ -166,6 +208,18 @@ function seed() {
       'Motor com desgaste leve de rolamento. Recomenda-se revisão preventiva em 500km.', '',
       60.0, 120.0, 180.0, 'pix', null
     );
+  }
+
+  const pecaCount = db.prepare('SELECT COUNT(*) as c FROM pecas').get().c;
+  if (pecaCount === 0) {
+    const insPeca = db.prepare(
+      `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    insPeca.run('Pastilha de freio (par)', 'Freios', null, 12, 4, 15.0, 35.0, '');
+    insPeca.run('Câmara de ar aro 26', 'Pneus e câmaras', null, 8, 3, 12.0, 28.0, '');
+    insPeca.run('Bateria 48V 15Ah', 'Bateria', null, 2, 1, 850.0, 1450.0, 'Compatível com Voltz EB-100');
+    insPeca.run('Controladora 500W', 'Controladora', null, 1, 1, 180.0, 320.0, '');
   }
 }
 

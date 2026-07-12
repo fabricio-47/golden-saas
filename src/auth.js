@@ -15,6 +15,7 @@ function createSession(user) {
     userId: user.id,
     email: user.email,
     name: user.name,
+    role: user.role,
     csrfToken,
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
@@ -39,7 +40,7 @@ function getSession(req) {
 }
 
 function verifyPassword(email, password) {
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  const user = db.prepare('SELECT * FROM users WHERE email = ? AND ativo = 1').get(email);
   if (!user) return null;
   const hash = hashPassword(password, user.password_salt);
   const a = Buffer.from(hash, 'hex');

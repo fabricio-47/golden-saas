@@ -42,7 +42,7 @@ function formaPagamentoLabel(os) {
   return base;
 }
 
-function ordensListPage({ user, flash, ordens, statusFilter }) {
+function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas }) {
   const rows = ordens
     .map(
       (os) => `
@@ -50,7 +50,7 @@ function ordensListPage({ user, flash, ordens, statusFilter }) {
       <td><a class="link-btn" href="/os/${os.id}">${escapeHtml(os.numero)}</a></td>
       <td>${escapeHtml(os.cliente_nome)}</td>
       <td>${escapeHtml(os.marca || '')} ${escapeHtml(os.modelo)}</td>
-      <td><span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span></td>
+      <td>${os.ativo ? `<span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span>` : '<span class="badge badge-desativada">Desativada</span>'}</td>
       <td>${formatMoney(totalValor(os))}</td>
       <td>${formatDate(os.data_entrada)}</td>
     </tr>`
@@ -78,6 +78,7 @@ function ordensListPage({ user, flash, ordens, statusFilter }) {
         ${filterLink('orcamento', 'Orçamento')}
         ${filterLink('execucao', 'Execução')}
         ${filterLink('concluida', 'Concluídas')}
+        <a class="btn btn-sm ${mostrarDesativadas ? 'btn' : 'btn-secondary'}" href="/os?desativadas=${mostrarDesativadas ? '0' : '1'}${statusFilter ? `&status=${statusFilter}` : ''}">${mostrarDesativadas ? 'Ver ativas' : 'Ver desativadas'}</a>
       </div>
       <div class="card">
         ${
@@ -86,7 +87,7 @@ function ordensListPage({ user, flash, ordens, statusFilter }) {
           <thead><tr><th>Número</th><th>Cliente</th><th>Bicicleta</th><th>Status</th><th>Valor</th><th>Entrada</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
-            : '<div class="empty">Nenhuma ordem de serviço encontrada.</div>'
+            : `<div class="empty">Nenhuma ordem de serviço ${mostrarDesativadas ? 'desativada' : 'encontrada'}.</div>`
         }
       </div>
     `,
@@ -113,7 +114,7 @@ function checklistFormFields(checklist) {
   }).join('');
 }
 
-function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken }) {
+function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas }) {
   const isEdit = !!os;
   const checklist = os && os.checklist_json ? JSON.parse(os.checklist_json) : [];
 
@@ -206,6 +207,7 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             <div class="field">
               <label for="valor_pecas">Valor de peças (R$)</label>
               <input type="number" id="valor_pecas" name="valor_pecas" min="0" step="0.01" value="${os && os.valor_pecas !== null ? os.valor_pecas : ''}">
+              ${temPecasVinculadas ? '<p class="muted" style="margin-top:4px;">Esta O.S. tem peças do Estoque vinculadas — esse valor é recalculado automaticamente ao adicionar/remover peças na tela da O.S. Editar aqui só sobrescreve manualmente.</p>' : ''}
             </div>
             <div class="field">
               <label for="valor_mao_obra">Valor de mão de obra (R$)</label>
@@ -289,7 +291,67 @@ function mediaGrid(midias, osId, csrfToken) {
     .join('')}</div>`;
 }
 
-function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, csrfToken }) {
+function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
+  const rows = osPecas
+    .map((item) => {
+      const subtotal = item.quantidade * item.preco_unitario;
+      return `
+    <tr>
+      <td>${escapeHtml(item.nome_peca)}</td>
+      <td>${item.quantidade}</td>
+      <td>${formatMoney(item.preco_unitario)}</td>
+      <td>${formatMoney(subtotal)}</td>
+      <td>
+        <form method="POST" action="/os/${osId}/pecas/${item.id}/excluir" onsubmit="return confirm('Remover esta peça da O.S.? A quantidade volta pro estoque.');">
+          <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+          <button class="btn btn-sm btn-danger" type="submit">Remover</button>
+        </form>
+      </td>
+    </tr>`;
+    })
+    .join('');
+
+  const options = pecasDisponiveis
+    .map((p) => `<option value="${p.id}" data-preco="${p.preco_venda}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — ${formatMoney(p.preco_venda)}</option>`)
+    .join('');
+
+  const totalPecas = osPecas.reduce((sum, item) => sum + item.quantidade * item.preco_unitario, 0);
+
+  return `
+      <div class="card">
+        <h2>Peças do estoque usadas nesta O.S.</h2>
+        ${
+          osPecas.length
+            ? `<table><thead><tr><th>Peça</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+               <p style="margin-top:12px;"><strong>Total em peças do estoque: ${formatMoney(totalPecas)}</strong></p>`
+            : '<p class="muted">Nenhuma peça do estoque vinculada a esta O.S. ainda.</p>'
+        }
+        ${
+          pecasDisponiveis.length
+            ? `<form method="POST" action="/os/${osId}/pecas" style="margin-top:16px;">
+          <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+          <div class="form-grid">
+            <div class="field">
+              <label for="peca_id">Peça</label>
+              <select id="peca_id" name="peca_id" required>
+                <option value="">Selecione...</option>
+                ${options}
+              </select>
+            </div>
+            <div class="field">
+              <label for="peca_quantidade">Quantidade</label>
+              <input type="number" id="peca_quantidade" name="quantidade" min="1" step="1" value="1" required>
+            </div>
+          </div>
+          <button class="btn btn-sm" type="submit">+ Adicionar peça à O.S.</button>
+        </form>`
+            : '<p class="muted" style="margin-top:12px;">Nenhuma peça cadastrada no <a class="link-btn" href="/estoque/novo">Estoque</a> ainda.</p>'
+        }
+        <p class="muted" style="margin-top:8px;">Ao adicionar uma peça aqui, ela é descontada do estoque automaticamente, e o "Valor de peças" da O.S. é recalculado.</p>
+      </div>`;
+}
+
+function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, csrfToken }) {
   const checklist = os.checklist_json ? JSON.parse(os.checklist_json) : [];
   const checklistRows = checklist
     .map(
@@ -308,9 +370,11 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, csrfTo
     user,
     flash,
     children: `
+      ${!os.ativo ? '<div class="flash flash-error">Esta Ordem de Serviço está desativada. Ela não aparece nas listas normais nem conta nos totais do Dashboard.</div>' : ''}
+
       <div class="page-header">
         <div>
-          <h1>${escapeHtml(os.numero)} <span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span></h1>
+          <h1>${escapeHtml(os.numero)} ${os.ativo ? `<span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span>` : '<span class="badge badge-desativada">Desativada</span>'}</h1>
           <p class="subtitle">
             Cliente: <a class="link-btn" href="/clientes/${os.cliente_id}">${escapeHtml(os.cliente_nome)}</a>
             &nbsp;·&nbsp;
@@ -324,7 +388,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, csrfTo
           </form>
           <a class="btn btn-secondary" href="/os/${os.id}/editar">Editar</a>
           ${
-            os.status !== 'concluida'
+            os.status !== 'concluida' && os.ativo
               ? `<form method="POST" action="/os/${os.id}/finalizar" onsubmit="return confirm('Finalizar esta O.S. e avisar o cliente por e-mail que o serviço está pronto?');">
             <input type="hidden" name="csrf" value="${csrfToken}">
             <button class="btn" type="submit">✔ Finalizar e avisar cliente</button>
@@ -349,6 +413,8 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, csrfTo
           <div class="item"><div class="muted">Pagamento</div><div style="font-size:18px;font-weight:600;">${formaPagamentoLabel(os)}</div></div>
         </div>
       </div>
+
+      ${pecasOsSection(os.id, osPecas, pecasDisponiveis, csrfToken)}
 
       <div class="card">
         <h2>Problema relatado pelo cliente</h2>
@@ -395,10 +461,17 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, csrfTo
         <p class="muted" style="margin-top:8px;">Arquivos até 20MB cada. No plano gratuito de hospedagem, esses arquivos podem ser apagados quando o servidor "dormir" por inatividade.</p>
       </div>
 
-      <form method="POST" action="/os/${os.id}/excluir" onsubmit="return confirm('Tem certeza que deseja excluir esta ordem de serviço?');">
+      ${
+        os.ativo
+          ? `<form method="POST" action="/os/${os.id}/desativar" onsubmit="return confirm('Desativar esta ordem de serviço? Ela sai das listas e totais, mas o histórico continua salvo e pode ser reativado depois.');">
         <input type="hidden" name="csrf" value="${csrfToken}">
-        <button class="btn btn-danger btn-sm" type="submit">Excluir O.S.</button>
-      </form>
+        <button class="btn btn-danger btn-sm" type="submit">Desativar O.S.</button>
+      </form>`
+          : `<form method="POST" action="/os/${os.id}/reativar">
+        <input type="hidden" name="csrf" value="${csrfToken}">
+        <button class="btn btn-sm" type="submit">Reativar O.S.</button>
+      </form>`
+      }
     `,
   });
 }
