@@ -47,7 +47,12 @@ Este projeto já está publicado em: **https://golden-saas.onrender.com**
   - Contas a receber: descrição, valor, vencimento e cliente vinculado (opcional). Botões para marcar como recebida / reabrir como pendente.
   - **Geração automática**: quando uma Ordem de Serviço ou uma Venda Direto é finalizada com pagamento em **cartão de crédito parcelado**, o sistema já cria sozinho uma conta a receber para cada parcela (vencimentos de 30 em 30 dias a partir da conclusão), vinculada ao cliente e à O.S./venda de origem. Também dá pra lançar contas a pagar/receber manuais, sem relação com nenhuma O.S. ou venda.
   - Contas atrasadas (vencimento passado e ainda pendentes) aparecem com uma etiqueta "Atrasada" na listagem.
-- **Venda Direto**: venda de peças do estoque direto no balcão para o cliente, sem precisar abrir uma Ordem de Serviço. Sempre vinculada a um cliente cadastrado, com loja definida (respeitando as mesmas regras de permissão do Estoque). Você cria a venda, adiciona quantas peças quiser (o estoque é descontado a cada item adicionado) e clica em "Finalizar venda" — depois de finalizada, não dá mais pra alterar os itens. Aceita as mesmas formas de pagamento da O.S. (Pix, dinheiro, débito, crédito parcelado), e se for parcelado no crédito, as parcelas a receber são geradas automaticamente, igual à O.S.
+- **Venda Direto**: venda direto no balcão para o cliente, sem precisar abrir uma Ordem de Serviço. Sempre vinculada a um cliente cadastrado, com loja definida (respeitando as mesmas regras de permissão do Estoque). Você cria a venda e depois adiciona quantos itens quiser, podendo escolher o tipo de cada item:
+  - **Peça do estoque**: desconta a quantidade do estoque na hora.
+  - **Veículo (moto ou bike elétrica)**: informa marca, modelo, preço, número do chassi e número de série da bateria, com opção de anexar foto do chassi e da bateria (não obrigatórias). O veículo já fica cadastrado automaticamente no módulo **Bicicletas**, vinculado ao cliente da venda — assim ele já nasce com histórico pronto para futuras Ordens de Serviço.
+  - Dá pra misturar peças e veículos na mesma venda. Depois de clicar em "Finalizar venda", não dá mais pra alterar os itens (mas removê-los antes disso não apaga o cadastro do veículo em Bicicletas, só desvincula da venda).
+  - Aceita as mesmas formas de pagamento da O.S. (Pix, dinheiro, débito, crédito parcelado), e se for parcelado no crédito, as parcelas a receber são geradas automaticamente, igual à O.S.
+- **Cadastro de veículos (Bicicletas)** agora também tem campo de **Número do chassi**, além dos números de série já existentes (motor, controladora, bateria).
 - **Menu lateral organizado em grupos**: Estoque (Estoque, Transferências, Fornecedores), Financeiro (Contas a Pagar, Contas a Receber) e Configurações (Lojas, Usuários, Auditoria — só Direção/Gerência) agora ficam dentro de submenus que abrem/fecham, deixando o menu principal mais enxuto. Dashboard, Clientes, Bicicletas, Ordens de Serviço e Venda Direto continuam soltos no topo por serem as telas mais usadas no dia a dia.
 
 ## 2. Configurar o envio de e-mails (obrigatório para os botões de e-mail funcionarem)
@@ -93,7 +98,7 @@ Estes são os módulos pedidos numa lista maior — os itens abaixo ficaram comb
 - **Crediário** para venda de motos e bicicletas elétricas (controle manual das parcelas, sem boleto/gateway de pagamento integrado por enquanto).
 - Fotos de peças e de motos/bicicletas por modelo.
 - **Dashboard de vendas e metas** para o vendedor, com comissão em % configurável no cadastro dele.
-- Módulo de **Vendas** de veículos: foto do chassi e do número de série da bateria, contrato anexado, e escolha do tipo de garantia (90 dias ou até 2 anos).
+- Na venda de veículo pela Venda Direto: **contrato anexado** para o cliente receber, e escolha do tipo de **garantia** (90 dias ou até 2 anos).
 - **Lembrete automático por e-mail** a cada 30 dias avisando o cliente para fazer a revisão (o envio por WhatsApp fica pra depois).
 - Histórico de revisão/manutenção por cliente (hoje já dá pra ver todas as O.S. de um cliente; a ideia é deixar essa visão mais completa).
 - **Data de nascimento** no cadastro do cliente, para mensagens automáticas de parabéns.

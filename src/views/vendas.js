@@ -163,14 +163,14 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
       const subtotal = item.quantidade * item.preco_unitario;
       return `
     <tr>
-      <td>${escapeHtml(item.nome_peca)}</td>
+      <td>${escapeHtml(item.nome_peca)}${item.bicicleta_id ? ` <a class="link-btn" href="/bicicletas/${item.bicicleta_id}">(ver cadastro do veículo)</a>` : ''}</td>
       <td>${item.quantidade}</td>
       <td>${formatMoney(item.preco_unitario)}</td>
       <td>${formatMoney(subtotal)}</td>
       <td>
         ${
           venda.status === 'aberta'
-            ? `<form method="POST" action="/vendas/${venda.id}/itens/${item.id}/excluir" onsubmit="return confirm('Remover este item da venda? A quantidade volta pro estoque.');">
+            ? `<form method="POST" action="/vendas/${venda.id}/itens/${item.id}/excluir" onsubmit="return confirm('Remover este item da venda?${item.peca_id ? ' A quantidade volta pro estoque.' : ''}');">
           <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
           <button class="btn btn-sm btn-danger" type="submit">Remover</button>
         </form>`
@@ -181,42 +181,104 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
     })
     .join('');
 
-  const options = pecasDisponiveis
+  const pecaOptions = pecasDisponiveis
     .map((p) => `<option value="${p.id}" data-preco="${p.preco_venda}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — ${formatMoney(p.preco_venda)}</option>`)
     .join('');
+
+  const addItemFormHtml =
+    venda.status === 'aberta'
+      ? `<form method="POST" action="/vendas/${venda.id}/itens" enctype="multipart/form-data" style="margin-top:16px;">
+          <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+          <div class="field">
+            <label for="tipo_item">O que está sendo vendido?</label>
+            <select id="tipo_item" name="tipo_item" onchange="toggleTipoItem()">
+              <option value="peca">Peça do estoque</option>
+              <option value="veiculo">Veículo (moto/bike elétrica)</option>
+            </select>
+          </div>
+
+          <div id="campo-peca">
+            ${
+              pecasDisponiveis.length
+                ? `<div class="form-grid">
+              <div class="field">
+                <label for="peca_id">Peça</label>
+                <select id="peca_id" name="peca_id">
+                  <option value="">Selecione...</option>
+                  ${pecaOptions}
+                </select>
+              </div>
+              <div class="field">
+                <label for="item_quantidade">Quantidade</label>
+                <input type="number" id="item_quantidade" name="quantidade" min="1" step="1" value="1">
+              </div>
+            </div>`
+                : '<p class="muted">Nenhuma peça disponível no estoque desta loja.</p>'
+            }
+          </div>
+
+          <div id="campo-veiculo" style="display:none;">
+            <div class="form-grid">
+              <div class="field">
+                <label for="tipo_veiculo">Tipo de veículo</label>
+                <select id="tipo_veiculo" name="tipo_veiculo">
+                  <option value="bicicleta">Bicicleta elétrica</option>
+                  <option value="moto">Moto elétrica</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="veiculo_marca">Marca</label>
+                <input type="text" id="veiculo_marca" name="veiculo_marca">
+              </div>
+              <div class="field">
+                <label for="veiculo_modelo">Modelo</label>
+                <input type="text" id="veiculo_modelo" name="veiculo_modelo">
+              </div>
+              <div class="field">
+                <label for="veiculo_preco_venda">Preço de venda (R$)</label>
+                <input type="number" id="veiculo_preco_venda" name="veiculo_preco_venda" min="0" step="0.01">
+              </div>
+              <div class="field">
+                <label for="veiculo_chassi_numero">Número do chassi</label>
+                <input type="text" id="veiculo_chassi_numero" name="veiculo_chassi_numero">
+              </div>
+              <div class="field">
+                <label for="veiculo_bateria_serial">Número de série da bateria</label>
+                <input type="text" id="veiculo_bateria_serial" name="veiculo_bateria_serial">
+              </div>
+              <div class="field">
+                <label for="veiculo_foto_chassi">Foto do chassi (opcional)</label>
+                <input type="file" id="veiculo_foto_chassi" name="veiculo_foto_chassi" accept="image/*" capture="environment">
+              </div>
+              <div class="field">
+                <label for="veiculo_foto_bateria">Foto da bateria (opcional)</label>
+                <input type="file" id="veiculo_foto_bateria" name="veiculo_foto_bateria" accept="image/*" capture="environment">
+              </div>
+            </div>
+            <p class="muted">O veículo já fica cadastrado no módulo Bicicletas, vinculado a este cliente.</p>
+          </div>
+
+          <button class="btn btn-sm" type="submit" style="margin-top:12px;">+ Adicionar item</button>
+        </form>
+        <script>
+          function toggleTipoItem() {
+            var tipo = document.getElementById('tipo_item').value;
+            document.getElementById('campo-peca').style.display = tipo === 'peca' ? '' : 'none';
+            document.getElementById('campo-veiculo').style.display = tipo === 'veiculo' ? '' : 'none';
+          }
+        </script>`
+      : '';
 
   return `
       <div class="card">
         <h2>Itens da venda</h2>
         ${
           itens.length
-            ? `<table><thead><tr><th>Peça</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+            ? `<table><thead><tr><th>Item</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table>
                <p style="margin-top:12px;"><strong>Total: ${formatMoney(venda.valor_total)}</strong></p>`
             : '<p class="muted">Nenhum item adicionado ainda.</p>'
         }
-        ${
-          venda.status === 'aberta'
-            ? pecasDisponiveis.length
-              ? `<form method="POST" action="/vendas/${venda.id}/itens" style="margin-top:16px;">
-            <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
-            <div class="form-grid">
-              <div class="field">
-                <label for="peca_id">Peça</label>
-                <select id="peca_id" name="peca_id" required>
-                  <option value="">Selecione...</option>
-                  ${options}
-                </select>
-              </div>
-              <div class="field">
-                <label for="item_quantidade">Quantidade</label>
-                <input type="number" id="item_quantidade" name="quantidade" min="1" step="1" value="1" required>
-              </div>
-            </div>
-            <button class="btn btn-sm" type="submit">+ Adicionar item</button>
-          </form>`
-              : '<p class="muted" style="margin-top:12px;">Nenhuma peça disponível no estoque desta loja.</p>'
-            : ''
-        }
+        ${addItemFormHtml}
       </div>`;
 }
 

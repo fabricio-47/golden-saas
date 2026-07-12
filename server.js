@@ -481,12 +481,12 @@ async function handler(req, res) {
 
       const info = db
         .prepare(
-          `INSERT INTO bicicletas (cliente_id, tipo_veiculo, marca, modelo, cor, motor_serial, controladora_serial, bateria_serial, bateria_soh_percent, bateria_ciclos_carga, km_estimado, observacoes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO bicicletas (cliente_id, tipo_veiculo, marca, modelo, cor, motor_serial, controladora_serial, bateria_serial, chassi_numero, bateria_soh_percent, bateria_ciclos_carga, km_estimado, observacoes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.cliente_id, tipoVeiculo, body.marca || '', body.modelo.trim(), body.cor || '',
-          body.motor_serial || '', body.controladora_serial || '', body.bateria_serial || '',
+          body.motor_serial || '', body.controladora_serial || '', body.bateria_serial || '', body.chassi_numero || '',
           toIntOrNull(body.bateria_soh_percent), toIntOrNull(body.bateria_ciclos_carga), toIntOrNull(body.km_estimado),
           body.observacoes || ''
         );
@@ -531,10 +531,10 @@ async function handler(req, res) {
       }
 
       db.prepare(
-        `UPDATE bicicletas SET cliente_id=?, tipo_veiculo=?, marca=?, modelo=?, cor=?, motor_serial=?, controladora_serial=?, bateria_serial=?, bateria_soh_percent=?, bateria_ciclos_carga=?, km_estimado=?, observacoes=? WHERE id=?`
+        `UPDATE bicicletas SET cliente_id=?, tipo_veiculo=?, marca=?, modelo=?, cor=?, motor_serial=?, controladora_serial=?, bateria_serial=?, chassi_numero=?, bateria_soh_percent=?, bateria_ciclos_carga=?, km_estimado=?, observacoes=? WHERE id=?`
       ).run(
         body.cliente_id, tipoVeiculo, body.marca || '', body.modelo.trim(), body.cor || '',
-        body.motor_serial || '', body.controladora_serial || '', body.bateria_serial || '',
+        body.motor_serial || '', body.controladora_serial || '', body.bateria_serial || '', body.chassi_numero || '',
         toIntOrNull(body.bateria_soh_percent), toIntOrNull(body.bateria_ciclos_carga), toIntOrNull(body.km_estimado),
         body.observacoes || '', m.id
       );
@@ -1494,6 +1494,41 @@ async function handler(req, res) {
         setFlash(session.sessionId, 'error', 'Esta venda já foi finalizada e não pode mais ser alterada.');
         return redirect(res, `/vendas/${m.id}`);
       }
+
+      if (body.tipo_item === 'veiculo') {
+        const marca = (body.veiculo_marca || '').trim();
+        const modelo = (body.veiculo_modelo || '').trim();
+        const precoVenda = toFloatOrNull(body.veiculo_preco_venda);
+        const tipoVeiculo = body.tipo_veiculo === 'moto' ? 'moto' : 'bicicleta';
+        if (!modelo || !precoVenda) {
+          setFlash(session.sessionId, 'error', 'Informe pelo menos o modelo e o preço de venda do veículo.');
+          return redirect(res, `/vendas/${m.id}`);
+        }
+        const infoBici = db
+          .prepare(
+            `INSERT INTO bicicletas (cliente_id, tipo_veiculo, marca, modelo, bateria_serial, chassi_numero, observacoes)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            venda.cliente_id, tipoVeiculo, marca, modelo,
+            body.veiculo_bateria_serial || '', body.veiculo_chassi_numero || '',
+            `Cadastrado automaticamente pela Venda Direto ${venda.numero}.`
+          );
+        const bicicletaId = infoBici.lastInsertRowid;
+        const fotoChassiFile = files.find((f) => f.fieldName === 'veiculo_foto_chassi' && f.data && f.data.length > 0);
+        const fotoBateriaFile = files.find((f) => f.fieldName === 'veiculo_foto_bateria' && f.data && f.data.length > 0);
+        if (fotoChassiFile) replaceBicicletaMedia(bicicletaId, 'chassi', fotoChassiFile);
+        if (fotoBateriaFile) replaceBicicletaMedia(bicicletaId, 'bateria_serial', fotoBateriaFile);
+
+        db.prepare(
+          'INSERT INTO venda_itens (venda_id, bicicleta_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, 1, ?)'
+        ).run(m.id, bicicletaId, `${marca} ${modelo}`.trim(), precoVenda);
+        const novoTotalVeiculo = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
+        db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotalVeiculo, m.id);
+        setFlash(session.sessionId, 'success', `Veículo "${`${marca} ${modelo}`.trim()}" adicionado à venda e cadastrado em Bicicletas.`);
+        return redirect(res, `/vendas/${m.id}`);
+      }
+
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
       const quantidade = toIntOrNull(body.quantidade) || 1;
       if (!peca) {
@@ -1537,6 +1572,10 @@ async function handler(req, res) {
         db.prepare('DELETE FROM venda_itens WHERE id = ?').run(item.id);
         const novoTotal = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
         db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotal, m.id);
+        if (item.bicicleta_id) {
+          setFlash(session.sessionId, 'success', 'Item removido da venda. O veículo cadastrado permanece no cadastro do cliente (módulo Bicicletas).');
+          return redirect(res, `/vendas/${m.id}`);
+        }
         setFlash(session.sessionId, 'success', 'Item removido da venda e devolvido ao estoque.');
       }
       return redirect(res, `/vendas/${m.id}`);

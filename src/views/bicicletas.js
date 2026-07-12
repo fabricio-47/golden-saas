@@ -139,6 +139,10 @@ function bicicletaFormPage({ user, flash, bicicleta, clientes, defaultClienteId,
               <input type="text" id="bateria_serial" name="bateria_serial" value="${escapeHtml(bicicleta ? bicicleta.bateria_serial : '')}">
             </div>
             <div class="field">
+              <label for="chassi_numero">Número do chassi</label>
+              <input type="text" id="chassi_numero" name="chassi_numero" value="${escapeHtml(bicicleta ? bicicleta.chassi_numero : '')}">
+            </div>
+            <div class="field">
               <label for="bateria_soh_percent">Saúde da bateria — SOH (%)</label>
               <input type="number" id="bateria_soh_percent" name="bateria_soh_percent" min="0" max="100" value="${bicicleta && bicicleta.bateria_soh_percent !== null ? bicicleta.bateria_soh_percent : ''}">
             </div>
@@ -240,6 +244,7 @@ function bicicletaShowPage({ user, flash, bicicleta, ordensServico, midias, csrf
             <tr><td style="width:220px;color:#6b6558;">Nº série do motor</td><td>${escapeHtml(bicicleta.motor_serial || '-')}</td></tr>
             <tr><td style="color:#6b6558;">Nº série da controladora</td><td>${escapeHtml(bicicleta.controladora_serial || '-')}</td></tr>
             <tr><td style="color:#6b6558;">Nº série da bateria</td><td>${escapeHtml(bicicleta.bateria_serial || '-')}</td></tr>
+            <tr><td style="color:#6b6558;">Número do chassi</td><td>${escapeHtml(bicicleta.chassi_numero || '-')}</td></tr>
             <tr><td style="color:#6b6558;">Cor</td><td>${escapeHtml(bicicleta.cor || '-')}</td></tr>
           </tbody>
         </table>

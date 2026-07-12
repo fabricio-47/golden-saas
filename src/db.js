@@ -65,6 +65,7 @@ db.exec(`
     motor_serial TEXT,
     controladora_serial TEXT,
     bateria_serial TEXT,
+    chassi_numero TEXT,
     bateria_soh_percent INTEGER,
     bateria_ciclos_carga INTEGER,
     km_estimado INTEGER,
@@ -205,6 +206,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     venda_id INTEGER NOT NULL REFERENCES vendas(id) ON DELETE CASCADE,
     peca_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    bicicleta_id INTEGER REFERENCES bicicletas(id) ON DELETE SET NULL,
     nome_peca TEXT NOT NULL,
     quantidade INTEGER NOT NULL DEFAULT 1,
     preco_unitario REAL NOT NULL DEFAULT 0,
@@ -276,6 +278,8 @@ ensureColumn('users', 'pode_ver_outras_lojas', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('pecas', 'loja_id', 'INTEGER');
 ensureColumn('pecas', 'fornecedor_id', 'INTEGER');
 ensureColumn('contas_receber', 'venda_id', 'INTEGER');
+ensureColumn('bicicletas', 'chassi_numero', 'TEXT');
+ensureColumn('venda_itens', 'bicicleta_id', 'INTEGER');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");
