@@ -25,7 +25,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
     .map(
       (p) => `
     <tr>
-      <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}</td>
+      <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}${p.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(p.fornecedor_nome)}</div>` : ''}</td>
       ${mostrarColunaLoja ? `<td>${escapeHtml(p.loja_nome || '-')}</td>` : ''}
       <td>${escapeHtml(p.categoria || '-')}</td>
       <td>${p.quantidade}</td>
@@ -88,9 +88,12 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
   });
 }
 
-function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome }) {
+function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, fornecedores }) {
   const isEdit = !!peca;
   const datalistOptions = CATEGORIAS_SUGERIDAS.map((c) => `<option value="${escapeHtml(c)}">`).join('');
+  const fornecedorOptions = (fornecedores || [])
+    .map((f) => `<option value="${f.id}" ${peca && String(peca.fornecedor_id) === String(f.id) ? 'selected' : ''}>${escapeHtml(f.nome)}</option>`)
+    .join('');
 
   const lojaFieldHtml = lojaFixaNome
     ? `<div class="field">
@@ -150,6 +153,13 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome }) {
             <div class="field">
               <label for="preco_venda">Preço de venda — quanto você cobra do cliente (R$) *</label>
               <input type="number" id="preco_venda" name="preco_venda" min="0" step="0.01" required value="${peca ? peca.preco_venda : ''}">
+            </div>
+            <div class="field">
+              <label for="fornecedor_id">Fornecedor</label>
+              <select id="fornecedor_id" name="fornecedor_id">
+                <option value="">Nenhum</option>
+                ${fornecedorOptions}
+              </select>
             </div>
             <div class="field full">
               <label for="observacoes">Observações</label>

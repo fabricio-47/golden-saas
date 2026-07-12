@@ -159,6 +159,50 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS fornecedores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    cnpj_cpf TEXT,
+    telefone TEXT,
+    email TEXT,
+    endereco TEXT,
+    observacoes TEXT,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS contas_pagar (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    descricao TEXT NOT NULL,
+    valor REAL NOT NULL DEFAULT 0,
+    vencimento TEXT,
+    status TEXT NOT NULL DEFAULT 'pendente',
+    forma_pagamento TEXT,
+    loja_id INTEGER REFERENCES lojas(id) ON DELETE SET NULL,
+    fornecedor_id INTEGER REFERENCES fornecedores(id) ON DELETE SET NULL,
+    observacoes TEXT,
+    pago_em TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS contas_receber (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    descricao TEXT NOT NULL,
+    valor REAL NOT NULL DEFAULT 0,
+    vencimento TEXT,
+    status TEXT NOT NULL DEFAULT 'pendente',
+    loja_id INTEGER REFERENCES lojas(id) ON DELETE SET NULL,
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    ordem_servico_id INTEGER REFERENCES ordens_servico(id) ON DELETE SET NULL,
+    numero_parcela INTEGER,
+    total_parcelas INTEGER,
+    observacoes TEXT,
+    recebido_em TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_bicicletas_cliente ON bicicletas(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_cliente ON ordens_servico(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_bicicleta ON ordens_servico(bicicleta_id);
@@ -173,6 +217,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transferencias_origem ON transferencias(loja_origem_id);
   CREATE INDEX IF NOT EXISTS idx_transferencias_destino ON transferencias(loja_destino_id);
   CREATE INDEX IF NOT EXISTS idx_transferencias_status ON transferencias(status);
+  CREATE INDEX IF NOT EXISTS idx_contas_pagar_loja ON contas_pagar(loja_id);
+  CREATE INDEX IF NOT EXISTS idx_contas_pagar_status ON contas_pagar(status);
+  CREATE INDEX IF NOT EXISTS idx_contas_receber_loja ON contas_receber(loja_id);
+  CREATE INDEX IF NOT EXISTS idx_contas_receber_status ON contas_receber(status);
+  CREATE INDEX IF NOT EXISTS idx_contas_receber_os ON contas_receber(ordem_servico_id);
 `);
 
 // --- migrações leves para bancos criados por versões anteriores ---
@@ -194,6 +243,7 @@ ensureColumn('users', 'ativo', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('users', 'loja_id', 'INTEGER');
 ensureColumn('users', 'pode_ver_outras_lojas', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('pecas', 'loja_id', 'INTEGER');
+ensureColumn('pecas', 'fornecedor_id', 'INTEGER');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");

@@ -165,6 +165,9 @@ function layout({ title, activeNav, user, flash, children }) {
     { key: 'os', href: '/os', label: 'Ordens de Serviço' },
     { key: 'estoque', href: '/estoque', label: 'Estoque' },
     { key: 'transferencias', href: '/transferencias', label: 'Transferências' },
+    { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores' },
+    { key: 'contas-pagar', href: '/contas-pagar', label: 'Contas a Pagar' },
+    { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber' },
   ];
   if (canManage) {
     navItems.push({ key: 'lojas', href: '/lojas', label: 'Lojas' });

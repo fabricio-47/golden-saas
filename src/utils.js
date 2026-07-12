@@ -71,4 +71,11 @@ function formatMoney(value) {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-module.exports = { escapeHtml, parseCookies, readBody, parseFormBody, formatDate, formatMoney };
+function formatDateOnly(isoString) {
+  if (!isoString) return '-';
+  const d = new Date(isoString.length <= 10 ? isoString + 'T00:00:00' : isoString);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+module.exports = { escapeHtml, parseCookies, readBody, parseFormBody, formatDate, formatDateOnly, formatMoney };

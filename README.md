@@ -40,6 +40,12 @@ Este projeto já está publicado em: **https://golden-saas.onrender.com**
   - Existe uma opção **"Pode ver o estoque de outras lojas (só visualizar)"** no cadastro do usuário, que libera visualização (não edição) do estoque de todas as lojas — útil para quem precisa ter uma visão geral sem mexer no estoque alheio.
   - Direção e Gerência sempre enxergam e editam o estoque de todas as lojas.
   - **Transferência entre lojas**: qualquer usuário pode solicitar a transferência de uma peça que ele enxerga para outra loja (botão "Transferir" na tela de Estoque). A transferência só sai do estoque de origem depois que a **Direção ou Gerência aprova** (menu **Transferências**); depois de aprovada, fica "Em trânsito" até que a **loja de destino confirme o recebimento** (botão "OK, mercadoria recebida"), momento em que a peça entra automaticamente no estoque de destino. Também é possível **recusar** uma transferência antes da aprovação.
+- **Fornecedores**: cadastro simples (nome/razão social, CNPJ/CPF, telefone, e-mail, endereço), com opção de ativar/desativar. No cadastro de peça do Estoque, dá pra vincular de qual fornecedor ela vem (campo opcional).
+- **Contas a Pagar e Contas a Receber**: financeiro separado por loja — cada loja só vê e edita o financeiro dela; Direção e Gerência enxergam e editam o financeiro de todas as lojas, além de poderem lançar contas "Gerais" (não vinculadas a nenhuma loja específica, ex: aluguel do escritório central).
+  - Contas a pagar: descrição, valor, vencimento, forma de pagamento e fornecedor vinculado (opcional). Botões para marcar como paga / reabrir como pendente.
+  - Contas a receber: descrição, valor, vencimento e cliente vinculado (opcional). Botões para marcar como recebida / reabrir como pendente.
+  - **Geração automática**: quando uma Ordem de Serviço é finalizada com pagamento em **cartão de crédito parcelado**, o sistema já cria sozinho uma conta a receber para cada parcela (vencimentos de 30 em 30 dias a partir da conclusão), vinculada ao cliente e à O.S. de origem. Também dá pra lançar contas a pagar/receber manuais, sem relação com nenhuma O.S.
+  - Contas atrasadas (vencimento passado e ainda pendentes) aparecem com uma etiqueta "Atrasada" na listagem.
 
 ## 2. Configurar o envio de e-mails (obrigatório para os botões de e-mail funcionarem)
 
@@ -78,11 +84,9 @@ O plano gratuito do Render **não guarda dados permanentemente**: ele "dorme" ap
 
 ## 4. O que ainda NÃO está nesta versão (próximos passos combinados no roteiro)
 
-Este é o **primeiro** de vários módulos pedidos numa lista maior — os itens abaixo ficaram combinados para as próximas rodadas, na ordem que fizer mais sentido pro negócio:
+Estes são os módulos pedidos numa lista maior — os itens abaixo ficaram combinados para as próximas rodadas, na ordem que fizer mais sentido pro negócio:
 
 - Leitura de **código de barras** no cadastro de peças (funciona em celular Android/Chrome).
-- Cadastro de **fornecedores**.
-- **Contas a pagar e contas a receber**.
 - **Crediário** para venda de motos e bicicletas elétricas (controle manual das parcelas, sem boleto/gateway de pagamento integrado por enquanto).
 - Fotos de peças e de motos/bicicletas por modelo.
 - **Dashboard de vendas e metas** para o vendedor, com comissão em % configurável no cadastro dele.
