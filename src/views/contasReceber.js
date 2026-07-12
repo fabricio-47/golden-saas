@@ -25,6 +25,7 @@ function contasReceberListPage({ user, flash, contas, csrfToken, lojas, lojaFilt
       <td>${escapeHtml(c.descricao)}
         ${c.cliente_nome ? `<div class="muted">Cliente: ${escapeHtml(c.cliente_nome)}</div>` : ''}
         ${c.ordem_servico_id ? `<div class="muted">Parcela ${c.numero_parcela}/${c.total_parcelas} da <a class="link-btn" href="/os/${c.ordem_servico_id}">${escapeHtml(c.os_numero || 'O.S.')}</a></div>` : ''}
+        ${c.venda_id ? `<div class="muted">Parcela ${c.numero_parcela}/${c.total_parcelas} da <a class="link-btn" href="/vendas/${c.venda_id}">${escapeHtml(c.venda_numero || 'Venda')}</a></div>` : ''}
       </td>
       ${mostrarColunaLoja ? `<td>${c.loja_nome ? escapeHtml(c.loja_nome) : '<span class="muted">Geral</span>'}</td>` : ''}
       <td>${formatDateOnly(c.vencimento)}</td>
@@ -101,6 +102,7 @@ function contasReceberListPage({ user, flash, contas, csrfToken, lojas, lojaFilt
 function contaReceberFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNome, clientes }) {
   const isEdit = !!conta;
   const geradaPorOs = isEdit && !!conta.ordem_servico_id;
+  const geradaPorVenda = isEdit && !!conta.venda_id;
 
   const lojaFieldHtml = lojaFixaNome
     ? `<div class="field">
@@ -129,6 +131,11 @@ function contaReceberFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNo
       ${
         geradaPorOs
           ? `<div class="flash flash-success">Esta conta foi gerada automaticamente pela Ordem de Serviço <a class="link-btn" href="/os/${conta.ordem_servico_id}">${escapeHtml(conta.os_numero || '')}</a> (parcela ${conta.numero_parcela} de ${conta.total_parcelas}).</div>`
+          : ''
+      }
+      ${
+        geradaPorVenda
+          ? `<div class="flash flash-success">Esta conta foi gerada automaticamente pela Venda <a class="link-btn" href="/vendas/${conta.venda_id}">${escapeHtml(conta.venda_numero || '')}</a> (parcela ${conta.numero_parcela} de ${conta.total_parcelas}).</div>`
           : ''
       }
       <div class="card">

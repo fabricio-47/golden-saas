@@ -40,6 +40,7 @@ const { transferenciasListPage, transferenciaFormPage } = require('./src/views/t
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
+const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
 
 const PORT = process.env.PORT || 3000;
 
@@ -140,27 +141,57 @@ function recomputeValorPecas(osId) {
   ).run(soma, soma + valorMaoObra, osId);
 }
 
-function gerarContasReceberDaOS(os, user) {
-  if (os.forma_pagamento !== 'credito' || !os.parcelas || os.parcelas < 1) return;
-  const jaExiste = db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE ordem_servico_id = ?').get(os.id).c;
-  if (jaExiste > 0) return;
-  const total = totalValor(os);
+function gerarParcelasAReceber({ formaPagamento, parcelas, total, lojaId, clienteId, ordemServicoId, vendaId, origemLabel }) {
+  if (formaPagamento !== 'credito' || !parcelas || parcelas < 1) return;
   if (!total || total <= 0) return;
-  const parcelas = os.parcelas;
+  const jaExiste = ordemServicoId
+    ? db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE ordem_servico_id = ?').get(ordemServicoId).c
+    : db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE venda_id = ?').get(vendaId).c;
+  if (jaExiste > 0) return;
   const valorParcela = Math.round((total / parcelas) * 100) / 100;
   const somaParcelasAnteriores = Math.round(valorParcela * (parcelas - 1) * 100) / 100;
   const ultimaParcela = Math.round((total - somaParcelasAnteriores) * 100) / 100;
   const insert = db.prepare(
-    `INSERT INTO contas_receber (descricao, valor, vencimento, loja_id, cliente_id, ordem_servico_id, numero_parcela, total_parcelas)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO contas_receber (descricao, valor, vencimento, loja_id, cliente_id, ordem_servico_id, venda_id, numero_parcela, total_parcelas)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   for (let n = 1; n <= parcelas; n++) {
     const venc = new Date();
     venc.setDate(venc.getDate() + 30 * n);
     const vencStr = venc.toISOString().slice(0, 10);
     const valor = n === parcelas ? ultimaParcela : valorParcela;
-    insert.run(`Parcela ${n}/${parcelas} - O.S. ${os.numero}`, valor, vencStr, user.loja_id || null, os.cliente_id, os.id, n, parcelas);
+    insert.run(`Parcela ${n}/${parcelas} - ${origemLabel}`, valor, vencStr, lojaId || null, clienteId, ordemServicoId || null, vendaId || null, n, parcelas);
   }
+}
+
+function gerarContasReceberDaOS(os, user) {
+  gerarParcelasAReceber({
+    formaPagamento: os.forma_pagamento,
+    parcelas: os.parcelas,
+    total: totalValor(os),
+    lojaId: user.loja_id,
+    clienteId: os.cliente_id,
+    ordemServicoId: os.id,
+    origemLabel: `O.S. ${os.numero}`,
+  });
+}
+
+function gerarContasReceberDaVenda(venda, user) {
+  gerarParcelasAReceber({
+    formaPagamento: venda.forma_pagamento,
+    parcelas: venda.parcelas,
+    total: venda.valor_total,
+    lojaId: venda.loja_id,
+    clienteId: venda.cliente_id,
+    vendaId: venda.id,
+    origemLabel: `Venda ${venda.numero}`,
+  });
+}
+
+function nextVendaNumber() {
+  const row = db.prepare('SELECT COUNT(*) as c FROM vendas').get();
+  const n = row.c + 1;
+  return 'VD-' + String(n).padStart(4, '0');
 }
 
 function replaceBicicletaMedia(bicicletaId, tipo, file) {
@@ -985,11 +1016,12 @@ async function handler(req, res) {
       const todasLojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
       const lojasVisiveis = todasLojas.filter((l) => canSeeLoja(user, l.id));
 
-      let query = `SELECT c.*, l.nome as loja_nome, cl.nome as cliente_nome, os.numero as os_numero
+      let query = `SELECT c.*, l.nome as loja_nome, cl.nome as cliente_nome, os.numero as os_numero, v.numero as venda_numero
                    FROM contas_receber c
                    LEFT JOIN lojas l ON l.id = c.loja_id
                    LEFT JOIN clientes cl ON cl.id = c.cliente_id
-                   LEFT JOIN ordens_servico os ON os.id = c.ordem_servico_id`;
+                   LEFT JOIN ordens_servico os ON os.id = c.ordem_servico_id
+                   LEFT JOIN vendas v ON v.id = c.venda_id`;
       const params = [];
       if (statusFilter) {
         query += ' WHERE c.status = ?';
@@ -1044,7 +1076,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/contas-receber/:id/editar', pathname)) && method === 'GET') {
-      const conta = db.prepare('SELECT c.*, os.numero as os_numero FROM contas_receber c LEFT JOIN ordens_servico os ON os.id = c.ordem_servico_id WHERE c.id = ?').get(m.id);
+      const conta = db.prepare('SELECT c.*, os.numero as os_numero, v.numero as venda_numero FROM contas_receber c LEFT JOIN ordens_servico os ON os.id = c.ordem_servico_id LEFT JOIN vendas v ON v.id = c.venda_id WHERE c.id = ?').get(m.id);
       if (!conta) return notFound(res);
       if (!canEditLoja(user, conta.loja_id)) return forbidden(res);
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
@@ -1369,6 +1401,169 @@ async function handler(req, res) {
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, csrfToken: session.csrfToken }));
+    }
+
+    // ---------------- VENDA DIRETO ----------------
+    if (pathname === '/vendas' && method === 'GET') {
+      const lojaFiltroId = url.searchParams.get('loja_id') || '';
+      const todasLojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      const lojasVisiveis = todasLojas.filter((l) => canSeeLoja(user, l.id));
+
+      let vendas = db
+        .prepare(
+          `SELECT v.*, l.nome as loja_nome, c.nome as cliente_nome
+           FROM vendas v
+           LEFT JOIN lojas l ON l.id = v.loja_id
+           JOIN clientes c ON c.id = v.cliente_id
+           ORDER BY v.created_at DESC`
+        )
+        .all();
+      vendas = vendas.filter((v) => canSeeLoja(user, v.loja_id));
+      if (lojaFiltroId) vendas = vendas.filter((v) => String(v.loja_id) === String(lojaFiltroId));
+
+      return send(res, 200, vendasListPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        vendas,
+        lojas: lojasVisiveis,
+        lojaFiltroId,
+        mostrarColunaLoja: lojasVisiveis.length > 1,
+      }));
+    }
+
+    if (pathname === '/vendas/novo' && method === 'GET') {
+      const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
+      if (!clientes.length) {
+        setFlash(session.sessionId, 'error', 'Cadastre um cliente antes de registrar uma venda.');
+        return redirect(res, '/clientes/novo');
+      }
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      return send(res, 200, vendaFormPage({
+        user, flash: takeFlash(session.sessionId), clientes, csrfToken: session.csrfToken,
+        lojas, lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
+      }));
+    }
+
+    if (pathname === '/vendas' && method === 'POST') {
+      const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      const lojaFixaNome = canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null);
+      const lojaIdEscolhida = canSeeAllLojas(user) ? toIntOrNull(body.loja_id) : user.loja_id;
+
+      if (!body.cliente_id) {
+        return send(res, 400, vendaFormPage({ user, flash: { type: 'error', message: 'Selecione um cliente.' }, clientes, csrfToken: session.csrfToken, lojas, lojaFixaNome }));
+      }
+      const formaPagamento = body.forma_pagamento || null;
+      const parcelas = formaPagamento === 'credito' ? toIntOrNull(body.parcelas) : null;
+      const numero = nextVendaNumber();
+      const info = db
+        .prepare(
+          `INSERT INTO vendas (numero, cliente_id, loja_id, status, valor_total, forma_pagamento, parcelas, observacoes, vendedor_id)
+           VALUES (?, ?, ?, 'aberta', 0, ?, ?, ?, ?)`
+        )
+        .run(numero, body.cliente_id, lojaIdEscolhida, formaPagamento, parcelas, body.observacoes || '', user.id);
+      setFlash(session.sessionId, 'success', `Venda ${numero} criada. Agora adicione os itens vendidos.`);
+      return redirect(res, `/vendas/${info.lastInsertRowid}`);
+    }
+
+    if ((m = matchRoute('/vendas/:id', pathname)) && method === 'GET') {
+      const venda = db
+        .prepare(
+          `SELECT v.*, c.nome as cliente_nome, l.nome as loja_nome FROM vendas v
+           JOIN clientes c ON c.id = v.cliente_id LEFT JOIN lojas l ON l.id = v.loja_id WHERE v.id = ?`
+        )
+        .get(m.id);
+      if (!venda) return notFound(res);
+      if (!canSeeLoja(user, venda.loja_id)) return forbidden(res);
+      const itens = db.prepare('SELECT * FROM venda_itens WHERE venda_id = ? ORDER BY created_at DESC').all(m.id);
+      const pecasDisponiveis = venda.loja_id
+        ? db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(venda.loja_id)
+        : canSeeAllLojas(user)
+        ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/vendas/:id/itens', pathname)) && method === 'POST') {
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
+      if (venda.status !== 'aberta') {
+        setFlash(session.sessionId, 'error', 'Esta venda já foi finalizada e não pode mais ser alterada.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
+      const quantidade = toIntOrNull(body.quantidade) || 1;
+      if (!peca) {
+        setFlash(session.sessionId, 'error', 'Peça não encontrada no estoque.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      if (quantidade < 1) {
+        setFlash(session.sessionId, 'error', 'Quantidade inválida.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      db.prepare(
+        'INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)'
+      ).run(m.id, peca.id, peca.nome, quantidade, peca.preco_venda);
+      const novaQuantidade = peca.quantidade - quantidade;
+      db.prepare("UPDATE pecas SET quantidade = ?, updated_at = datetime('now') WHERE id = ?").run(novaQuantidade, peca.id);
+      const novoTotal = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
+      db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotal, m.id);
+      setFlash(
+        session.sessionId,
+        novaQuantidade <= 0 ? 'error' : 'success',
+        novaQuantidade <= 0
+          ? `Peça "${peca.nome}" adicionada à venda. Atenção: o estoque dessa peça ficou zerado ou negativo (${novaQuantidade}).`
+          : `Peça "${peca.nome}" adicionada à venda.`
+      );
+      return redirect(res, `/vendas/${m.id}`);
+    }
+
+    if ((m = matchRoute('/vendas/:id/itens/:itemId/excluir', pathname)) && method === 'POST') {
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
+      if (venda.status !== 'aberta') {
+        setFlash(session.sessionId, 'error', 'Esta venda já foi finalizada e não pode mais ser alterada.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const item = db.prepare('SELECT * FROM venda_itens WHERE id = ? AND venda_id = ?').get(m.itemId, m.id);
+      if (item) {
+        if (item.peca_id) {
+          db.prepare("UPDATE pecas SET quantidade = quantidade + ?, updated_at = datetime('now') WHERE id = ?").run(item.quantidade, item.peca_id);
+        }
+        db.prepare('DELETE FROM venda_itens WHERE id = ?').run(item.id);
+        const novoTotal = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
+        db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotal, m.id);
+        setFlash(session.sessionId, 'success', 'Item removido da venda e devolvido ao estoque.');
+      }
+      return redirect(res, `/vendas/${m.id}`);
+    }
+
+    if ((m = matchRoute('/vendas/:id/finalizar', pathname)) && method === 'POST') {
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
+      if (venda.status === 'concluida') {
+        setFlash(session.sessionId, 'error', 'Esta venda já está finalizada.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const itemCount = db.prepare('SELECT COUNT(*) c FROM venda_itens WHERE venda_id = ?').get(m.id).c;
+      if (itemCount === 0) {
+        setFlash(session.sessionId, 'error', 'Adicione pelo menos um item antes de finalizar a venda.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      db.prepare("UPDATE vendas SET status='concluida', finalizada_at=datetime('now') WHERE id = ?").run(m.id);
+      const vendaAtualizada = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      try {
+        gerarContasReceberDaVenda(vendaAtualizada, user);
+      } catch (err) {
+        console.error('[contas-receber] Falha ao gerar parcelas a partir da Venda:', err);
+      }
+      setFlash(session.sessionId, 'success', 'Venda finalizada com sucesso.');
+      return redirect(res, `/vendas/${m.id}`);
     }
 
     // ---------------- USUÁRIOS (Direção e Gerência apenas) ----------------

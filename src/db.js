@@ -186,6 +186,31 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS vendas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero TEXT NOT NULL UNIQUE,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    loja_id INTEGER REFERENCES lojas(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'aberta',
+    valor_total REAL NOT NULL DEFAULT 0,
+    forma_pagamento TEXT,
+    parcelas INTEGER,
+    observacoes TEXT,
+    vendedor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finalizada_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS venda_itens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venda_id INTEGER NOT NULL REFERENCES vendas(id) ON DELETE CASCADE,
+    peca_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    nome_peca TEXT NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 1,
+    preco_unitario REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS contas_receber (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     descricao TEXT NOT NULL,
@@ -195,6 +220,7 @@ db.exec(`
     loja_id INTEGER REFERENCES lojas(id) ON DELETE SET NULL,
     cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
     ordem_servico_id INTEGER REFERENCES ordens_servico(id) ON DELETE SET NULL,
+    venda_id INTEGER REFERENCES vendas(id) ON DELETE SET NULL,
     numero_parcela INTEGER,
     total_parcelas INTEGER,
     observacoes TEXT,
@@ -222,6 +248,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_contas_receber_loja ON contas_receber(loja_id);
   CREATE INDEX IF NOT EXISTS idx_contas_receber_status ON contas_receber(status);
   CREATE INDEX IF NOT EXISTS idx_contas_receber_os ON contas_receber(ordem_servico_id);
+  CREATE INDEX IF NOT EXISTS idx_contas_receber_venda ON contas_receber(venda_id);
+  CREATE INDEX IF NOT EXISTS idx_vendas_cliente ON vendas(cliente_id);
+  CREATE INDEX IF NOT EXISTS idx_vendas_loja ON vendas(loja_id);
+  CREATE INDEX IF NOT EXISTS idx_vendas_status ON vendas(status);
+  CREATE INDEX IF NOT EXISTS idx_venda_itens_venda ON venda_itens(venda_id);
 `);
 
 // --- migrações leves para bancos criados por versões anteriores ---
@@ -244,6 +275,7 @@ ensureColumn('users', 'loja_id', 'INTEGER');
 ensureColumn('users', 'pode_ver_outras_lojas', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('pecas', 'loja_id', 'INTEGER');
 ensureColumn('pecas', 'fornecedor_id', 'INTEGER');
+ensureColumn('contas_receber', 'venda_id', 'INTEGER');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");

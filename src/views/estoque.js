@@ -60,6 +60,17 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
         </form>`
       : '';
 
+  const totalPecas = pecas.length;
+  const valorEstoque = pecas.reduce((sum, p) => sum + p.quantidade * (p.custo_unitario !== null && p.custo_unitario !== undefined ? p.custo_unitario : 0), 0);
+  const estoqueBaixoCount = pecas.filter((p) => p.quantidade <= p.estoque_minimo).length;
+
+  const statsHtml = `
+      <div class="stat-grid">
+        <div class="stat-card"><div class="num">${totalPecas}</div><div class="label">Peças cadastradas${lojaFiltroId || (lojas && lojas.length > 1) ? ' (nesta visão)' : ''}</div></div>
+        <div class="stat-card"><div class="num">${formatMoney(valorEstoque)}</div><div class="label">Valor em estoque (custo)</div></div>
+        <div class="stat-card"><div class="num">${estoqueBaixoCount}</div><div class="label">Itens com estoque baixo ou zerado</div></div>
+      </div>`;
+
   return layout({
     title: 'Estoque',
     activeNav: 'estoque',
@@ -73,6 +84,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
         </div>
         <a class="btn" href="/estoque/novo">+ Nova Peça</a>
       </div>
+      ${statsHtml}
       ${lojaFilterHtml}
       <div class="card">
         ${

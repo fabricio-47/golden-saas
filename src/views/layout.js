@@ -56,6 +56,21 @@ const STYLE = `
   }
   .nav-item:hover { color: var(--text-light); background: rgba(255,255,255,0.03); }
   .nav-item.active { color: var(--gold-soft); border-left-color: var(--gold); background: rgba(212,175,55,0.08); font-weight: 600; }
+  .nav-group summary {
+    cursor: pointer;
+    padding: 12px 24px;
+    font-size: 14px;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    list-style: none;
+  }
+  .nav-group summary::-webkit-details-marker { display: none; }
+  .nav-group summary:hover { color: var(--text-light); background: rgba(255,255,255,0.03); }
+  .nav-group summary:after { content: '▸'; font-size: 10px; transition: transform 0.15s; }
+  .nav-group[open] summary:after { transform: rotate(90deg); }
+  .nav-item.nav-sub { padding-left: 40px; font-size: 13px; }
   .sidebar-footer { margin-top: auto; padding: 16px 24px 0; border-top: 1px solid var(--border); }
   .sidebar-user { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
   .sidebar-role { font-size: 11px; color: var(--gold-soft); margin-bottom: 8px; }
@@ -163,16 +178,38 @@ function layout({ title, activeNav, user, flash, children }) {
     { key: 'clientes', href: '/clientes', label: 'Clientes' },
     { key: 'bicicletas', href: '/bicicletas', label: 'Bicicletas' },
     { key: 'os', href: '/os', label: 'Ordens de Serviço' },
-    { key: 'estoque', href: '/estoque', label: 'Estoque' },
-    { key: 'transferencias', href: '/transferencias', label: 'Transferências' },
-    { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores' },
-    { key: 'contas-pagar', href: '/contas-pagar', label: 'Contas a Pagar' },
-    { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber' },
+    { key: 'vendas', href: '/vendas', label: 'Venda Direto' },
+  ];
+
+  const navGroups = [
+    {
+      key: 'estoque-group',
+      label: 'Estoque',
+      items: [
+        { key: 'estoque', href: '/estoque', label: 'Estoque' },
+        { key: 'transferencias', href: '/transferencias', label: 'Transferências' },
+        { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores' },
+      ],
+    },
+    {
+      key: 'financeiro-group',
+      label: 'Financeiro',
+      items: [
+        { key: 'contas-pagar', href: '/contas-pagar', label: 'Contas a Pagar' },
+        { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber' },
+      ],
+    },
   ];
   if (canManage) {
-    navItems.push({ key: 'lojas', href: '/lojas', label: 'Lojas' });
-    navItems.push({ key: 'usuarios', href: '/usuarios', label: 'Usuários' });
-    navItems.push({ key: 'auditoria', href: '/auditoria', label: 'Auditoria' });
+    navGroups.push({
+      key: 'config-group',
+      label: 'Configurações',
+      items: [
+        { key: 'lojas', href: '/lojas', label: 'Lojas' },
+        { key: 'usuarios', href: '/usuarios', label: 'Usuários' },
+        { key: 'auditoria', href: '/auditoria', label: 'Auditoria' },
+      ],
+    });
   }
 
   const navHtml = navItems
@@ -180,6 +217,22 @@ function layout({ title, activeNav, user, flash, children }) {
       (item) =>
         `<a class="nav-item ${item.key === activeNav ? 'active' : ''}" href="${item.href}">${item.label}</a>`
     )
+    .join('');
+
+  const navGroupsHtml = navGroups
+    .map((group) => {
+      const groupHasActive = group.items.some((item) => item.key === activeNav);
+      const itemsHtml = group.items
+        .map(
+          (item) =>
+            `<a class="nav-item nav-sub ${item.key === activeNav ? 'active' : ''}" href="${item.href}">${item.label}</a>`
+        )
+        .join('');
+      return `<details class="nav-group" ${groupHasActive ? 'open' : ''}>
+        <summary>${group.label}</summary>
+        ${itemsHtml}
+      </details>`;
+    })
     .join('');
 
   const flashHtml = flash
@@ -200,7 +253,7 @@ function layout({ title, activeNav, user, flash, children }) {
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">Golden<span>SaaS</span></div>
-      <nav>${navHtml}</nav>
+      <nav>${navHtml}${navGroupsHtml}</nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">${escapeHtml(user ? user.name : '')}</div>
         ${roleLabelHtml}
