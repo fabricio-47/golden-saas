@@ -4,7 +4,11 @@ const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 
-const UPLOADS_DIR = path.join(__dirname, '..', 'data', 'uploads');
+// Mesma lógica do db.js: em produção com disco persistente, DATA_DIR aponta
+// pro disco montado (ex: /var/data), então os arquivos enviados (fotos/vídeos)
+// também sobrevivem a reinicializações, junto com o banco de dados.
+const DATA_ROOT = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, '..', 'data');
+const UPLOADS_DIR = path.join(DATA_ROOT, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB por arquivo (fotos e vídeos curtos)

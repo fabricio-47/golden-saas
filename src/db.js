@@ -5,7 +5,11 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+// Em produção (Render com disco persistente), defina a variável de ambiente
+// DATA_DIR apontando para a pasta do disco montado (ex: /var/data), assim o
+// banco de dados sobrevive a reinicializações. Sem essa variável, usa a pasta
+// local "data" (comportamento de sempre, inclusive rodando na sua máquina).
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DB_PATH = path.join(DATA_DIR, 'golden-saas.db');

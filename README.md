@@ -89,7 +89,9 @@ Depois de adicionar as variáveis, clique em **Save, rebuild, and deploy** para 
 
 ## 3. Aviso sobre armazenamento no plano gratuito
 
-O plano gratuito do Render **não guarda dados permanentemente**: ele "dorme" após 15 minutos sem uso e, ao acordar, o banco de dados e os arquivos enviados (fotos/vídeos) voltam ao ponto inicial. Ou seja, esse ambiente é ótimo para testar e mostrar o sistema, mas **ainda não deve ser usado para cadastrar clientes e ordens de serviço reais**. Quando quiser migrar para uso real, é preciso um plano pago com disco persistente (ou um banco de dados/armazenamento externo) — posso te ajudar nisso quando chegar a hora.
+O plano gratuito do Render **não guarda dados permanentemente**: ele "dorme" após 15 minutos sem uso e, ao acordar, o banco de dados e os arquivos enviados (fotos/vídeos) voltam ao ponto inicial. Ou seja, esse ambiente é ótimo para testar e mostrar o sistema, mas **não deve ser usado para cadastrar clientes e ordens de serviço reais** enquanto estiver no plano gratuito.
+
+**Para uso real**, o sistema já suporta rodar com um disco persistente (plano Starter do Render + disco, ~US$ 8,25/mês pra 5 GB): é só configurar a variável de ambiente `DATA_DIR` apontando pro caminho do disco montado, que o banco de dados e os uploads passam a ser salvos ali e sobrevivem a reinicializações. Sem essa variável configurada, o sistema continua salvando na pasta local `data/` (comportamento de sempre). Passo a passo completo em `DEPLOY.md` (Parte 3).
 
 ## 4. O que ainda NÃO está nesta versão (próximos passos combinados no roteiro)
 

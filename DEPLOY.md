@@ -52,7 +52,47 @@ Login de acesso (o mesmo de sempre):
 
 O plano gratuito do Render **não guarda os dados de forma permanente**. Ele "dorme" depois de 15 minutos sem uso e, quando ele acorda de novo, o banco de dados volta ao ponto inicial (com os dados de exemplo). Ou seja: **esse link é ótimo para testar e mostrar o sistema para outras pessoas, mas não deve ser usado ainda para cadastrar clientes e ordens de serviço reais** — eles seriam apagados no próximo "sono" do servidor.
 
-Quando você validar que o sistema está do jeito que quer, o próximo passo é migrar para um banco de dados permanente (ex: um plano pago com disco persistente, ou um banco de dados na nuvem) — posso te ajudar com isso quando chegar a hora.
+Quando você validar que o sistema está do jeito que quer, siga a Parte 3 abaixo pra deixar os dados salvos de verdade, pra sempre.
+
+---
+
+## Parte 3 — Deixar o sistema no ar de verdade, sem apagar os dados (plano pago + disco persistente)
+
+Isso resolve o problema do plano gratuito: o sistema fica **sempre ligado** (sem "dormir") e os dados (banco de dados, fotos, vídeos) ficam salvos permanentemente, sobrevivendo a reinicializações e a novos envios de código.
+
+**Custo:** plano Starter do Render (US$ 7/mês) + disco persistente (US$ 0,25 por GB/mês — 5 GB fica em torno de US$ 1,25/mês). Total aproximado: **~US$ 8,25/mês**. É cobrado direto no cartão cadastrado na sua conta Render.
+
+### Passo 1 — Subir o código atualizado no GitHub
+Este pacote já vem com uma pequena mudança no código que permite indicar onde salvar os dados (variável `DATA_DIR`). Suba os arquivos atualizados no seu repositório `golden-saas` no GitHub (arraste e substitua os arquivos, igual você fez na primeira vez — o GitHub avisa que vai sobrescrever, é isso mesmo que você quer).
+
+### Passo 2 — Trocar o plano do serviço no Render
+1. No painel do Render, entre no seu serviço `golden-saas`.
+2. Vá em **Settings** (Configurações) → procure a seção do tipo de instância (**Instance Type**).
+3. Troque de **Free** para **Starter** (US$ 7/mês) e salve.
+
+### Passo 3 — Adicionar o disco persistente
+1. Ainda em **Settings** do serviço, procure a seção **Disks**.
+2. Clique em **Add Disk**.
+3. Preencha:
+   - **Name:** `golden-saas-data` (ou o nome que preferir)
+   - **Mount Path:** `/var/data`
+   - **Size:** `5 GB`
+4. Salve. O Render vai pedir pra reiniciar o serviço pra aplicar — pode confirmar.
+
+### Passo 4 — Configurar a variável de ambiente DATA_DIR
+1. Vá em **Environment** (no menu do serviço) → **Add Environment Variable**.
+2. Adicione:
+
+| Variável | Valor |
+|---|---|
+| `DATA_DIR` | `/var/data` |
+
+3. Clique em **Save Changes**. O Render vai fazer um novo deploy automaticamente.
+
+### Passo 5 — Conferir
+Depois que o status voltar para **"Live"**, entre no sistema e cadastre algo de teste (um cliente, por exemplo). Espere uns minutos e recarregue a página — o dado precisa continuar lá. A partir de agora, os dados não somem mais sozinhos.
+
+**Atenção:** qualquer cliente, veículo, O.S., peça etc. que você tinha cadastrado *antes* desse passo (no plano gratuito) não é migrado automaticamente — o disco persistente começa vazio (com o usuário admin e a "Loja Principal" padrão criados de novo). Cadastre os dados reais só depois de confirmar que o disco persistente está funcionando.
 
 ---
 
