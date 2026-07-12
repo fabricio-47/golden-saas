@@ -188,39 +188,27 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
     .join('');
 
   const pecaOptions = pecasDisponiveis
-    .map((p) => `<option value="${p.id}" data-preco="${p.preco_venda}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — ${formatMoney(p.preco_venda)}</option>`)
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — ${formatMoney(p.preco_venda)}</option>`)
     .join('');
 
   const addItemFormHtml =
     venda.status === 'aberta'
       ? `<form method="POST" action="/vendas/${venda.id}/itens" enctype="multipart/form-data" style="margin-top:16px;">
           <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
-          <div class="field">
-            <label for="tipo_item">O que está sendo vendido?</label>
-            <select id="tipo_item" name="tipo_item" onchange="toggleTipoItem()">
-              <option value="peca">Peça do estoque</option>
-              <option value="veiculo">Veículo (moto/bike elétrica)</option>
-            </select>
-          </div>
-
-          <div id="campo-peca">
-            ${
-              pecasDisponiveis.length
-                ? `<div class="form-grid">
-              <div class="field">
-                <label for="peca_id">Peça</label>
-                <select id="peca_id" name="peca_id">
-                  <option value="">Selecione...</option>
-                  ${pecaOptions}
-                </select>
-              </div>
-              <div class="field">
-                <label for="item_quantidade">Quantidade</label>
-                <input type="number" id="item_quantidade" name="quantidade" min="1" step="1" value="1">
-              </div>
-            </div>`
-                : '<p class="muted">Nenhuma peça disponível no estoque desta loja.</p>'
-            }
+          <div class="form-grid">
+            <div class="field">
+              <label for="produto_id">Produto</label>
+              <select id="produto_id" name="produto_id" onchange="toggleProduto()">
+                <option value="">Selecione...</option>
+                ${pecaOptions}
+                <option value="veiculo">🏍️ Cadastrar veículo (moto/bike elétrica)</option>
+              </select>
+              ${!pecasDisponiveis.length ? '<p class="muted">Nenhuma peça no estoque desta loja ainda — mas dá pra vender um veículo direto.</p>' : ''}
+            </div>
+            <div class="field" id="campo-quantidade">
+              <label for="item_quantidade">Quantidade</label>
+              <input type="number" id="item_quantidade" name="quantidade" min="1" step="1" value="1">
+            </div>
           </div>
 
           <div id="campo-veiculo" style="display:none;">
@@ -267,11 +255,12 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
           <button class="btn btn-sm" type="submit" style="margin-top:12px;">+ Adicionar item</button>
         </form>
         <script>
-          function toggleTipoItem() {
-            var tipo = document.getElementById('tipo_item').value;
-            document.getElementById('campo-peca').style.display = tipo === 'peca' ? '' : 'none';
-            document.getElementById('campo-veiculo').style.display = tipo === 'veiculo' ? '' : 'none';
+          function toggleProduto() {
+            var isVeiculo = document.getElementById('produto_id').value === 'veiculo';
+            document.getElementById('campo-quantidade').style.display = isVeiculo ? 'none' : '';
+            document.getElementById('campo-veiculo').style.display = isVeiculo ? '' : 'none';
           }
+          toggleProduto();
         </script>`
       : '';
 

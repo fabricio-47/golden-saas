@@ -1501,7 +1501,7 @@ async function handler(req, res) {
         return redirect(res, `/vendas/${m.id}`);
       }
 
-      if (body.tipo_item === 'veiculo') {
+      if (body.produto_id === 'veiculo') {
         const marca = (body.veiculo_marca || '').trim();
         const modelo = (body.veiculo_modelo || '').trim();
         const precoVenda = toFloatOrNull(body.veiculo_preco_venda);
@@ -1535,7 +1535,11 @@ async function handler(req, res) {
         return redirect(res, `/vendas/${m.id}`);
       }
 
-      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
+      if (!body.produto_id) {
+        setFlash(session.sessionId, 'error', 'Selecione um produto pra adicionar.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.produto_id);
       const quantidade = toIntOrNull(body.quantidade) || 1;
       if (!peca) {
         setFlash(session.sessionId, 'error', 'Peça não encontrada no estoque.');
