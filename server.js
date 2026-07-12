@@ -18,7 +18,7 @@ const { readBody, parseFormBody, escapeHtml, formatMoney } = require('./src/util
 const { readRawBody, getBoundary, parseMultipart } = require('./src/multipart');
 const { saveUploadedFile, deleteUploadedFile, resolveUploadPath, mimeForPath, MAX_REQUEST_BYTES } = require('./src/uploads');
 const { sendMail, isConfigured: mailConfigured } = require('./src/mailer');
-const { ROLES, hasManagementAccess } = require('./src/roles');
+const { ROLES, hasManagementAccess, canSeeAllLojas, canSeeLoja, canEditLoja } = require('./src/roles');
 
 const { loginPage } = require('./src/views/login');
 const { dashboardPage } = require('./src/views/dashboard');
@@ -35,6 +35,8 @@ const {
 const { pecasListPage, pecaFormPage } = require('./src/views/estoque');
 const { usuariosListPage, usuarioFormPage } = require('./src/views/usuarios');
 const { auditoriaPage } = require('./src/views/auditoria');
+const { lojasListPage, lojaFormPage } = require('./src/views/lojas');
+const { transferenciasListPage, transferenciaFormPage } = require('./src/views/transferencias');
 
 const PORT = process.env.PORT || 3000;
 
@@ -206,7 +208,16 @@ async function handler(req, res) {
     const method = req.method;
 
     const session = getSession(req);
-    const user = session ? { id: session.userId, name: session.name, email: session.email, role: session.role } : null;
+    const user = session
+      ? {
+          id: session.userId,
+          name: session.name,
+          email: session.email,
+          role: session.role,
+          loja_id: session.loja_id,
+          pode_ver_outras_lojas: session.pode_ver_outras_lojas,
+        }
+      : null;
 
     // --- auth gate ---
     if (!PUBLIC_PATHS.has(pathname) && !user) {
@@ -489,28 +500,71 @@ async function handler(req, res) {
 
     // ---------------- ESTOQUE ----------------
     if (pathname === '/estoque' && method === 'GET') {
-      const pecas = db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all();
-      return send(res, 200, pecasListPage({ user, flash: takeFlash(session.sessionId), pecas, csrfToken: session.csrfToken }));
+      const todasLojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      const lojasVisiveis = todasLojas.filter((l) => canSeeLoja(user, l.id));
+      const lojaFiltroId = url.searchParams.get('loja_id') || '';
+
+      let pecas;
+      if (lojaFiltroId) {
+        pecas = canSeeLoja(user, lojaFiltroId)
+          ? db.prepare('SELECT p.*, l.nome as loja_nome FROM pecas p LEFT JOIN lojas l ON l.id = p.loja_id WHERE p.loja_id = ? ORDER BY p.nome ASC').all(lojaFiltroId)
+          : [];
+      } else if (canSeeAllLojas(user)) {
+        pecas = db.prepare('SELECT p.*, l.nome as loja_nome FROM pecas p LEFT JOIN lojas l ON l.id = p.loja_id ORDER BY p.nome ASC').all();
+      } else {
+        const idsVisiveis = lojasVisiveis.map((l) => l.id);
+        if (idsVisiveis.length) {
+          const placeholders = idsVisiveis.map(() => '?').join(',');
+          pecas = db.prepare(`SELECT p.*, l.nome as loja_nome FROM pecas p LEFT JOIN lojas l ON l.id = p.loja_id WHERE p.loja_id IN (${placeholders}) ORDER BY p.nome ASC`).all(...idsVisiveis);
+        } else {
+          pecas = [];
+        }
+      }
+      pecas.forEach((p) => { p.__podeEditar = canEditLoja(user, p.loja_id); });
+
+      return send(res, 200, pecasListPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        pecas,
+        csrfToken: session.csrfToken,
+        lojas: lojasVisiveis,
+        lojaFiltroId,
+        mostrarColunaLoja: lojasVisiveis.length > 1,
+      }));
     }
 
     if (pathname === '/estoque/novo' && method === 'GET') {
-      return send(res, 200, pecaFormPage({ user, flash: takeFlash(session.sessionId), peca: null, csrfToken: session.csrfToken }));
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      return send(res, 200, pecaFormPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        peca: null,
+        csrfToken: session.csrfToken,
+        lojas,
+        lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
+      }));
     }
 
     if (pathname === '/estoque' && method === 'POST') {
-      if (!body.nome || !body.nome.trim()) {
-        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: body, csrfToken: session.csrfToken }));
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      const lojaFixaNome = canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null);
+      const lojaIdEscolhida = canSeeAllLojas(user) ? toIntOrNull(body.loja_id) : user.loja_id;
+
+      if (!body.nome || !body.nome.trim() || !lojaIdEscolhida) {
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça e loja são obrigatórios.' }, peca: body, csrfToken: session.csrfToken, lojas, lojaFixaNome }));
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       const info = db
         .prepare(
-          `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes, loja_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
           toIntOrNull(body.quantidade) || 0, toIntOrNull(body.estoque_minimo) || 0,
-          toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || ''
+          toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida
         );
       setFlash(session.sessionId, 'success', 'Peça cadastrada no estoque.');
       return redirect(res, `/estoque/${info.lastInsertRowid}/editar`);
@@ -519,10 +573,23 @@ async function handler(req, res) {
     if ((m = matchRoute('/estoque/:id/editar', pathname)) && method === 'GET') {
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(m.id);
       if (!peca) return notFound(res);
-      return send(res, 200, pecaFormPage({ user, flash: takeFlash(session.sessionId), peca, csrfToken: session.csrfToken }));
+      if (!canEditLoja(user, peca.loja_id)) return forbidden(res);
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      return send(res, 200, pecaFormPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        peca,
+        csrfToken: session.csrfToken,
+        lojas,
+        lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
+      }));
     }
 
     if ((m = matchRoute('/estoque/:id/excluir', pathname)) && method === 'POST') {
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(m.id);
+      if (!peca) return notFound(res);
+      if (!canEditLoja(user, peca.loja_id)) return forbidden(res);
       db.prepare('DELETE FROM pecas WHERE id = ?').run(m.id);
       setFlash(session.sessionId, 'success', 'Peça excluída do estoque.');
       return redirect(res, '/estoque');
@@ -531,19 +598,182 @@ async function handler(req, res) {
     if ((m = matchRoute('/estoque/:id', pathname)) && method === 'POST') {
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(m.id);
       if (!peca) return notFound(res);
+      if (!canEditLoja(user, peca.loja_id)) return forbidden(res);
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      const lojaFixaNome = canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null);
+      const lojaIdEscolhida = canSeeAllLojas(user) ? (toIntOrNull(body.loja_id) || peca.loja_id) : peca.loja_id;
+
       if (!body.nome || !body.nome.trim()) {
-        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: { ...peca, ...body }, csrfToken: session.csrfToken }));
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: { ...peca, ...body }, csrfToken: session.csrfToken, lojas, lojaFixaNome }));
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       db.prepare(
-        `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, updated_at=datetime('now') WHERE id=?`
+        `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, loja_id=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
         toIntOrNull(body.quantidade) || 0, toIntOrNull(body.estoque_minimo) || 0,
-        toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', m.id
+        toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, m.id
       );
       setFlash(session.sessionId, 'success', 'Peça atualizada.');
       return redirect(res, `/estoque/${m.id}/editar`);
+    }
+
+    // ---------------- LOJAS (Direção e Gerência apenas) ----------------
+    if (pathname === '/lojas' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const lojas = db.prepare('SELECT * FROM lojas ORDER BY nome ASC').all();
+      return send(res, 200, lojasListPage({ user, flash: takeFlash(session.sessionId), lojas }));
+    }
+
+    if (pathname === '/lojas/novo' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, lojaFormPage({ user, flash: takeFlash(session.sessionId), loja: null, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/lojas' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, lojaFormPage({ user, flash: { type: 'error', message: 'Nome da loja é obrigatório.' }, loja: body, csrfToken: session.csrfToken }));
+      }
+      const info = db
+        .prepare('INSERT INTO lojas (nome, endereco, telefone) VALUES (?, ?, ?)')
+        .run(body.nome.trim(), body.endereco || '', body.telefone || '');
+      setFlash(session.sessionId, 'success', 'Loja cadastrada.');
+      return redirect(res, '/lojas');
+    }
+
+    if ((m = matchRoute('/lojas/:id/editar', pathname)) && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const loja = db.prepare('SELECT * FROM lojas WHERE id = ?').get(m.id);
+      if (!loja) return notFound(res);
+      return send(res, 200, lojaFormPage({ user, flash: takeFlash(session.sessionId), loja, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/lojas/:id', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const loja = db.prepare('SELECT * FROM lojas WHERE id = ?').get(m.id);
+      if (!loja) return notFound(res);
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, lojaFormPage({ user, flash: { type: 'error', message: 'Nome da loja é obrigatório.' }, loja: { ...loja, ...body }, csrfToken: session.csrfToken }));
+      }
+      const ativo = body.ativo === '0' ? 0 : 1;
+      db.prepare('UPDATE lojas SET nome=?, endereco=?, telefone=?, ativo=? WHERE id=?').run(
+        body.nome.trim(), body.endereco || '', body.telefone || '', ativo, m.id
+      );
+      setFlash(session.sessionId, 'success', 'Loja atualizada.');
+      return redirect(res, '/lojas');
+    }
+
+    // ---------------- TRANSFERÊNCIAS ENTRE LOJAS ----------------
+    if (pathname === '/transferencias' && method === 'GET') {
+      const transferencias = db
+        .prepare(
+          `SELECT t.*, lo.nome as loja_origem_nome, ld.nome as loja_destino_nome, u.name as solicitante_nome
+           FROM transferencias t
+           JOIN lojas lo ON lo.id = t.loja_origem_id
+           JOIN lojas ld ON ld.id = t.loja_destino_id
+           LEFT JOIN users u ON u.id = t.solicitado_por
+           ORDER BY t.created_at DESC`
+        )
+        .all();
+      return send(res, 200, transferenciasListPage({ user, flash: takeFlash(session.sessionId), transferencias, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/transferencias/novo' && method === 'GET') {
+      const pecaId = url.searchParams.get('peca_id');
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(pecaId);
+      if (!peca) {
+        setFlash(session.sessionId, 'error', 'Peça não encontrada.');
+        return redirect(res, '/estoque');
+      }
+      if (!canSeeLoja(user, peca.loja_id)) return forbidden(res);
+      const lojasDestino = db.prepare('SELECT * FROM lojas WHERE ativo = 1 AND id != ? ORDER BY nome ASC').all(peca.loja_id);
+      return send(res, 200, transferenciaFormPage({ user, flash: takeFlash(session.sessionId), peca, lojasDestino, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/transferencias' && method === 'POST') {
+      const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
+      if (!peca) {
+        setFlash(session.sessionId, 'error', 'Peça não encontrada.');
+        return redirect(res, '/estoque');
+      }
+      if (!canSeeLoja(user, peca.loja_id)) return forbidden(res);
+      const quantidade = toIntOrNull(body.quantidade) || 0;
+      const lojaDestinoId = toIntOrNull(body.loja_destino_id);
+      const lojaDestino = lojaDestinoId ? db.prepare('SELECT * FROM lojas WHERE id = ? AND ativo = 1').get(lojaDestinoId) : null;
+      if (quantidade < 1 || quantidade > peca.quantidade) {
+        setFlash(session.sessionId, 'error', 'Quantidade inválida para transferência.');
+        return redirect(res, `/transferencias/novo?peca_id=${peca.id}`);
+      }
+      if (!lojaDestino || String(lojaDestino.id) === String(peca.loja_id)) {
+        setFlash(session.sessionId, 'error', 'Selecione uma loja destino válida.');
+        return redirect(res, `/transferencias/novo?peca_id=${peca.id}`);
+      }
+      db.prepare(
+        `INSERT INTO transferencias (peca_origem_id, nome_peca, categoria, custo_unitario, preco_venda, quantidade, loja_origem_id, loja_destino_id, observacoes, solicitado_por)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        peca.id, peca.nome, peca.categoria, peca.custo_unitario, peca.preco_venda, quantidade,
+        peca.loja_id, lojaDestino.id, body.observacoes || '', user.id
+      );
+      setFlash(session.sessionId, 'success', `Transferência de "${peca.nome}" solicitada. Aguardando aprovação da Direção/Gerência.`);
+      return redirect(res, '/transferencias');
+    }
+
+    if ((m = matchRoute('/transferencias/:id/aprovar', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const t = db.prepare('SELECT * FROM transferencias WHERE id = ?').get(m.id);
+      if (!t) return notFound(res);
+      if (t.status !== 'pendente_aprovacao') {
+        setFlash(session.sessionId, 'error', 'Esta transferência já foi processada.');
+        return redirect(res, '/transferencias');
+      }
+      const pecaOrigem = t.peca_origem_id ? db.prepare('SELECT * FROM pecas WHERE id = ?').get(t.peca_origem_id) : null;
+      if (!pecaOrigem || pecaOrigem.quantidade < t.quantidade) {
+        setFlash(session.sessionId, 'error', 'Estoque insuficiente na loja de origem para aprovar esta transferência.');
+        return redirect(res, '/transferencias');
+      }
+      db.prepare("UPDATE pecas SET quantidade = quantidade - ?, updated_at = datetime('now') WHERE id = ?").run(t.quantidade, pecaOrigem.id);
+      db.prepare("UPDATE transferencias SET status = 'em_transito', aprovado_por = ?, aprovado_at = datetime('now') WHERE id = ?").run(user.id, t.id);
+      setFlash(session.sessionId, 'success', 'Transferência aprovada. Estoque de origem já foi debitado — aguardando confirmação de recebimento na loja destino.');
+      return redirect(res, '/transferencias');
+    }
+
+    if ((m = matchRoute('/transferencias/:id/recusar', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const t = db.prepare('SELECT * FROM transferencias WHERE id = ?').get(m.id);
+      if (!t) return notFound(res);
+      if (t.status !== 'pendente_aprovacao') {
+        setFlash(session.sessionId, 'error', 'Esta transferência já foi processada.');
+        return redirect(res, '/transferencias');
+      }
+      db.prepare("UPDATE transferencias SET status = 'recusada' WHERE id = ?").run(t.id);
+      setFlash(session.sessionId, 'success', 'Transferência recusada.');
+      return redirect(res, '/transferencias');
+    }
+
+    if ((m = matchRoute('/transferencias/:id/confirmar-recebimento', pathname)) && method === 'POST') {
+      const t = db.prepare('SELECT * FROM transferencias WHERE id = ?').get(m.id);
+      if (!t) return notFound(res);
+      const podeConfirmar = hasManagementAccess(user) || String(user.loja_id) === String(t.loja_destino_id);
+      if (!podeConfirmar) return forbidden(res);
+      if (t.status !== 'em_transito') {
+        setFlash(session.sessionId, 'error', 'Esta transferência não está aguardando recebimento.');
+        return redirect(res, '/transferencias');
+      }
+      let pecaDestino = db.prepare('SELECT * FROM pecas WHERE loja_id = ? AND nome = ?').get(t.loja_destino_id, t.nome_peca);
+      if (pecaDestino) {
+        db.prepare("UPDATE pecas SET quantidade = quantidade + ?, updated_at = datetime('now') WHERE id = ?").run(t.quantidade, pecaDestino.id);
+      } else {
+        db.prepare(
+          `INSERT INTO pecas (nome, categoria, quantidade, estoque_minimo, custo_unitario, preco_venda, loja_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(t.nome_peca, t.categoria || '', t.quantidade, 1, t.custo_unitario, t.preco_venda || 0, t.loja_destino_id);
+      }
+      db.prepare("UPDATE transferencias SET status = 'recebida', recebido_por = ?, recebido_at = datetime('now') WHERE id = ?").run(user.id, t.id);
+      setFlash(session.sessionId, 'success', `Recebimento confirmado. "${t.nome_peca}" já está no estoque desta loja.`);
+      return redirect(res, '/transferencias');
     }
 
     // ---------------- ORDENS DE SERVIÇO ----------------
@@ -800,37 +1030,47 @@ async function handler(req, res) {
       const midiasChecklist = db.prepare("SELECT * FROM os_midias WHERE ordem_servico_id = ? AND categoria = 'checklist' ORDER BY created_at DESC").all(m.id);
       const midiasServico = db.prepare("SELECT * FROM os_midias WHERE ordem_servico_id = ? AND categoria = 'servico' ORDER BY created_at DESC").all(m.id);
       const osPecas = db.prepare('SELECT * FROM os_pecas WHERE ordem_servico_id = ? ORDER BY created_at DESC').all(m.id);
-      const pecasDisponiveis = db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all();
+      const pecasDisponiveis = canSeeAllLojas(user)
+        ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, csrfToken: session.csrfToken }));
     }
 
     // ---------------- USUÁRIOS (Direção e Gerência apenas) ----------------
     if (pathname === '/usuarios' && method === 'GET') {
       if (!hasManagementAccess(user)) return forbidden(res);
-      const usuarios = db.prepare('SELECT * FROM users ORDER BY name ASC').all();
+      const usuarios = db
+        .prepare('SELECT u.*, l.nome as loja_nome FROM users u LEFT JOIN lojas l ON l.id = u.loja_id ORDER BY u.name ASC')
+        .all();
       return send(res, 200, usuariosListPage({ user, flash: takeFlash(session.sessionId), usuarios, csrfToken: session.csrfToken }));
     }
 
     if (pathname === '/usuarios/novo' && method === 'GET') {
       if (!hasManagementAccess(user)) return forbidden(res);
-      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario: null, csrfToken: session.csrfToken }));
+      const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario: null, csrfToken: session.csrfToken, lojas }));
     }
 
     if (pathname === '/usuarios' && method === 'POST') {
       if (!hasManagementAccess(user)) return forbidden(res);
+      const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
       const nome = (body.name || '').trim();
       const emailNovo = (body.email || '').trim().toLowerCase();
       const role = ROLES.includes(body.role) ? body.role : 'mecanico';
+      const lojaId = toIntOrNull(body.loja_id);
+      const podeVerOutrasLojas = body.pode_ver_outras_lojas ? 1 : 0;
       if (!nome || !emailNovo || !body.password) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome, e-mail e senha são obrigatórios.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome, e-mail e senha são obrigatórios.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
       }
       const existente = db.prepare('SELECT id FROM users WHERE email = ?').get(emailNovo);
       if (existente) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe um usuário com esse e-mail.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe um usuário com esse e-mail.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
       }
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = hashPassword(body.password, salt);
-      db.prepare('INSERT INTO users (name, email, password_hash, password_salt, role) VALUES (?, ?, ?, ?, ?)').run(nome, emailNovo, hash, salt, role);
+      db.prepare('INSERT INTO users (name, email, password_hash, password_salt, role, loja_id, pode_ver_outras_lojas) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        nome, emailNovo, hash, salt, role, lojaId, podeVerOutrasLojas
+      );
       setFlash(session.sessionId, 'success', 'Usuário cadastrado.');
       return redirect(res, '/usuarios');
     }
@@ -839,29 +1079,37 @@ async function handler(req, res) {
       if (!hasManagementAccess(user)) return forbidden(res);
       const usuario = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
       if (!usuario) return notFound(res);
-      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario, csrfToken: session.csrfToken }));
+      const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario, csrfToken: session.csrfToken, lojas }));
     }
 
     if ((m = matchRoute('/usuarios/:id', pathname)) && method === 'POST') {
       if (!hasManagementAccess(user)) return forbidden(res);
       const usuario = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
       if (!usuario) return notFound(res);
+      const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
       const nome = (body.name || '').trim();
       const emailNovo = (body.email || '').trim().toLowerCase();
       const role = ROLES.includes(body.role) ? body.role : usuario.role;
+      const lojaId = toIntOrNull(body.loja_id);
+      const podeVerOutrasLojas = body.pode_ver_outras_lojas ? 1 : 0;
       if (!nome || !emailNovo) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome e e-mail são obrigatórios.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome e e-mail são obrigatórios.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
       }
       const dupEmail = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(emailNovo, m.id);
       if (dupEmail) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe outro usuário com esse e-mail.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken }));
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe outro usuário com esse e-mail.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
       }
       if (body.password && body.password.trim()) {
         const salt = crypto.randomBytes(16).toString('hex');
         const hash = hashPassword(body.password, salt);
-        db.prepare('UPDATE users SET name=?, email=?, role=?, password_hash=?, password_salt=? WHERE id=?').run(nome, emailNovo, role, hash, salt, m.id);
+        db.prepare('UPDATE users SET name=?, email=?, role=?, loja_id=?, pode_ver_outras_lojas=?, password_hash=?, password_salt=? WHERE id=?').run(
+          nome, emailNovo, role, lojaId, podeVerOutrasLojas, hash, salt, m.id
+        );
       } else {
-        db.prepare('UPDATE users SET name=?, email=?, role=? WHERE id=?').run(nome, emailNovo, role, m.id);
+        db.prepare('UPDATE users SET name=?, email=?, role=?, loja_id=?, pode_ver_outras_lojas=? WHERE id=?').run(
+          nome, emailNovo, role, lojaId, podeVerOutrasLojas, m.id
+        );
       }
       setFlash(session.sessionId, 'success', 'Usuário atualizado.');
       return redirect(res, '/usuarios');

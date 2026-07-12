@@ -164,8 +164,10 @@ function layout({ title, activeNav, user, flash, children }) {
     { key: 'bicicletas', href: '/bicicletas', label: 'Bicicletas' },
     { key: 'os', href: '/os', label: 'Ordens de Serviço' },
     { key: 'estoque', href: '/estoque', label: 'Estoque' },
+    { key: 'transferencias', href: '/transferencias', label: 'Transferências' },
   ];
   if (canManage) {
+    navItems.push({ key: 'lojas', href: '/lojas', label: 'Lojas' });
     navItems.push({ key: 'usuarios', href: '/usuarios', label: 'Usuários' });
     navItems.push({ key: 'auditoria', href: '/auditoria', label: 'Auditoria' });
   }

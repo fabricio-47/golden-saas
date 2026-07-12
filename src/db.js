@@ -14,6 +14,15 @@ const db = new DatabaseSync(DB_PATH);
 db.exec(`
   PRAGMA foreign_keys = ON;
 
+  CREATE TABLE IF NOT EXISTS lojas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    endereco TEXT,
+    telefone TEXT,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -22,6 +31,8 @@ db.exec(`
     password_salt TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'direcao',
     ativo INTEGER NOT NULL DEFAULT 1,
+    loja_id INTEGER REFERENCES lojas(id) ON DELETE SET NULL,
+    pode_ver_outras_lojas INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -113,8 +124,29 @@ db.exec(`
     custo_unitario REAL,
     preco_venda REAL NOT NULL DEFAULT 0,
     observacoes TEXT,
+    loja_id INTEGER REFERENCES lojas(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS transferencias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    peca_origem_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    nome_peca TEXT NOT NULL,
+    categoria TEXT,
+    custo_unitario REAL,
+    preco_venda REAL,
+    quantidade INTEGER NOT NULL,
+    loja_origem_id INTEGER NOT NULL REFERENCES lojas(id),
+    loja_destino_id INTEGER NOT NULL REFERENCES lojas(id),
+    status TEXT NOT NULL DEFAULT 'pendente_aprovacao',
+    observacoes TEXT,
+    solicitado_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    aprovado_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    recebido_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    aprovado_at TEXT,
+    recebido_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS os_pecas (
@@ -136,6 +168,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_os_pecas_os ON os_pecas(ordem_servico_id);
   CREATE INDEX IF NOT EXISTS idx_os_pecas_peca ON os_pecas(peca_id);
   CREATE INDEX IF NOT EXISTS idx_login_audit_created ON login_audit(created_at);
+  CREATE INDEX IF NOT EXISTS idx_pecas_loja ON pecas(loja_id);
+  CREATE INDEX IF NOT EXISTS idx_users_loja ON users(loja_id);
+  CREATE INDEX IF NOT EXISTS idx_transferencias_origem ON transferencias(loja_origem_id);
+  CREATE INDEX IF NOT EXISTS idx_transferencias_destino ON transferencias(loja_destino_id);
+  CREATE INDEX IF NOT EXISTS idx_transferencias_status ON transferencias(status);
 `);
 
 // --- migrações leves para bancos criados por versões anteriores ---
@@ -154,9 +191,29 @@ ensureColumn('ordens_servico', 'parcelas', 'INTEGER');
 ensureColumn('ordens_servico', 'ativo', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('users', 'role', "TEXT NOT NULL DEFAULT 'direcao'");
 ensureColumn('users', 'ativo', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('users', 'loja_id', 'INTEGER');
+ensureColumn('users', 'pode_ver_outras_lojas', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('pecas', 'loja_id', 'INTEGER');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");
+
+// garante que exista ao menos uma loja e que toda peça já cadastrada
+// (de versões anteriores ao multi-lojas) fique associada a ela
+function ensureDefaultLoja() {
+  const count = db.prepare('SELECT COUNT(*) as c FROM lojas').get().c;
+  let defaultLojaId;
+  if (count === 0) {
+    const info = db.prepare('INSERT INTO lojas (nome, endereco, telefone, ativo) VALUES (?, ?, ?, 1)').run('Loja Principal', '', '');
+    defaultLojaId = info.lastInsertRowid;
+    console.log('[seed] Loja "Loja Principal" criada automaticamente.');
+  } else {
+    defaultLojaId = db.prepare('SELECT id FROM lojas ORDER BY id ASC LIMIT 1').get().id;
+  }
+  db.prepare('UPDATE pecas SET loja_id = ? WHERE loja_id IS NULL').run(defaultLojaId);
+  return defaultLojaId;
+}
+const DEFAULT_LOJA_ID = ensureDefaultLoja();
 
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
@@ -213,13 +270,13 @@ function seed() {
   const pecaCount = db.prepare('SELECT COUNT(*) as c FROM pecas').get().c;
   if (pecaCount === 0) {
     const insPeca = db.prepare(
-      `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes, loja_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    insPeca.run('Pastilha de freio (par)', 'Freios', null, 12, 4, 15.0, 35.0, '');
-    insPeca.run('Câmara de ar aro 26', 'Pneus e câmaras', null, 8, 3, 12.0, 28.0, '');
-    insPeca.run('Bateria 48V 15Ah', 'Bateria', null, 2, 1, 850.0, 1450.0, 'Compatível com Voltz EB-100');
-    insPeca.run('Controladora 500W', 'Controladora', null, 1, 1, 180.0, 320.0, '');
+    insPeca.run('Pastilha de freio (par)', 'Freios', null, 12, 4, 15.0, 35.0, '', DEFAULT_LOJA_ID);
+    insPeca.run('Câmara de ar aro 26', 'Pneus e câmaras', null, 8, 3, 12.0, 28.0, '', DEFAULT_LOJA_ID);
+    insPeca.run('Bateria 48V 15Ah', 'Bateria', null, 2, 1, 850.0, 1450.0, 'Compatível com Voltz EB-100', DEFAULT_LOJA_ID);
+    insPeca.run('Controladora 500W', 'Controladora', null, 1, 1, 180.0, 320.0, '', DEFAULT_LOJA_ID);
   }
 }
 

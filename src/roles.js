@@ -17,4 +17,27 @@ function hasManagementAccess(user) {
   return !!user && (user.role === 'direcao' || user.role === 'gerencia');
 }
 
-module.exports = { ROLES, ROLE_LABELS, hasManagementAccess };
+// Usuário sem loja_id (Direção/Gerência tipicamente) enxerga todas as lojas.
+function canSeeAllLojas(user) {
+  return !!user && !user.loja_id;
+}
+
+// Pode ver o estoque de uma loja específica: é a própria loja do usuário,
+// ou o usuário enxerga todas as lojas, ou tem a permissão explícita de
+// ver estoque de outras lojas.
+function canSeeLoja(user, lojaId) {
+  if (!user) return false;
+  if (canSeeAllLojas(user)) return true;
+  if (String(user.loja_id) === String(lojaId)) return true;
+  return !!user.pode_ver_outras_lojas;
+}
+
+// Pode editar/cadastrar/excluir peças de uma loja específica: só a própria
+// loja do usuário, ou quem enxerga todas as lojas (Direção/Gerência).
+function canEditLoja(user, lojaId) {
+  if (!user) return false;
+  if (canSeeAllLojas(user)) return true;
+  return String(user.loja_id) === String(lojaId);
+}
+
+module.exports = { ROLES, ROLE_LABELS, hasManagementAccess, canSeeAllLojas, canSeeLoja, canEditLoja };

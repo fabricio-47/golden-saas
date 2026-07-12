@@ -35,6 +35,11 @@ Este projeto já está publicado em: **https://golden-saas.onrender.com**
 - **Auditoria de login**: toda tentativa de entrar no sistema (com sucesso ou falha) fica registrada com data/hora, e-mail usado e IP.
 - **Ordens de Serviço nunca são excluídas**, só **desativadas** — o botão "Excluir" virou "Desativar O.S."; o histórico completo continua salvo e pode ser reativado a qualquer momento pela própria tela da O.S. ou pelo filtro "Ver desativadas" na listagem.
 - **Número da versão** do sistema aparece sempre no rodapé do menu lateral e na tela de login.
+- **Multi-lojas**: cada loja cadastrada (menu **Lojas**, Direção/Gerência) tem seu próprio estoque de peças, isolado das demais.
+  - Cada usuário Vendedor/Mecânico é vinculado a **uma loja específica** e só enxerga (e só pode editar) o estoque dessa loja.
+  - Existe uma opção **"Pode ver o estoque de outras lojas (só visualizar)"** no cadastro do usuário, que libera visualização (não edição) do estoque de todas as lojas — útil para quem precisa ter uma visão geral sem mexer no estoque alheio.
+  - Direção e Gerência sempre enxergam e editam o estoque de todas as lojas.
+  - **Transferência entre lojas**: qualquer usuário pode solicitar a transferência de uma peça que ele enxerga para outra loja (botão "Transferir" na tela de Estoque). A transferência só sai do estoque de origem depois que a **Direção ou Gerência aprova** (menu **Transferências**); depois de aprovada, fica "Em trânsito" até que a **loja de destino confirme o recebimento** (botão "OK, mercadoria recebida"), momento em que a peça entra automaticamente no estoque de destino. Também é possível **recusar** uma transferência antes da aprovação.
 
 ## 2. Configurar o envio de e-mails (obrigatório para os botões de e-mail funcionarem)
 
@@ -73,12 +78,20 @@ O plano gratuito do Render **não guarda dados permanentemente**: ele "dorme" ap
 
 ## 4. O que ainda NÃO está nesta versão (próximos passos combinados no roteiro)
 
+Este é o **primeiro** de vários módulos pedidos numa lista maior — os itens abaixo ficaram combinados para as próximas rodadas, na ordem que fizer mais sentido pro negócio:
+
+- Leitura de **código de barras** no cadastro de peças (funciona em celular Android/Chrome).
+- Cadastro de **fornecedores**.
+- **Contas a pagar e contas a receber**.
+- **Crediário** para venda de motos e bicicletas elétricas (controle manual das parcelas, sem boleto/gateway de pagamento integrado por enquanto).
+- Fotos de peças e de motos/bicicletas por modelo.
+- **Dashboard de vendas e metas** para o vendedor, com comissão em % configurável no cadastro dele.
+- Módulo de **Vendas** de veículos: foto do chassi e do número de série da bateria, contrato anexado, e escolha do tipo de garantia (90 dias ou até 2 anos).
+- **Lembrete automático por e-mail** a cada 30 dias avisando o cliente para fazer a revisão (o envio por WhatsApp fica pra depois).
+- Histórico de revisão/manutenção por cliente (hoje já dá pra ver todas as O.S. de um cliente; a ideia é deixar essa visão mais completa).
+- **Data de nascimento** no cadastro do cliente, para mensagens automáticas de parabéns.
 - **Agenda de atendimentos** (cliente marcar horário, visão de agenda do dia/semana).
-- **Financeiro / fluxo de caixa** (resumo de entradas por período e forma de pagamento).
-- Módulo de **Vendas / CRM** (contratos de manutenção, cobrança recorrente, notas fiscais).
-- Envio automático de alertas por **WhatsApp**.
 - Orçamento/O.S. em **PDF** para imprimir ou enviar.
-- Suporte a múltiplas oficinas (multi-tenant) — hoje é uma oficina só, mas já com múltiplos usuários e níveis de permissão.
 - Anexar as fotos/vídeos diretamente dentro do e-mail (hoje o e-mail traz o texto completo, mas as fotos ficam só dentro do sistema).
 - Movimentações de estoque com histórico (hoje a quantidade só é ajustada direto; um "log" de entradas/saídas pode ser adicionado depois).
 

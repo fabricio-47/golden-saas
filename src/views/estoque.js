@@ -20,12 +20,13 @@ function estoqueBadge(peca) {
   return '<span class="badge badge-ok">OK</span>';
 }
 
-function pecasListPage({ user, flash, pecas, csrfToken }) {
+function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mostrarColunaLoja }) {
   const rows = pecas
     .map(
       (p) => `
     <tr>
       <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}</td>
+      ${mostrarColunaLoja ? `<td>${escapeHtml(p.loja_nome || '-')}</td>` : ''}
       <td>${escapeHtml(p.categoria || '-')}</td>
       <td>${p.quantidade}</td>
       <td>${estoqueBadge(p)}</td>
@@ -33,16 +34,31 @@ function pecasListPage({ user, flash, pecas, csrfToken }) {
       <td>${formatMoney(p.preco_venda)}</td>
       <td>
         <div class="actions-row" style="margin:0;gap:8px;">
-          <a class="btn btn-sm btn-secondary" href="/estoque/${p.id}/editar">Editar</a>
-          <form method="POST" action="/estoque/${p.id}/excluir" onsubmit="return confirm('Excluir esta peça do estoque?');">
+          ${p.__podeEditar ? `<a class="btn btn-sm btn-secondary" href="/estoque/${p.id}/editar">Editar</a>` : ''}
+          <a class="btn btn-sm btn-secondary" href="/transferencias/novo?peca_id=${p.id}">Transferir</a>
+          ${
+            p.__podeEditar
+              ? `<form method="POST" action="/estoque/${p.id}/excluir" onsubmit="return confirm('Excluir esta peça do estoque?');">
             <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
             <button class="btn btn-sm btn-danger" type="submit">Excluir</button>
-          </form>
+          </form>`
+              : ''
+          }
         </div>
       </td>
     </tr>`
     )
     .join('');
+
+  const lojaFilterHtml =
+    lojas && lojas.length > 1
+      ? `<form method="GET" action="/estoque" class="actions-row" style="margin-top:0;margin-bottom:20px;">
+          <select name="loja_id" onchange="this.form.submit()">
+            <option value="">Todas as lojas que posso ver</option>
+            ${lojas.map((l) => `<option value="${l.id}" ${String(lojaFiltroId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
+          </select>
+        </form>`
+      : '';
 
   return layout({
     title: 'Estoque',
@@ -57,11 +73,12 @@ function pecasListPage({ user, flash, pecas, csrfToken }) {
         </div>
         <a class="btn" href="/estoque/novo">+ Nova Peça</a>
       </div>
+      ${lojaFilterHtml}
       <div class="card">
         ${
           pecas.length
             ? `<table>
-          <thead><tr><th>Peça</th><th>Categoria</th><th>Qtd.</th><th>Situação</th><th>Custo</th><th>Preço de venda</th><th></th></tr></thead>
+          <thead><tr><th>Peça</th>${mostrarColunaLoja ? '<th>Loja</th>' : ''}<th>Categoria</th><th>Qtd.</th><th>Situação</th><th>Custo</th><th>Preço de venda</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
             : '<div class="empty">Nenhuma peça cadastrada ainda. <a class="link-btn" href="/estoque/novo">Cadastrar a primeira</a></div>'
@@ -71,9 +88,22 @@ function pecasListPage({ user, flash, pecas, csrfToken }) {
   });
 }
 
-function pecaFormPage({ user, flash, peca, csrfToken }) {
+function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome }) {
   const isEdit = !!peca;
   const datalistOptions = CATEGORIAS_SUGERIDAS.map((c) => `<option value="${escapeHtml(c)}">`).join('');
+
+  const lojaFieldHtml = lojaFixaNome
+    ? `<div class="field">
+        <label>Loja</label>
+        <input type="text" value="${escapeHtml(lojaFixaNome)}" disabled>
+        <p class="muted" style="margin-top:4px;">Você só pode cadastrar peças na sua própria loja. Pra levar estoque a outra loja, use "Transferir".</p>
+      </div>`
+    : `<div class="field">
+        <label for="loja_id">Loja *</label>
+        <select id="loja_id" name="loja_id" required>
+          ${lojas.map((l) => `<option value="${l.id}" ${peca && peca.loja_id === l.id ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
+        </select>
+      </div>`;
 
   return layout({
     title: isEdit ? `Editar ${peca.nome}` : 'Nova Peça',
@@ -95,6 +125,7 @@ function pecaFormPage({ user, flash, peca, csrfToken }) {
               <label for="nome">Nome da peça *</label>
               <input type="text" id="nome" name="nome" required value="${escapeHtml(peca ? peca.nome : '')}" placeholder="Ex: Pastilha de freio (par)">
             </div>
+            ${lojaFieldHtml}
             <div class="field">
               <label for="categoria">Categoria</label>
               <input type="text" id="categoria" name="categoria" list="categorias-sugeridas" value="${escapeHtml(peca ? peca.categoria : '')}">
