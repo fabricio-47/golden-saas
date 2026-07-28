@@ -16,6 +16,7 @@ function createSession(user) {
     email: user.email,
     name: user.name,
     role: user.role,
+    nivel_id: user.nivel_id,
     loja_id: user.loja_id,
     pode_ver_outras_lojas: user.pode_ver_outras_lojas,
     csrfToken,

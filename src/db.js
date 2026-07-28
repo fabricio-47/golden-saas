@@ -40,6 +40,19 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS niveis_permissao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS nivel_permissoes (
+    nivel_id INTEGER NOT NULL REFERENCES niveis_permissao(id) ON DELETE CASCADE,
+    modulo TEXT NOT NULL,
+    pode_ver INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (nivel_id, modulo)
+  );
+
   CREATE TABLE IF NOT EXISTS login_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email_tentativo TEXT,
@@ -276,6 +289,7 @@ ensureColumn('ordens_servico', 'forma_pagamento', 'TEXT');
 ensureColumn('ordens_servico', 'parcelas', 'INTEGER');
 ensureColumn('ordens_servico', 'ativo', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('users', 'role', "TEXT NOT NULL DEFAULT 'direcao'");
+ensureColumn('users', 'nivel_id', 'INTEGER');
 ensureColumn('users', 'ativo', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('users', 'loja_id', 'INTEGER');
 ensureColumn('users', 'pode_ver_outras_lojas', 'INTEGER NOT NULL DEFAULT 0');
@@ -305,6 +319,51 @@ function ensureDefaultLoja() {
 }
 const DEFAULT_LOJA_ID = ensureDefaultLoja();
 
+// --- níveis de permissão customizáveis (substituem os 4 papéis fixos antigos) ---
+// Módulos padrão liberados para cada nível seed (mantém o comportamento de
+// acesso que já existia antes: Direção/Gerência = tudo; Vendedor/Mecânico =
+// tudo, menos Configurações).
+const MODULOS_OPERACIONAIS = ['painel', 'clientes', 'bicicletas', 'os', 'vendas', 'estoque', 'financeiro'];
+const MODULOS_TODOS = [...MODULOS_OPERACIONAIS, 'configuracoes'];
+const NIVEIS_PADRAO = [
+  { nome: 'Direção', roleAntigo: 'direcao', modulos: MODULOS_TODOS },
+  { nome: 'Gerência', roleAntigo: 'gerencia', modulos: MODULOS_TODOS },
+  { nome: 'Vendedor', roleAntigo: 'vendedor', modulos: MODULOS_OPERACIONAIS },
+  { nome: 'Mecânico', roleAntigo: 'mecanico', modulos: MODULOS_OPERACIONAIS },
+];
+
+function ensureNiveisPermissao() {
+  const count = db.prepare('SELECT COUNT(*) as c FROM niveis_permissao').get().c;
+  if (count === 0) {
+    const insNivel = db.prepare('INSERT INTO niveis_permissao (nome) VALUES (?)');
+    const insPerm = db.prepare('INSERT INTO nivel_permissoes (nivel_id, modulo, pode_ver) VALUES (?, ?, 1)');
+    for (const nivel of NIVEIS_PADRAO) {
+      const info = insNivel.run(nivel.nome);
+      const nivelId = info.lastInsertRowid;
+      for (const modulo of nivel.modulos) insPerm.run(nivelId, modulo);
+    }
+    console.log('[seed] Níveis de permissão padrão criados: Direção, Gerência, Vendedor, Mecânico.');
+  }
+
+  // migra usuários de versões anteriores (que só tinham a coluna "role" fixa)
+  // para o novo sistema de níveis customizáveis, preservando o acesso que já tinham
+  const usuariosSemNivel = db.prepare('SELECT id, role FROM users WHERE nivel_id IS NULL').all();
+  if (usuariosSemNivel.length) {
+    const nivelIdPorRoleAntigo = {};
+    for (const nivel of NIVEIS_PADRAO) {
+      const row = db.prepare('SELECT id FROM niveis_permissao WHERE nome = ?').get(nivel.nome);
+      if (row) nivelIdPorRoleAntigo[nivel.roleAntigo] = row.id;
+    }
+    const fallbackNivelId = db.prepare('SELECT id FROM niveis_permissao ORDER BY id ASC LIMIT 1').get().id;
+    const upd = db.prepare('UPDATE users SET nivel_id = ? WHERE id = ?');
+    for (const u of usuariosSemNivel) {
+      upd.run(nivelIdPorRoleAntigo[u.role] || fallbackNivelId, u.id);
+    }
+    console.log(`[migração] ${usuariosSemNivel.length} usuário(s) migrado(s) para o novo sistema de níveis de permissão.`);
+  }
+}
+ensureNiveisPermissao();
+
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
@@ -314,9 +373,10 @@ function seed() {
   if (userCount === 0) {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = hashPassword('golden123', salt);
+    const nivelDirecao = db.prepare("SELECT id FROM niveis_permissao WHERE nome = 'Direção'").get();
     db.prepare(
-      'INSERT INTO users (name, email, password_hash, password_salt) VALUES (?, ?, ?, ?)'
-    ).run('Administrador', 'admin@goldensaas.com', hash, salt);
+      'INSERT INTO users (name, email, password_hash, password_salt, role, nivel_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('Administrador', 'admin@goldensaas.com', hash, salt, 'direcao', nivelDirecao ? nivelDirecao.id : null);
     console.log('[seed] Usuário admin criado: admin@goldensaas.com / senha: golden123');
   }
 

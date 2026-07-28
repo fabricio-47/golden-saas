@@ -2,7 +2,6 @@
 
 const { layout } = require('./layout');
 const { escapeHtml } = require('../utils');
-const { ROLES, ROLE_LABELS } = require('../roles');
 
 function usuariosListPage({ user, flash, usuarios, csrfToken }) {
   const rows = usuarios
@@ -23,7 +22,7 @@ function usuariosListPage({ user, flash, usuarios, csrfToken }) {
     <tr>
       <td>${escapeHtml(u.name)}</td>
       <td>${escapeHtml(u.email)}</td>
-      <td><span class="badge badge-role">${ROLE_LABELS[u.role] || u.role}</span></td>
+      <td><span class="badge badge-role">${escapeHtml(u.nivel_nome || '(sem nível)')}</span></td>
       <td>${u.loja_nome ? escapeHtml(u.loja_nome) : '<span class="muted">Todas as lojas</span>'}${u.pode_ver_outras_lojas ? ' <span class="badge badge-role">+ outras lojas</span>' : ''}</td>
       <td>${u.ativo ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-desativada">Inativo</span>'}</td>
       <td>
@@ -60,11 +59,13 @@ function usuariosListPage({ user, flash, usuarios, csrfToken }) {
   });
 }
 
-function usuarioFormPage({ user, flash, usuario, csrfToken, lojas }) {
+function usuarioFormPage({ user, flash, usuario, csrfToken, lojas, niveis }) {
   const isEdit = !!usuario;
-  const roleOptions = ROLES.map(
-    (r) => `<option value="${r}" ${usuario && usuario.role === r ? 'selected' : ''}>${ROLE_LABELS[r]}</option>`
-  ).join('');
+  const nivelOptions = niveis
+    .map(
+      (n) => `<option value="${n.id}" ${usuario && String(usuario.nivel_id) === String(n.id) ? 'selected' : ''}>${escapeHtml(n.nome)}</option>`
+    )
+    .join('');
   const lojaOptions = lojas
     .map((l) => `<option value="${l.id}" ${usuario && String(usuario.loja_id) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`)
     .join('');
@@ -91,8 +92,12 @@ function usuarioFormPage({ user, flash, usuario, csrfToken, lojas }) {
               <input type="email" id="email" name="email" required value="${escapeHtml(usuario ? usuario.email : '')}">
             </div>
             <div class="field">
-              <label for="role">Nível de acesso *</label>
-              <select id="role" name="role">${roleOptions}</select>
+              <label for="nivel_id">Nível de acesso *</label>
+              <select id="nivel_id" name="nivel_id" required>
+                <option value="">Selecione...</option>
+                ${nivelOptions}
+              </select>
+              <p class="muted" style="margin-top:4px;">Gerencie os níveis disponíveis em Configurações → Níveis de permissão.</p>
             </div>
             <div class="field">
               <label for="password">${isEdit ? 'Nova senha (deixe em branco para manter a atual)' : 'Senha *'}</label>

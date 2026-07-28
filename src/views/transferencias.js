@@ -2,6 +2,7 @@
 
 const { layout } = require('./layout');
 const { escapeHtml, formatDate, formatMoney } = require('../utils');
+const { hasManagementAccess } = require('../roles');
 
 const STATUS_LABELS = {
   pendente_aprovacao: 'Aguardando aprovação',
@@ -46,7 +47,7 @@ function transferenciaActions(t, user, csrfToken) {
 }
 
 function transferenciasListPage({ user, flash, transferencias, csrfToken }) {
-  user.__canManage = user.role === 'direcao' || user.role === 'gerencia';
+  user.__canManage = hasManagementAccess(user);
 
   const rows = transferencias
     .map(

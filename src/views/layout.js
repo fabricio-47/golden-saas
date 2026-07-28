@@ -2,7 +2,7 @@
 
 const { escapeHtml } = require('../utils');
 const { version: APP_VERSION } = require('../../package.json');
-const { ROLE_LABELS } = require('../roles');
+const { hasManagementAccess, nivelNome } = require('../roles');
 
 const STYLE = `
   :root {
@@ -172,7 +172,7 @@ const STYLE = `
 `;
 
 function layout({ title, activeNav, user, flash, children }) {
-  const canManage = !!user && (user.role === 'direcao' || user.role === 'gerencia');
+  const canManage = hasManagementAccess(user);
   const navItems = [
     { key: 'dashboard', href: '/', label: 'Dashboard' },
     { key: 'clientes', href: '/clientes', label: 'Clientes' },
@@ -207,6 +207,7 @@ function layout({ title, activeNav, user, flash, children }) {
       items: [
         { key: 'lojas', href: '/lojas', label: 'Lojas' },
         { key: 'usuarios', href: '/usuarios', label: 'Usuários' },
+        { key: 'niveis', href: '/niveis', label: 'Níveis de permissão' },
         { key: 'auditoria', href: '/auditoria', label: 'Auditoria' },
         { key: 'backup', href: '/backup', label: 'Backup' },
       ],
@@ -240,7 +241,7 @@ function layout({ title, activeNav, user, flash, children }) {
     ? `<div class="flash flash-${flash.type}">${escapeHtml(flash.message)}</div>`
     : '';
 
-  const roleLabelHtml = user && user.role ? `<div class="sidebar-role">${escapeHtml(ROLE_LABELS[user.role] || user.role)}</div>` : '';
+  const roleLabelHtml = user ? `<div class="sidebar-role">${escapeHtml(nivelNome(user))}</div>` : '';
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">

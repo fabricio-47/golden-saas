@@ -18,7 +18,21 @@ const { readBody, parseFormBody, escapeHtml, formatMoney, formatBytes } = requir
 const { readRawBody, getBoundary, parseMultipart } = require('./src/multipart');
 const { saveUploadedFile, deleteUploadedFile, resolveUploadPath, mimeForPath, MAX_REQUEST_BYTES } = require('./src/uploads');
 const { sendMail, isConfigured: mailConfigured } = require('./src/mailer');
-const { ROLES, hasManagementAccess, canSeeAllLojas, canSeeLoja, canEditLoja } = require('./src/roles');
+const {
+  MODULOS,
+  listNiveis,
+  getNivelPermissoesMap,
+  createNivel,
+  renameNivel,
+  deleteNivel,
+  setPermissoesMatrix,
+  userCanAccessModulo,
+  hasManagementAccess,
+  countUsuariosAtivosComAcesso,
+  canSeeAllLojas,
+  canSeeLoja,
+  canEditLoja,
+} = require('./src/roles');
 
 const { loginPage } = require('./src/views/login');
 const { dashboardPage } = require('./src/views/dashboard');
@@ -34,6 +48,7 @@ const {
 } = require('./src/views/ordens');
 const { pecasListPage, pecaFormPage } = require('./src/views/estoque');
 const { usuariosListPage, usuarioFormPage } = require('./src/views/usuarios');
+const { niveisPage } = require('./src/views/niveis');
 const { auditoriaPage } = require('./src/views/auditoria');
 const { lojasListPage, lojaFormPage } = require('./src/views/lojas');
 const { transferenciasListPage, transferenciaFormPage } = require('./src/views/transferencias');
@@ -80,8 +95,15 @@ function forbidden(res) {
 }
 
 function getBackupRecipients() {
+  // Envia backup para todo mundo com acesso ao módulo "Configurações"
+  // (equivalente ao antigo "só Direção", agora generalizado para o novo
+  // sistema de níveis de permissão customizáveis).
   return db
-    .prepare("SELECT email FROM users WHERE role = 'direcao' AND ativo = 1 AND email IS NOT NULL AND email != ''")
+    .prepare(
+      `SELECT u.email FROM users u
+       JOIN nivel_permissoes np ON np.nivel_id = u.nivel_id AND np.modulo = 'configuracoes'
+       WHERE u.ativo = 1 AND np.pode_ver = 1 AND u.email IS NOT NULL AND u.email != ''`
+    )
     .all()
     .map((r) => r.email);
 }
@@ -280,6 +302,7 @@ async function handler(req, res) {
           name: session.name,
           email: session.email,
           role: session.role,
+          nivel_id: session.nivel_id,
           loja_id: session.loja_id,
           pode_ver_outras_lojas: session.pode_ver_outras_lojas,
         }
@@ -1628,7 +1651,13 @@ async function handler(req, res) {
     if (pathname === '/usuarios' && method === 'GET') {
       if (!hasManagementAccess(user)) return forbidden(res);
       const usuarios = db
-        .prepare('SELECT u.*, l.nome as loja_nome FROM users u LEFT JOIN lojas l ON l.id = u.loja_id ORDER BY u.name ASC')
+        .prepare(
+          `SELECT u.*, l.nome as loja_nome, np.nome as nivel_nome
+           FROM users u
+           LEFT JOIN lojas l ON l.id = u.loja_id
+           LEFT JOIN niveis_permissao np ON np.id = u.nivel_id
+           ORDER BY u.name ASC`
+        )
         .all();
       return send(res, 200, usuariosListPage({ user, flash: takeFlash(session.sessionId), usuarios, csrfToken: session.csrfToken }));
     }
@@ -1636,28 +1665,31 @@ async function handler(req, res) {
     if (pathname === '/usuarios/novo' && method === 'GET') {
       if (!hasManagementAccess(user)) return forbidden(res);
       const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
-      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario: null, csrfToken: session.csrfToken, lojas }));
+      const niveis = listNiveis();
+      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario: null, csrfToken: session.csrfToken, lojas, niveis }));
     }
 
     if (pathname === '/usuarios' && method === 'POST') {
       if (!hasManagementAccess(user)) return forbidden(res);
       const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      const niveis = listNiveis();
       const nome = (body.name || '').trim();
       const emailNovo = (body.email || '').trim().toLowerCase();
-      const role = ROLES.includes(body.role) ? body.role : 'mecanico';
+      const nivelId = toIntOrNull(body.nivel_id);
+      const nivelValido = nivelId && niveis.some((n) => n.id === nivelId);
       const lojaId = toIntOrNull(body.loja_id);
       const podeVerOutrasLojas = body.pode_ver_outras_lojas ? 1 : 0;
-      if (!nome || !emailNovo || !body.password) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome, e-mail e senha são obrigatórios.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
+      if (!nome || !emailNovo || !body.password || !nivelValido) {
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome, e-mail, senha e nível de acesso são obrigatórios.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas, niveis }));
       }
       const existente = db.prepare('SELECT id FROM users WHERE email = ?').get(emailNovo);
       if (existente) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe um usuário com esse e-mail.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe um usuário com esse e-mail.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas, niveis }));
       }
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = hashPassword(body.password, salt);
-      db.prepare('INSERT INTO users (name, email, password_hash, password_salt, role, loja_id, pode_ver_outras_lojas) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-        nome, emailNovo, hash, salt, role, lojaId, podeVerOutrasLojas
+      db.prepare('INSERT INTO users (name, email, password_hash, password_salt, nivel_id, loja_id, pode_ver_outras_lojas) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        nome, emailNovo, hash, salt, nivelId, lojaId, podeVerOutrasLojas
       );
       setFlash(session.sessionId, 'success', 'Usuário cadastrado.');
       return redirect(res, '/usuarios');
@@ -1668,7 +1700,8 @@ async function handler(req, res) {
       const usuario = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
       if (!usuario) return notFound(res);
       const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
-      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario, csrfToken: session.csrfToken, lojas }));
+      const niveis = listNiveis();
+      return send(res, 200, usuarioFormPage({ user, flash: takeFlash(session.sessionId), usuario, csrfToken: session.csrfToken, lojas, niveis }));
     }
 
     if ((m = matchRoute('/usuarios/:id', pathname)) && method === 'POST') {
@@ -1676,27 +1709,29 @@ async function handler(req, res) {
       const usuario = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
       if (!usuario) return notFound(res);
       const lojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      const niveis = listNiveis();
       const nome = (body.name || '').trim();
       const emailNovo = (body.email || '').trim().toLowerCase();
-      const role = ROLES.includes(body.role) ? body.role : usuario.role;
+      const nivelIdBody = toIntOrNull(body.nivel_id);
+      const nivelId = nivelIdBody && niveis.some((n) => n.id === nivelIdBody) ? nivelIdBody : usuario.nivel_id;
       const lojaId = toIntOrNull(body.loja_id);
       const podeVerOutrasLojas = body.pode_ver_outras_lojas ? 1 : 0;
       if (!nome || !emailNovo) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome e e-mail são obrigatórios.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome e e-mail são obrigatórios.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas, niveis }));
       }
       const dupEmail = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(emailNovo, m.id);
       if (dupEmail) {
-        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe outro usuário com esse e-mail.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas }));
+        return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe outro usuário com esse e-mail.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas, niveis }));
       }
       if (body.password && body.password.trim()) {
         const salt = crypto.randomBytes(16).toString('hex');
         const hash = hashPassword(body.password, salt);
-        db.prepare('UPDATE users SET name=?, email=?, role=?, loja_id=?, pode_ver_outras_lojas=?, password_hash=?, password_salt=? WHERE id=?').run(
-          nome, emailNovo, role, lojaId, podeVerOutrasLojas, hash, salt, m.id
+        db.prepare('UPDATE users SET name=?, email=?, nivel_id=?, loja_id=?, pode_ver_outras_lojas=?, password_hash=?, password_salt=? WHERE id=?').run(
+          nome, emailNovo, nivelId, lojaId, podeVerOutrasLojas, hash, salt, m.id
         );
       } else {
-        db.prepare('UPDATE users SET name=?, email=?, role=?, loja_id=?, pode_ver_outras_lojas=? WHERE id=?').run(
-          nome, emailNovo, role, lojaId, podeVerOutrasLojas, m.id
+        db.prepare('UPDATE users SET name=?, email=?, nivel_id=?, loja_id=?, pode_ver_outras_lojas=? WHERE id=?').run(
+          nome, emailNovo, nivelId, lojaId, podeVerOutrasLojas, m.id
         );
       }
       setFlash(session.sessionId, 'success', 'Usuário atualizado.');
@@ -1711,14 +1746,80 @@ async function handler(req, res) {
       }
       const alvo = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
       if (!alvo) return notFound(res);
-      const direcaoAtivos = db.prepare("SELECT COUNT(*) c FROM users WHERE role='direcao' AND ativo=1").get().c;
-      if (alvo.role === 'direcao' && direcaoAtivos <= 1) {
-        setFlash(session.sessionId, 'error', 'Não é possível desativar o último usuário de Direção ativo.');
+      const configAtivos = countUsuariosAtivosComAcesso('configuracoes');
+      if (userCanAccessModulo(alvo, 'configuracoes') && configAtivos <= 1) {
+        setFlash(session.sessionId, 'error', 'Não é possível desativar o último usuário com acesso a Configurações.');
         return redirect(res, '/usuarios');
       }
       db.prepare('UPDATE users SET ativo = 0 WHERE id = ?').run(m.id);
       setFlash(session.sessionId, 'success', 'Usuário desativado.');
       return redirect(res, '/usuarios');
+    }
+
+    // ---------------- NÍVEIS DE PERMISSÃO (Configurações) ----------------
+    if (pathname === '/niveis' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const niveis = listNiveis();
+      const permissoesPorNivel = {};
+      for (const n of niveis) permissoesPorNivel[n.id] = getNivelPermissoesMap(n.id);
+      return send(res, 200, niveisPage({ user, flash: takeFlash(session.sessionId), niveis, permissoesPorNivel, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/niveis' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      try {
+        createNivel(body.nome);
+        setFlash(session.sessionId, 'success', 'Nível criado. Agora marque o que ele pode ver na tabela abaixo.');
+      } catch (err) {
+        setFlash(session.sessionId, 'error', err.message);
+      }
+      return redirect(res, '/niveis');
+    }
+
+    if ((m = matchRoute('/niveis/:id/renomear', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      try {
+        renameNivel(toIntOrNull(m.id), body.nome);
+        setFlash(session.sessionId, 'success', 'Nível renomeado.');
+      } catch (err) {
+        setFlash(session.sessionId, 'error', err.message);
+      }
+      return redirect(res, '/niveis');
+    }
+
+    if ((m = matchRoute('/niveis/:id/excluir', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      try {
+        deleteNivel(toIntOrNull(m.id));
+        setFlash(session.sessionId, 'success', 'Nível excluído.');
+      } catch (err) {
+        setFlash(session.sessionId, 'error', err.message);
+      }
+      return redirect(res, '/niveis');
+    }
+
+    if (pathname === '/niveis/permissoes' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const niveis = listNiveis();
+      const matriz = {};
+      for (const n of niveis) {
+        matriz[n.id] = {};
+        for (const modulo of MODULOS.map((mod) => mod.key)) {
+          matriz[n.id][modulo] = body[`perm_${n.id}_${modulo}`] ? 1 : 0;
+        }
+      }
+      // trava de segurança: não deixa salvar uma configuração que tiraria o
+      // acesso a "Configurações" de TODOS os usuários ativos — sem isso,
+      // ninguém mais conseguiria entrar aqui de novo para corrigir o erro.
+      const usuariosAtivos = db.prepare('SELECT nivel_id FROM users WHERE ativo = 1').all();
+      const sobraAlguemComConfig = usuariosAtivos.some((u) => matriz[u.nivel_id] && matriz[u.nivel_id].configuracoes);
+      if (!sobraAlguemComConfig) {
+        setFlash(session.sessionId, 'error', 'Não salvo: isso deixaria o sistema sem nenhum usuário ativo com acesso a Configurações, e ninguém mais conseguiria corrigir depois.');
+        return redirect(res, '/niveis');
+      }
+      setPermissoesMatrix(matriz);
+      setFlash(session.sessionId, 'success', 'Permissões salvas.');
+      return redirect(res, '/niveis');
     }
 
     if ((m = matchRoute('/usuarios/:id/ativar', pathname)) && method === 'POST') {
