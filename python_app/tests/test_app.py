@@ -249,3 +249,105 @@ def test_customer_and_motorcycle_purchase_sale_crud_is_branch_scoped(client):
     motorcycles = client.get(f"/api/branches/{branch_id}/motorcycles")
     assert motorcycles.status_code == 200
     assert motorcycles.get_json()["motorcycles"][0]["status"] == "sold"
+
+
+def test_parts_suppliers_carriers_and_stock_transactions_are_branch_scoped(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Golden"}).get_json()["matrix"]
+    branch = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Filial Pecas", "code": "P1"},
+    ).get_json()["branch"]
+    branch_id = branch["id"]
+
+    supplier = client.post(
+        f"/api/branches/{branch_id}/suppliers",
+        json={"name": "Fornecedor Central", "email": "fornecedor@example.com"},
+    )
+    carrier = client.post(
+        f"/api/branches/{branch_id}/carriers",
+        json={"name": "Transporte Expresso"},
+    )
+    assert supplier.status_code == 201
+    assert carrier.status_code == 201
+    supplier_id = supplier.get_json()["supplier"]["id"]
+    carrier_id = carrier.get_json()["carrier"]["id"]
+
+    customer = client.post(
+        f"/api/branches/{branch_id}/customers",
+        json={"name": "Cliente da Peça"},
+    ).get_json()["customer"]
+    part = client.post(
+        f"/api/branches/{branch_id}/parts",
+        json={
+            "name": "Pastilha de freio",
+            "sku": "BRK-001",
+            "supplier_id": supplier_id,
+            "stock_quantity": 2,
+            "unit_price": 35.50,
+        },
+    )
+    assert part.status_code == 201
+    part_id = part.get_json()["part"]["id"]
+
+    purchase = client.post(
+        f"/api/branches/{branch_id}/part-transactions",
+        json={
+            "part_id": part_id,
+            "supplier_id": supplier_id,
+            "carrier_id": carrier_id,
+            "transaction_type": "purchase",
+            "quantity": 5,
+            "unit_price": 20,
+        },
+    )
+    assert purchase.status_code == 201
+    assert purchase.get_json()["transaction"]["total"] == 100.0
+
+    sale = client.post(
+        f"/api/branches/{branch_id}/part-transactions",
+        json={
+            "part_id": part_id,
+            "customer_id": customer["id"],
+            "transaction_type": "sale",
+            "quantity": 3,
+            "unit_price": 35.50,
+        },
+    )
+    assert sale.status_code == 201
+
+    listed = client.get(f"/api/branches/{branch_id}/parts")
+    assert listed.status_code == 200
+    assert listed.get_json()["parts"][0]["stock_quantity"] == 4
+
+    updated = client.patch(
+        f"/api/suppliers/{supplier_id}",
+        json={"phone": "11988887777"},
+    )
+    assert updated.status_code == 200
+    assert updated.get_json()["supplier"]["phone"] == "11988887777"
+
+
+def test_part_sale_rejects_insufficient_stock(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Golden"}).get_json()["matrix"]
+    branch = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Filial", "code": "F1"},
+    ).get_json()["branch"]
+    part = client.post(
+        f"/api/branches/{branch['id']}/parts",
+        json={"name": "Cabo", "sku": "CAB-1", "stock_quantity": 1},
+    ).get_json()["part"]
+
+    response = client.post(
+        f"/api/branches/{branch['id']}/part-transactions",
+        json={
+            "part_id": part["id"],
+            "transaction_type": "sale",
+            "quantity": 2,
+            "unit_price": 10,
+        },
+    )
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "insufficient stock"

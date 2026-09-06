@@ -134,6 +134,10 @@ class Branch(db.Model):
     customers = db.relationship("Customer", back_populates="branch")
     motorcycles = db.relationship("Motorcycle", back_populates="branch")
     transactions = db.relationship("MotorcycleTransaction", back_populates="branch")
+    parts = db.relationship("Part", back_populates="branch")
+    suppliers = db.relationship("Supplier", back_populates="branch")
+    carriers = db.relationship("Carrier", back_populates="branch")
+    part_transactions = db.relationship("PartTransaction", back_populates="branch")
     __table_args__ = (db.UniqueConstraint("matrix_id", "code", name="uq_branch_matrix_code"),)
 
     def to_dict(self, include_matrix: bool = True) -> dict[str, object]:
@@ -162,6 +166,7 @@ class Customer(db.Model):
     branch = db.relationship("Branch", back_populates="customers")
     motorcycles = db.relationship("Motorcycle", back_populates="owner")
     transactions = db.relationship("MotorcycleTransaction", back_populates="customer")
+    part_transactions = db.relationship("PartTransaction", back_populates="customer")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -232,5 +237,122 @@ class MotorcycleTransaction(db.Model):
             "customer_id": self.customer_id,
             "transaction_type": self.transaction_type,
             "amount": self.amount_cents / 100,
+            "occurred_at": self.occurred_at.isoformat(),
+        }
+
+
+class Supplier(db.Model):
+    """Parts supplier registered at a branch."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    branch_id = db.Column(db.Integer, db.ForeignKey("branch.id"), nullable=False, index=True)
+    name = db.Column(db.String(160), nullable=False)
+    document = db.Column(db.String(40), nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    phone = db.Column(db.String(40), nullable=True)
+    branch = db.relationship("Branch", back_populates="suppliers")
+    parts = db.relationship("Part", back_populates="supplier")
+    transactions = db.relationship("PartTransaction", back_populates="supplier")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "branch_id": self.branch_id,
+            "name": self.name,
+            "document": self.document,
+            "email": self.email,
+            "phone": self.phone,
+        }
+
+
+class Carrier(db.Model):
+    """Carrier or logistics provider registered at a branch."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    branch_id = db.Column(db.Integer, db.ForeignKey("branch.id"), nullable=False, index=True)
+    name = db.Column(db.String(160), nullable=False)
+    document = db.Column(db.String(40), nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    phone = db.Column(db.String(40), nullable=True)
+    branch = db.relationship("Branch", back_populates="carriers")
+    transactions = db.relationship("PartTransaction", back_populates="carrier")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "branch_id": self.branch_id,
+            "name": self.name,
+            "document": self.document,
+            "email": self.email,
+            "phone": self.phone,
+        }
+
+
+class Part(db.Model):
+    """Part held in a branch inventory."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    branch_id = db.Column(db.Integer, db.ForeignKey("branch.id"), nullable=False, index=True)
+    supplier_id = db.Column(db.Integer, db.ForeignKey("supplier.id"), nullable=True)
+    name = db.Column(db.String(160), nullable=False)
+    sku = db.Column(db.String(80), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    unit_price_cents = db.Column(db.Integer, nullable=False, default=0)
+    stock_quantity = db.Column(db.Integer, nullable=False, default=0)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    branch = db.relationship("Branch", back_populates="parts")
+    supplier = db.relationship("Supplier", back_populates="parts")
+    transactions = db.relationship("PartTransaction", back_populates="part")
+    __table_args__ = (db.UniqueConstraint("branch_id", "sku", name="uq_part_branch_sku"),)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "branch_id": self.branch_id,
+            "supplier_id": self.supplier_id,
+            "name": self.name,
+            "sku": self.sku,
+            "description": self.description,
+            "unit_price": self.unit_price_cents / 100,
+            "stock_quantity": self.stock_quantity,
+            "active": self.active,
+        }
+
+
+class PartTransaction(db.Model):
+    """Purchase or sale of parts at a branch."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    branch_id = db.Column(db.Integer, db.ForeignKey("branch.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part.id"), nullable=False)
+    supplier_id = db.Column(db.Integer, db.ForeignKey("supplier.id"), nullable=True)
+    carrier_id = db.Column(db.Integer, db.ForeignKey("carrier.id"), nullable=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True)
+    transaction_type = db.Column(db.String(20), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    unit_price_cents = db.Column(db.Integer, nullable=False)
+    occurred_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    branch = db.relationship("Branch", back_populates="part_transactions")
+    part = db.relationship("Part", back_populates="transactions")
+    supplier = db.relationship("Supplier", back_populates="transactions")
+    carrier = db.relationship("Carrier", back_populates="transactions")
+    customer = db.relationship("Customer", back_populates="part_transactions")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "branch_id": self.branch_id,
+            "part_id": self.part_id,
+            "supplier_id": self.supplier_id,
+            "carrier_id": self.carrier_id,
+            "customer_id": self.customer_id,
+            "transaction_type": self.transaction_type,
+            "quantity": self.quantity,
+            "unit_price": self.unit_price_cents / 100,
+            "total": self.quantity * self.unit_price_cents / 100,
             "occurred_at": self.occurred_at.isoformat(),
         }
