@@ -30,6 +30,8 @@ def create_app(test_config: dict | None = None) -> Flask:
     os.makedirs(app.instance_path, exist_ok=True)
     db.init_app(app)
     login_manager.init_app(app)
+    login_manager.login_view = "login_page"
+    login_manager.login_message = "Entre para acessar o dashboard."
 
     with app.app_context():
         from .models import User

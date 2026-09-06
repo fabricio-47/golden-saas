@@ -81,3 +81,37 @@ def test_login_and_logout(client):
         json={"email": "GRACE@example.com", "password": "secure-password"},
     )
     assert valid.status_code == 200
+
+
+def test_login_page_contains_form_and_register_link(client):
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    assert b'<form method="post"' in response.data
+    assert b'href="/register"' in response.data
+
+
+def test_register_page_creates_user_and_redirects_to_dashboard(client):
+    response = client.post(
+        "/register",
+        data={
+            "name": "Katherine Johnson",
+            "email": "katherine@example.com",
+            "password": "secure-password",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/dashboard")
+
+    dashboard = client.get("/dashboard")
+    assert dashboard.status_code == 200
+    assert b"Katherine" in dashboard.data
+    assert b"katherine@example.com" in dashboard.data
+
+
+def test_dashboard_redirects_guests_to_login(client):
+    response = client.get("/dashboard")
+
+    assert response.status_code == 302
+    assert "/login?next=%2Fdashboard" in response.headers["Location"]
