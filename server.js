@@ -1675,11 +1675,12 @@ async function handler(req, res) {
       const niveis = listNiveis();
       const nome = (body.name || '').trim();
       const emailNovo = (body.email || '').trim().toLowerCase();
+      const senha = (body.password || '').trim();
       const nivelId = toIntOrNull(body.nivel_id);
       const nivelValido = nivelId && niveis.some((n) => n.id === nivelId);
       const lojaId = toIntOrNull(body.loja_id);
       const podeVerOutrasLojas = body.pode_ver_outras_lojas ? 1 : 0;
-      if (!nome || !emailNovo || !body.password || !nivelValido) {
+      if (!nome || !emailNovo || !senha || !nivelValido) {
         return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Nome, e-mail, senha e nível de acesso são obrigatórios.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas, niveis }));
       }
       const existente = db.prepare('SELECT id FROM users WHERE email = ?').get(emailNovo);
@@ -1687,7 +1688,7 @@ async function handler(req, res) {
         return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe um usuário com esse e-mail.' }, usuario: { ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas, niveis }));
       }
       const salt = crypto.randomBytes(16).toString('hex');
-      const hash = hashPassword(body.password, salt);
+      const hash = hashPassword(senha, salt);
       db.prepare('INSERT INTO users (name, email, password_hash, password_salt, nivel_id, loja_id, pode_ver_outras_lojas) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
         nome, emailNovo, hash, salt, nivelId, lojaId, podeVerOutrasLojas
       );
@@ -1712,6 +1713,7 @@ async function handler(req, res) {
       const niveis = listNiveis();
       const nome = (body.name || '').trim();
       const emailNovo = (body.email || '').trim().toLowerCase();
+      const senhaNova = (body.password || '').trim();
       const nivelIdBody = toIntOrNull(body.nivel_id);
       const nivelId = nivelIdBody && niveis.some((n) => n.id === nivelIdBody) ? nivelIdBody : usuario.nivel_id;
       const lojaId = toIntOrNull(body.loja_id);
@@ -1723,9 +1725,9 @@ async function handler(req, res) {
       if (dupEmail) {
         return send(res, 400, usuarioFormPage({ user, flash: { type: 'error', message: 'Já existe outro usuário com esse e-mail.' }, usuario: { ...usuario, ...body, name: nome, email: emailNovo }, csrfToken: session.csrfToken, lojas, niveis }));
       }
-      if (body.password && body.password.trim()) {
+      if (senhaNova) {
         const salt = crypto.randomBytes(16).toString('hex');
-        const hash = hashPassword(body.password, salt);
+        const hash = hashPassword(senhaNova, salt);
         db.prepare('UPDATE users SET name=?, email=?, nivel_id=?, loja_id=?, pode_ver_outras_lojas=?, password_hash=?, password_salt=? WHERE id=?').run(
           nome, emailNovo, nivelId, lojaId, podeVerOutrasLojas, hash, salt, m.id
         );
