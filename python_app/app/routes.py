@@ -6,7 +6,16 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, url
 from flask_login import current_user, login_required, login_user, logout_user
 
 from .extensions import db
-from .models import Plan, Subscription, User
+from .models import (
+    Branch,
+    Customer,
+    Matrix,
+    Motorcycle,
+    MotorcycleTransaction,
+    Plan,
+    Subscription,
+    User,
+)
 
 def register_routes(app: Flask) -> None:
     """Register the initial application routes."""
@@ -155,6 +164,315 @@ def register_routes(app: Flask) -> None:
             return jsonify(error=error), 400
         return jsonify(subscription=subscription.to_dict()), 200
 
+    @app.post("/api/matrices")
+    @login_required
+    def create_matrix():
+        payload = request.get_json(silent=True) or {}
+        name = str(payload.get("name", "")).strip()
+        tax_id = str(payload.get("tax_id", "")).strip() or None
+        if not name:
+            return jsonify(error="name is required"), 400
+        if tax_id and Matrix.query.filter_by(tax_id=tax_id).first():
+            return jsonify(error="tax_id is already registered"), 409
+        matrix = Matrix(name=name, tax_id=tax_id)
+        db.session.add(matrix)
+        db.session.commit()
+        return jsonify(matrix=matrix.to_dict()), 201
+
+    @app.get("/api/matrices")
+    @login_required
+    def list_matrices():
+        return jsonify(matrices=[matrix.to_dict() for matrix in Matrix.query.all()])
+
+    @app.get("/api/matrices/<int:matrix_id>")
+    @login_required
+    def get_matrix(matrix_id):
+        matrix = db.session.get(Matrix, matrix_id)
+        if matrix is None:
+            return jsonify(error="matrix not found"), 404
+        return jsonify(matrix=matrix.to_dict())
+
+    @app.patch("/api/matrices/<int:matrix_id>")
+    @login_required
+    def update_matrix(matrix_id):
+        matrix = db.session.get(Matrix, matrix_id)
+        if matrix is None:
+            return jsonify(error="matrix not found"), 404
+        payload = request.get_json(silent=True) or {}
+        if "name" in payload:
+            matrix.name = str(payload["name"]).strip()
+        if not matrix.name:
+            return jsonify(error="name is required"), 400
+        db.session.commit()
+        return jsonify(matrix=matrix.to_dict())
+
+    @app.post("/api/matrices/<int:matrix_id>/branches")
+    @login_required
+    def create_branch(matrix_id):
+        matrix = db.session.get(Matrix, matrix_id)
+        payload = request.get_json(silent=True) or {}
+        if matrix is None:
+            return jsonify(error="matrix not found"), 404
+        if len(matrix.branches) >= 3:
+            return jsonify(error="a matrix can have at most 3 branches"), 409
+        name = str(payload.get("name", "")).strip()
+        code = str(payload.get("code", "")).strip().upper()
+        if not name or not code:
+            return jsonify(error="name and code are required"), 400
+        branch = Branch(
+            matrix=matrix,
+            name=name,
+            code=code,
+            address=str(payload.get("address", "")).strip() or None,
+        )
+        db.session.add(branch)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return jsonify(error="branch code is already registered for this matrix"), 409
+        return jsonify(branch=branch.to_dict()), 201
+
+    @app.get("/api/branches/<int:branch_id>")
+    @login_required
+    def get_branch(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        if branch is None:
+            return jsonify(error="branch not found"), 404
+        return jsonify(branch=branch.to_dict())
+
+    @app.patch("/api/branches/<int:branch_id>")
+    @login_required
+    def update_branch(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        if branch is None:
+            return jsonify(error="branch not found"), 404
+        payload = request.get_json(silent=True) or {}
+        for field in ("name", "address"):
+            if field in payload:
+                setattr(branch, field, str(payload[field]).strip() or None)
+        if "active" in payload:
+            branch.active = bool(payload["active"])
+        if not branch.name:
+            return jsonify(error="name is required"), 400
+        db.session.commit()
+        return jsonify(branch=branch.to_dict())
+
+    @app.delete("/api/branches/<int:branch_id>")
+    @login_required
+    def delete_branch(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        if branch is None:
+            return jsonify(error="branch not found"), 404
+        db.session.delete(branch)
+        db.session.commit()
+        return jsonify(message="branch deleted")
+
+    @app.post("/api/branches/<int:branch_id>/customers")
+    @login_required
+    def create_customer(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        payload = request.get_json(silent=True) or {}
+        if branch is None:
+            return jsonify(error="branch not found"), 404
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            return jsonify(error="name is required"), 400
+        customer = Customer(
+            branch=branch,
+            name=name,
+            document=str(payload.get("document", "")).strip() or None,
+            email=str(payload.get("email", "")).strip().lower() or None,
+            phone=str(payload.get("phone", "")).strip() or None,
+        )
+        db.session.add(customer)
+        db.session.commit()
+        return jsonify(customer=customer.to_dict()), 201
+
+    @app.get("/api/branches/<int:branch_id>/customers")
+    @login_required
+    def list_customers(branch_id):
+        if db.session.get(Branch, branch_id) is None:
+            return jsonify(error="branch not found"), 404
+        customers = Customer.query.filter_by(branch_id=branch_id).all()
+        return jsonify(customers=[customer.to_dict() for customer in customers])
+
+    @app.get("/api/customers/<int:customer_id>")
+    @login_required
+    def get_customer(customer_id):
+        customer = db.session.get(Customer, customer_id)
+        if customer is None:
+            return jsonify(error="customer not found"), 404
+        return jsonify(customer=customer.to_dict())
+
+    @app.patch("/api/customers/<int:customer_id>")
+    @login_required
+    def update_customer(customer_id):
+        customer = db.session.get(Customer, customer_id)
+        if customer is None:
+            return jsonify(error="customer not found"), 404
+        payload = request.get_json(silent=True) or {}
+        if "name" in payload:
+            customer.name = str(payload["name"]).strip()
+        for field in ("document", "phone"):
+            if field in payload:
+                setattr(customer, field, str(payload[field]).strip() or None)
+        if "email" in payload:
+            customer.email = str(payload["email"]).strip().lower() or None
+        if not customer.name:
+            return jsonify(error="name is required"), 400
+        db.session.commit()
+        return jsonify(customer=customer.to_dict())
+
+    @app.delete("/api/customers/<int:customer_id>")
+    @login_required
+    def delete_customer(customer_id):
+        customer = db.session.get(Customer, customer_id)
+        if customer is None:
+            return jsonify(error="customer not found"), 404
+        db.session.delete(customer)
+        db.session.commit()
+        return jsonify(message="customer deleted")
+
+    @app.post("/api/branches/<int:branch_id>/motorcycles")
+    @login_required
+    def create_motorcycle(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        payload = request.get_json(silent=True) or {}
+        if branch is None:
+            return jsonify(error="branch not found"), 404
+        motorcycle, error = build_motorcycle(payload, branch)
+        if error:
+            return jsonify(error=error), 400
+        db.session.add(motorcycle)
+        db.session.commit()
+        return jsonify(motorcycle=motorcycle.to_dict()), 201
+
+    @app.get("/api/branches/<int:branch_id>/motorcycles")
+    @login_required
+    def list_motorcycles(branch_id):
+        if db.session.get(Branch, branch_id) is None:
+            return jsonify(error="branch not found"), 404
+        motorcycles = Motorcycle.query.filter_by(branch_id=branch_id).all()
+        return jsonify(motorcycles=[motorcycle.to_dict() for motorcycle in motorcycles])
+
+    @app.get("/api/motorcycles/<int:motorcycle_id>")
+    @login_required
+    def get_motorcycle(motorcycle_id):
+        motorcycle = db.session.get(Motorcycle, motorcycle_id)
+        if motorcycle is None:
+            return jsonify(error="motorcycle not found"), 404
+        return jsonify(motorcycle=motorcycle.to_dict())
+
+    @app.patch("/api/motorcycles/<int:motorcycle_id>")
+    @login_required
+    def update_motorcycle(motorcycle_id):
+        motorcycle = db.session.get(Motorcycle, motorcycle_id)
+        if motorcycle is None:
+            return jsonify(error="motorcycle not found"), 404
+        payload = request.get_json(silent=True) or {}
+        for field in ("brand", "model", "condition", "status", "chassis_number"):
+            if field in payload:
+                setattr(motorcycle, field, str(payload[field]).strip())
+        if "year" in payload:
+            motorcycle.year = int(payload["year"]) if payload["year"] else None
+        if "price" in payload:
+            motorcycle.price_cents = parse_amount(payload["price"])
+        if not motorcycle.brand or not motorcycle.model:
+            return jsonify(error="brand and model are required"), 400
+        db.session.commit()
+        return jsonify(motorcycle=motorcycle.to_dict())
+
+    @app.delete("/api/motorcycles/<int:motorcycle_id>")
+    @login_required
+    def delete_motorcycle(motorcycle_id):
+        motorcycle = db.session.get(Motorcycle, motorcycle_id)
+        if motorcycle is None:
+            return jsonify(error="motorcycle not found"), 404
+        db.session.delete(motorcycle)
+        db.session.commit()
+        return jsonify(message="motorcycle deleted")
+
+    @app.post("/api/branches/<int:branch_id>/motorcycle-transactions")
+    @login_required
+    def create_motorcycle_transaction(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        payload = request.get_json(silent=True) or {}
+        motorcycle = db.session.get(Motorcycle, payload.get("motorcycle_id"))
+        if branch is None or motorcycle is None or motorcycle.branch_id != branch_id:
+            return jsonify(error="branch or motorcycle not found"), 404
+        transaction_type = str(payload.get("transaction_type", "")).strip().lower()
+        if transaction_type not in {"purchase", "sale"}:
+            return jsonify(error="transaction_type must be purchase or sale"), 400
+        amount = payload.get("amount")
+        if amount is None:
+            return jsonify(error="amount is required"), 400
+        customer = None
+        if payload.get("customer_id") is not None:
+            customer = db.session.get(Customer, payload["customer_id"])
+            if customer is None or customer.branch_id != branch_id:
+                return jsonify(error="customer not found in this branch"), 404
+        transaction = MotorcycleTransaction(
+            branch=branch,
+            motorcycle=motorcycle,
+            customer=customer,
+            transaction_type=transaction_type,
+            amount_cents=parse_amount(amount),
+        )
+        motorcycle.status = "sold" if transaction_type == "sale" else "available"
+        if transaction_type == "sale":
+            motorcycle.owner = customer
+        db.session.add(transaction)
+        db.session.commit()
+        return jsonify(transaction=transaction.to_dict()), 201
+
+    @app.get("/api/branches/<int:branch_id>/motorcycle-transactions")
+    @login_required
+    def list_motorcycle_transactions(branch_id):
+        if db.session.get(Branch, branch_id) is None:
+            return jsonify(error="branch not found"), 404
+        transactions = MotorcycleTransaction.query.filter_by(branch_id=branch_id).all()
+        return jsonify(transactions=[transaction.to_dict() for transaction in transactions])
+
+    @app.get("/api/motorcycle-transactions/<int:transaction_id>")
+    @login_required
+    def get_motorcycle_transaction(transaction_id):
+        transaction = db.session.get(MotorcycleTransaction, transaction_id)
+        if transaction is None:
+            return jsonify(error="transaction not found"), 404
+        return jsonify(transaction=transaction.to_dict())
+
+    @app.patch("/api/motorcycle-transactions/<int:transaction_id>")
+    @login_required
+    def update_motorcycle_transaction(transaction_id):
+        transaction = db.session.get(MotorcycleTransaction, transaction_id)
+        if transaction is None:
+            return jsonify(error="transaction not found"), 404
+        payload = request.get_json(silent=True) or {}
+        if "amount" in payload:
+            try:
+                transaction.amount_cents = parse_amount(payload["amount"])
+            except (TypeError, ValueError):
+                return jsonify(error="amount must be a valid number"), 400
+        if "transaction_type" in payload:
+            transaction_type = str(payload["transaction_type"]).strip().lower()
+            if transaction_type not in {"purchase", "sale"}:
+                return jsonify(error="transaction_type must be purchase or sale"), 400
+            transaction.transaction_type = transaction_type
+            transaction.motorcycle.status = "sold" if transaction_type == "sale" else "available"
+        db.session.commit()
+        return jsonify(transaction=transaction.to_dict())
+
+    @app.delete("/api/motorcycle-transactions/<int:transaction_id>")
+    @login_required
+    def delete_motorcycle_transaction(transaction_id):
+        transaction = db.session.get(MotorcycleTransaction, transaction_id)
+        if transaction is None:
+            return jsonify(error="transaction not found"), 404
+        db.session.delete(transaction)
+        db.session.commit()
+        return jsonify(message="transaction deleted")
+
 
 def activate_subscription(user: User, plan_code: str) -> tuple[Subscription | None, str | None]:
     """Simulate a successful checkout and activate the selected plan."""
@@ -172,3 +490,31 @@ def activate_subscription(user: User, plan_code: str) -> tuple[Subscription | No
         subscription.activated_at = datetime.now(timezone.utc)
     db.session.commit()
     return subscription, None
+
+
+def parse_amount(value: object) -> int:
+    """Convert a decimal amount to cents."""
+    return round(float(value) * 100)
+
+
+def build_motorcycle(payload: dict, branch: Branch) -> tuple[Motorcycle | None, str | None]:
+    brand = str(payload.get("brand", "")).strip()
+    model = str(payload.get("model", "")).strip()
+    condition = str(payload.get("condition", "")).strip().lower()
+    if not brand or not model:
+        return None, "brand and model are required"
+    if condition not in {"new", "used"}:
+        return None, "condition must be new or used"
+    try:
+        price_cents = parse_amount(payload.get("price", 0))
+    except (TypeError, ValueError):
+        return None, "price must be a valid number"
+    return Motorcycle(
+        branch=branch,
+        brand=brand,
+        model=model,
+        year=int(payload["year"]) if payload.get("year") else None,
+        condition=condition,
+        chassis_number=str(payload.get("chassis_number", "")).strip() or None,
+        price_cents=price_cents,
+    ), None

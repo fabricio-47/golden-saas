@@ -48,6 +48,11 @@ The initial catalog contains `free` (Gratuito) and `premium` (Premium) plans.
 New users start on the free plan. The checkout endpoints intentionally simulate
 successful activation and do not process real payments.
 
+The API foundation also includes a `Matrix` with up to three `Branch` records,
+branch-scoped customers, motorcycles marked as `new` or `used`, and purchase or
+sale transactions. All of these management endpoints require an authenticated
+session and return JSON.
+
 ## Test
 
 ```bash
