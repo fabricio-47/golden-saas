@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | Golden SaaS{% endblock %}
+{% block content %}
+<section class="dashboard-header">
+  <div>
+    <p class="eyebrow">Visão geral</p>
+    <h1>Olá, {{ user.name.split(" ")[0] }}!</h1>
+    <p class="muted">Aqui está um resumo da sua conta.</p>
+  </div>
+  <form method="post" action="{{ url_for('logout_form') }}">
+    <button class="button-secondary" type="submit">Sair</button>
+  </form>
+</section>
+<section class="metrics">
+  <article class="card metric">
+    <span class="metric-label">Status da conta</span>
+    <strong>Ativa</strong>
+    <span class="metric-note">Acesso autenticado</span>
+  </article>
+  <article class="card metric">
+    <span class="metric-label">Usuário</span>
+    <strong>{{ user.email }}</strong>
+    <span class="metric-note">Cadastro realizado em {{ user.created_at.strftime("%d/%m/%Y") }}</span>
+  </article>
+  <article class="card metric">
+    <span class="metric-label">Próximo passo</span>
+    <strong>Configurar operação</strong>
+    <span class="metric-note">Novos módulos serão adicionados aqui</span>
+  </article>
+</section>
+{% endblock %}

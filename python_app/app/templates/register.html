@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Cadastro | Golden SaaS{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <p class="eyebrow">Comece agora</p>
+  <h1>Crie sua conta</h1>
+  <p class="muted">Configure seu acesso ao Golden SaaS em poucos passos.</p>
+  <form method="post" class="form">
+    <label for="name">Nome</label>
+    <input id="name" name="name" type="text" autocomplete="name" required>
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" autocomplete="email" required>
+    <label for="password">Senha</label>
+    <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+    <button type="submit">Criar conta</button>
+  </form>
+  <p class="form-footer">Já tem uma conta? <a href="{{ url_for('login_page') }}">Faça login</a></p>
+</section>
+{% endblock %}
