@@ -394,3 +394,81 @@ def test_motorcycle_inventory_page_lists_branch_stock_and_simulates_sale(client)
 
     inventory_after_sale = client.get(f"/inventory/motorcycles?branch_id={branch['id']}")
     assert b"Nenhuma moto dispon" in inventory_after_sale.data
+
+
+def test_price_table_updates_motorcycle_and_part_prices(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Preços"}).get_json()["matrix"]
+    branch = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Filial Preços", "code": "PRC"},
+    ).get_json()["branch"]
+    motorcycle = client.post(
+        f"/api/branches/{branch['id']}/motorcycles",
+        json={"brand": "Golden", "model": "Tour", "condition": "new", "price": 1000},
+    ).get_json()["motorcycle"]
+    part = client.post(
+        f"/api/branches/{branch['id']}/parts",
+        json={"name": "Bateria", "sku": "BAT-1", "unit_price": 100},
+    ).get_json()["part"]
+    table = client.post(
+        f"/api/branches/{branch['id']}/price-tables",
+        json={"name": "Tabela Premium"},
+    ).get_json()["price_table"]
+
+    motorcycle_entry = client.post(
+        f"/api/price-tables/{table['id']}/entries",
+        json={"item_type": "motorcycle", "item_id": motorcycle["id"], "price": 1200},
+    )
+    part_entry = client.post(
+        f"/api/price-tables/{table['id']}/entries",
+        json={"item_type": "part", "item_id": part["id"], "price": 130},
+    )
+    assert motorcycle_entry.status_code == 201
+    assert part_entry.status_code == 201
+
+    applied = client.post(f"/api/price-tables/{table['id']}/apply")
+    assert applied.status_code == 200
+    assert applied.get_json()["updated"] == 2
+    assert client.get(f"/api/motorcycles/{motorcycle['id']}").get_json()["motorcycle"]["price"] == 1200.0
+    assert client.get(f"/api/parts/{part['id']}").get_json()["part"]["unit_price"] == 130.0
+
+
+def test_simulated_nfe_is_linked_to_motorcycle_transaction(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Fiscal"}).get_json()["matrix"]
+    branch = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Filial Fiscal", "code": "FIS"},
+    ).get_json()["branch"]
+    customer = client.post(
+        f"/api/branches/{branch['id']}/customers",
+        json={"name": "Cliente NF"},
+    ).get_json()["customer"]
+    motorcycle = client.post(
+        f"/api/branches/{branch['id']}/motorcycles",
+        json={"brand": "Golden", "model": "One", "condition": "used", "price": 5000},
+    ).get_json()["motorcycle"]
+    transaction = client.post(
+        f"/api/branches/{branch['id']}/motorcycle-transactions",
+        json={
+            "motorcycle_id": motorcycle["id"],
+            "customer_id": customer["id"],
+            "transaction_type": "sale",
+            "amount": 5000,
+        },
+    ).get_json()["transaction"]
+
+    invoice = client.post(f"/api/motorcycle-transactions/{transaction['id']}/invoice")
+    assert invoice.status_code == 201
+    invoice_data = invoice.get_json()["invoice"]
+    assert invoice_data["status"] == "simulated"
+    assert invoice_data["number"].startswith("SIM-")
+    assert invoice_data["total"] == 5000.0
+
+    same_invoice = client.post(f"/api/motorcycle-transactions/{transaction['id']}/invoice")
+    assert same_invoice.status_code == 200
+    assert same_invoice.get_json()["invoice"]["id"] == invoice_data["id"]
+
+    listed = client.get(f"/api/branches/{branch['id']}/invoices")
+    assert len(listed.get_json()["invoices"]) == 1

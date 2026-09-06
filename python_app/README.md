@@ -53,6 +53,13 @@ branch-scoped customers, motorcycles marked as `new` or `used`, and purchase or
 sale transactions. All of these management endpoints require an authenticated
 session and return JSON.
 
+It also supports branch-specific variable price tables through
+`/api/branches/<branch_id>/price-tables`. Entries can override motorcycle or
+part prices and `/apply` writes those prices to inventory. Simulated NF-e
+documents can be issued from motorcycle or part transactions through the
+corresponding `/invoice` endpoints. These documents are identified with a
+`SIM-` number and do not connect to a tax authority.
+
 ## Test
 
 ```bash

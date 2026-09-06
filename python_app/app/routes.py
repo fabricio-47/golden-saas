@@ -1,6 +1,7 @@
 """JSON API and HTML routes for the initial SaaS application."""
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
@@ -12,8 +13,11 @@ from .models import (
     Matrix,
     Motorcycle,
     MotorcycleTransaction,
+    ElectronicInvoice,
     Part,
     PartTransaction,
+    PriceTable,
+    PriceTableEntry,
     Plan,
     Subscription,
     Supplier,
@@ -744,6 +748,150 @@ def register_routes(app: Flask) -> None:
         db.session.commit()
         return jsonify(message="transaction deleted")
 
+    @app.post("/api/branches/<int:branch_id>/price-tables")
+    @login_required
+    def create_price_table(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        payload = request.get_json(silent=True) or {}
+        name = str(payload.get("name", "")).strip()
+        if branch is None:
+            return jsonify(error="branch not found"), 404
+        if not name:
+            return jsonify(error="name is required"), 400
+        table = PriceTable(branch=branch, name=name)
+        db.session.add(table)
+        db.session.commit()
+        return jsonify(price_table=table.to_dict()), 201
+
+    @app.get("/api/branches/<int:branch_id>/price-tables")
+    @login_required
+    def list_price_tables(branch_id):
+        if db.session.get(Branch, branch_id) is None:
+            return jsonify(error="branch not found"), 404
+        tables = PriceTable.query.filter_by(branch_id=branch_id).all()
+        return jsonify(price_tables=[table.to_dict() for table in tables])
+
+    @app.post("/api/price-tables/<int:table_id>/entries")
+    @login_required
+    def create_price_table_entry(table_id):
+        table = db.session.get(PriceTable, table_id)
+        payload = request.get_json(silent=True) or {}
+        item_type = str(payload.get("item_type", "")).strip().lower()
+        if table is None:
+            return jsonify(error="price table not found"), 404
+        if item_type not in {"motorcycle", "part"}:
+            return jsonify(error="item_type must be motorcycle or part"), 400
+        item_id = payload.get("item_id")
+        item = db.session.get(Motorcycle if item_type == "motorcycle" else Part, item_id)
+        if item is None or item.branch_id != table.branch_id:
+            return jsonify(error="item not found in this branch"), 404
+        try:
+            price_cents = parse_amount(payload.get("price"))
+        except (TypeError, ValueError):
+            return jsonify(error="price must be a valid number"), 400
+        if price_cents < 0:
+            return jsonify(error="price cannot be negative"), 400
+        entry = PriceTableEntry(
+            price_table=table,
+            item_type=item_type,
+            motorcycle=item if item_type == "motorcycle" else None,
+            part=item if item_type == "part" else None,
+            price_cents=price_cents,
+        )
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify(entry=entry.to_dict()), 201
+
+    @app.patch("/api/price-tables/<int:table_id>")
+    @login_required
+    def update_price_table(table_id):
+        table = db.session.get(PriceTable, table_id)
+        if table is None:
+            return jsonify(error="price table not found"), 404
+        payload = request.get_json(silent=True) or {}
+        if "name" in payload:
+            table.name = str(payload["name"]).strip()
+        if "active" in payload:
+            table.active = bool(payload["active"])
+        if not table.name:
+            return jsonify(error="name is required"), 400
+        db.session.commit()
+        return jsonify(price_table=table.to_dict())
+
+    @app.post("/api/price-tables/<int:table_id>/apply")
+    @login_required
+    def apply_price_table(table_id):
+        table = db.session.get(PriceTable, table_id)
+        if table is None or not table.active:
+            return jsonify(error="price table not found or inactive"), 404
+        updated = 0
+        for entry in table.entries:
+            item = entry.motorcycle if entry.item_type == "motorcycle" else entry.part
+            if item is not None:
+                if entry.item_type == "motorcycle":
+                    item.price_cents = entry.price_cents
+                else:
+                    item.unit_price_cents = entry.price_cents
+                updated += 1
+        db.session.commit()
+        return jsonify(updated=updated, price_table=table.to_dict())
+
+    @app.post("/api/motorcycle-transactions/<int:transaction_id>/invoice")
+    @login_required
+    def issue_motorcycle_invoice(transaction_id):
+        transaction = db.session.get(MotorcycleTransaction, transaction_id)
+        if transaction is None:
+            return jsonify(error="transaction not found"), 404
+        if transaction.invoice:
+            return jsonify(invoice=transaction.invoice.to_dict()), 200
+        invoice = ElectronicInvoice(
+            branch_id=transaction.branch_id,
+            customer_id=transaction.customer_id,
+            motorcycle_transaction=transaction,
+            number=next_invoice_number(),
+            status="simulated",
+            total_cents=transaction.amount_cents,
+        )
+        db.session.add(invoice)
+        db.session.commit()
+        return jsonify(invoice=invoice.to_dict()), 201
+
+    @app.post("/api/part-transactions/<int:transaction_id>/invoice")
+    @login_required
+    def issue_part_invoice(transaction_id):
+        transaction = db.session.get(PartTransaction, transaction_id)
+        if transaction is None:
+            return jsonify(error="transaction not found"), 404
+        if transaction.invoice:
+            return jsonify(invoice=transaction.invoice.to_dict()), 200
+        invoice = ElectronicInvoice(
+            branch_id=transaction.branch_id,
+            customer_id=transaction.customer_id,
+            part_transaction=transaction,
+            number=next_invoice_number(),
+            status="simulated",
+            total_cents=transaction.quantity * transaction.unit_price_cents,
+        )
+        db.session.add(invoice)
+        db.session.commit()
+        return jsonify(invoice=invoice.to_dict()), 201
+
+    @app.get("/api/invoices/<int:invoice_id>")
+    @login_required
+    def get_invoice(invoice_id):
+        invoice = db.session.get(ElectronicInvoice, invoice_id)
+        if invoice is None:
+            return jsonify(error="invoice not found"), 404
+        return jsonify(invoice=invoice.to_dict())
+
+    @app.get("/api/branches/<int:branch_id>/invoices")
+    @login_required
+    def list_invoices(branch_id):
+        if db.session.get(Branch, branch_id) is None:
+            return jsonify(error="branch not found"), 404
+        invoices = ElectronicInvoice.query.filter_by(branch_id=branch_id).all()
+        return jsonify(invoices=[invoice.to_dict() for invoice in invoices])
+
 
 def activate_subscription(user: User, plan_code: str) -> tuple[Subscription | None, str | None]:
     """Simulate a successful checkout and activate the selected plan."""
@@ -766,6 +914,11 @@ def activate_subscription(user: User, plan_code: str) -> tuple[Subscription | No
 def parse_amount(value: object) -> int:
     """Convert a decimal amount to cents."""
     return round(float(value) * 100)
+
+
+def next_invoice_number() -> str:
+    """Generate a unique identifier for the simulated NF-e."""
+    return f"SIM-{datetime.now(timezone.utc):%Y%m%d%H%M%S}-{uuid4().hex[:8].upper()}"
 
 
 def parse_quantity(value: object) -> int:

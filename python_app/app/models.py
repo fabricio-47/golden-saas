@@ -138,6 +138,8 @@ class Branch(db.Model):
     suppliers = db.relationship("Supplier", back_populates="branch")
     carriers = db.relationship("Carrier", back_populates="branch")
     part_transactions = db.relationship("PartTransaction", back_populates="branch")
+    price_tables = db.relationship("PriceTable", back_populates="branch")
+    invoices = db.relationship("ElectronicInvoice", back_populates="branch")
     __table_args__ = (db.UniqueConstraint("matrix_id", "code", name="uq_branch_matrix_code"),)
 
     def to_dict(self, include_matrix: bool = True) -> dict[str, object]:
@@ -228,6 +230,7 @@ class MotorcycleTransaction(db.Model):
     branch = db.relationship("Branch", back_populates="transactions")
     motorcycle = db.relationship("Motorcycle", back_populates="transactions")
     customer = db.relationship("Customer", back_populates="transactions")
+    invoice = db.relationship("ElectronicInvoice", back_populates="motorcycle_transaction", uselist=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -341,6 +344,7 @@ class PartTransaction(db.Model):
     supplier = db.relationship("Supplier", back_populates="transactions")
     carrier = db.relationship("Carrier", back_populates="transactions")
     customer = db.relationship("Customer", back_populates="part_transactions")
+    invoice = db.relationship("ElectronicInvoice", back_populates="part_transaction", uselist=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -355,4 +359,106 @@ class PartTransaction(db.Model):
             "unit_price": self.unit_price_cents / 100,
             "total": self.quantity * self.unit_price_cents / 100,
             "occurred_at": self.occurred_at.isoformat(),
+        }
+
+
+class PriceTable(db.Model):
+    """A branch-specific variable price table."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    branch_id = db.Column(db.Integer, db.ForeignKey("branch.id"), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    branch = db.relationship("Branch", back_populates="price_tables")
+    entries = db.relationship(
+        "PriceTableEntry",
+        back_populates="price_table",
+        cascade="all, delete-orphan",
+    )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "branch_id": self.branch_id,
+            "name": self.name,
+            "active": self.active,
+            "entries": [entry.to_dict() for entry in self.entries],
+        }
+
+
+class PriceTableEntry(db.Model):
+    """Variable price for a motorcycle or part in a price table."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    price_table_id = db.Column(db.Integer, db.ForeignKey("price_table.id"), nullable=False)
+    item_type = db.Column(db.String(20), nullable=False)
+    motorcycle_id = db.Column(db.Integer, db.ForeignKey("motorcycle.id"), nullable=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part.id"), nullable=True)
+    price_cents = db.Column(db.Integer, nullable=False)
+    price_table = db.relationship("PriceTable", back_populates="entries")
+    motorcycle = db.relationship("Motorcycle")
+    part = db.relationship("Part")
+    __table_args__ = (
+        db.CheckConstraint(
+            "(item_type = 'motorcycle' AND motorcycle_id IS NOT NULL AND part_id IS NULL) "
+            "OR (item_type = 'part' AND part_id IS NOT NULL AND motorcycle_id IS NULL)",
+            name="ck_price_entry_item",
+        ),
+    )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "item_type": self.item_type,
+            "motorcycle_id": self.motorcycle_id,
+            "part_id": self.part_id,
+            "price": self.price_cents / 100,
+        }
+
+
+class ElectronicInvoice(db.Model):
+    """Simulated NF-e issued for an inventory transaction."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    branch_id = db.Column(db.Integer, db.ForeignKey("branch.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True)
+    motorcycle_transaction_id = db.Column(
+        db.Integer,
+        db.ForeignKey("motorcycle_transaction.id"),
+        unique=True,
+        nullable=True,
+    )
+    part_transaction_id = db.Column(
+        db.Integer,
+        db.ForeignKey("part_transaction.id"),
+        unique=True,
+        nullable=True,
+    )
+    number = db.Column(db.String(40), unique=True, nullable=False)
+    status = db.Column(db.String(30), nullable=False, default="simulated")
+    total_cents = db.Column(db.Integer, nullable=False)
+    issued_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    branch = db.relationship("Branch", back_populates="invoices")
+    customer = db.relationship("Customer")
+    motorcycle_transaction = db.relationship(
+        "MotorcycleTransaction",
+        back_populates="invoice",
+    )
+    part_transaction = db.relationship("PartTransaction", back_populates="invoice")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "branch_id": self.branch_id,
+            "customer_id": self.customer_id,
+            "number": self.number,
+            "status": self.status,
+            "total": self.total_cents / 100,
+            "issued_at": self.issued_at.isoformat(),
+            "motorcycle_transaction_id": self.motorcycle_transaction_id,
+            "part_transaction_id": self.part_transaction_id,
         }
