@@ -153,3 +153,99 @@ def test_checkout_rejects_unknown_plan(client):
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "Plano inválido ou indisponível."
+
+
+def authenticate(client):
+    response = client.post(
+        "/auth/register",
+        json={
+            "name": "Admin",
+            "email": "admin@example.com",
+            "password": "secure-password",
+        },
+    )
+    assert response.status_code == 201
+
+
+def test_matrix_allows_at_most_three_branches(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Golden"})
+    assert matrix.status_code == 201
+    matrix_id = matrix.get_json()["matrix"]["id"]
+
+    for number in range(1, 4):
+        response = client.post(
+            f"/api/matrices/{matrix_id}/branches",
+            json={"name": f"Filial {number}", "code": f"F{number}"},
+        )
+        assert response.status_code == 201
+
+    fourth = client.post(
+        f"/api/matrices/{matrix_id}/branches",
+        json={"name": "Filial 4", "code": "F4"},
+    )
+    assert fourth.status_code == 409
+    assert "at most 3" in fourth.get_json()["error"]
+
+
+def test_customer_and_motorcycle_purchase_sale_crud_is_branch_scoped(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Golden"}).get_json()["matrix"]
+    branch = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Matriz", "code": "HQ"},
+    ).get_json()["branch"]
+    branch_id = branch["id"]
+
+    customer = client.post(
+        f"/api/branches/{branch_id}/customers",
+        json={"name": "Cliente Um", "email": "cliente@example.com"},
+    )
+    assert customer.status_code == 201
+    customer_id = customer.get_json()["customer"]["id"]
+
+    motorcycle = client.post(
+        f"/api/branches/{branch_id}/motorcycles",
+        json={
+            "brand": "Golden",
+            "model": "City",
+            "condition": "used",
+            "year": 2022,
+            "price": 12500.50,
+        },
+    )
+    assert motorcycle.status_code == 201
+    motorcycle_id = motorcycle.get_json()["motorcycle"]["id"]
+
+    purchase = client.post(
+        f"/api/branches/{branch_id}/motorcycle-transactions",
+        json={
+            "motorcycle_id": motorcycle_id,
+            "transaction_type": "purchase",
+            "amount": 9000,
+        },
+    )
+    assert purchase.status_code == 201
+
+    sale = client.post(
+        f"/api/branches/{branch_id}/motorcycle-transactions",
+        json={
+            "motorcycle_id": motorcycle_id,
+            "customer_id": customer_id,
+            "transaction_type": "sale",
+            "amount": 12500.50,
+        },
+    )
+    assert sale.status_code == 201
+    assert sale.get_json()["transaction"]["transaction_type"] == "sale"
+
+    updated = client.patch(
+        f"/api/customers/{customer_id}",
+        json={"phone": "11999999999"},
+    )
+    assert updated.status_code == 200
+    assert updated.get_json()["customer"]["phone"] == "11999999999"
+
+    motorcycles = client.get(f"/api/branches/{branch_id}/motorcycles")
+    assert motorcycles.status_code == 200
+    assert motorcycles.get_json()["motorcycles"][0]["status"] == "sold"
