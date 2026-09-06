@@ -9,6 +9,7 @@
   </div>
   <div class="flex gap-2">
     <a href="{{ url_for('motorcycle_inventory') }}" class="button-secondary rounded px-4 py-2 text-sm font-bold">Estoque de motos</a>
+    <a href="{{ url_for('parts_inventory') }}" class="button-secondary rounded px-4 py-2 text-sm font-bold">Estoque de peças</a>
     <form method="post" action="{{ url_for('logout_form') }}">
       <button class="button-secondary" type="submit">Sair</button>
     </form>
