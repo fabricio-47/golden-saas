@@ -12,8 +12,12 @@ from .models import (
     Matrix,
     Motorcycle,
     MotorcycleTransaction,
+    Part,
+    PartTransaction,
     Plan,
     Subscription,
+    Supplier,
+    Carrier,
     User,
 )
 
@@ -473,6 +477,220 @@ def register_routes(app: Flask) -> None:
         db.session.commit()
         return jsonify(message="transaction deleted")
 
+    @app.post("/api/branches/<int:branch_id>/suppliers")
+    @login_required
+    def create_supplier(branch_id):
+        return create_partner(branch_id, Supplier, "supplier")
+
+    @app.get("/api/branches/<int:branch_id>/suppliers")
+    @login_required
+    def list_suppliers(branch_id):
+        return list_partners(branch_id, Supplier, "suppliers")
+
+    @app.get("/api/suppliers/<int:partner_id>")
+    @login_required
+    def get_supplier(partner_id):
+        return get_partner(partner_id, Supplier, "supplier")
+
+    @app.patch("/api/suppliers/<int:partner_id>")
+    @login_required
+    def update_supplier(partner_id):
+        return update_partner(partner_id, Supplier, "supplier")
+
+    @app.delete("/api/suppliers/<int:partner_id>")
+    @login_required
+    def delete_supplier(partner_id):
+        return delete_partner(partner_id, Supplier, "supplier")
+
+    @app.post("/api/branches/<int:branch_id>/carriers")
+    @login_required
+    def create_carrier(branch_id):
+        return create_partner(branch_id, Carrier, "carrier")
+
+    @app.get("/api/branches/<int:branch_id>/carriers")
+    @login_required
+    def list_carriers(branch_id):
+        return list_partners(branch_id, Carrier, "carriers")
+
+    @app.get("/api/carriers/<int:partner_id>")
+    @login_required
+    def get_carrier(partner_id):
+        return get_partner(partner_id, Carrier, "carrier")
+
+    @app.patch("/api/carriers/<int:partner_id>")
+    @login_required
+    def update_carrier(partner_id):
+        return update_partner(partner_id, Carrier, "carrier")
+
+    @app.delete("/api/carriers/<int:partner_id>")
+    @login_required
+    def delete_carrier(partner_id):
+        return delete_partner(partner_id, Carrier, "carrier")
+
+    @app.post("/api/branches/<int:branch_id>/parts")
+    @login_required
+    def create_part(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        payload = request.get_json(silent=True) or {}
+        if branch is None:
+            return jsonify(error="branch not found"), 404
+        name = str(payload.get("name", "")).strip()
+        sku = str(payload.get("sku", "")).strip().upper()
+        if not name or not sku:
+            return jsonify(error="name and sku are required"), 400
+        supplier_id = payload.get("supplier_id")
+        supplier = db.session.get(Supplier, supplier_id) if supplier_id else None
+        if supplier_id and (supplier is None or supplier.branch_id != branch_id):
+            return jsonify(error="supplier not found in this branch"), 404
+        try:
+            part = Part(
+                branch=branch,
+                supplier=supplier,
+                name=name,
+                sku=sku,
+                description=str(payload.get("description", "")).strip() or None,
+                unit_price_cents=parse_amount(payload.get("unit_price", 0)),
+                stock_quantity=parse_quantity(payload.get("stock_quantity", 0)),
+            )
+            db.session.add(part)
+            db.session.commit()
+        except (TypeError, ValueError):
+            db.session.rollback()
+            return jsonify(error="unit_price and stock_quantity must be valid"), 400
+        except Exception:
+            db.session.rollback()
+            return jsonify(error="sku is already registered for this branch"), 409
+        return jsonify(part=part.to_dict()), 201
+
+    @app.get("/api/branches/<int:branch_id>/parts")
+    @login_required
+    def list_parts(branch_id):
+        if db.session.get(Branch, branch_id) is None:
+            return jsonify(error="branch not found"), 404
+        parts = Part.query.filter_by(branch_id=branch_id).all()
+        return jsonify(parts=[part.to_dict() for part in parts])
+
+    @app.get("/api/parts/<int:part_id>")
+    @login_required
+    def get_part(part_id):
+        part = db.session.get(Part, part_id)
+        if part is None:
+            return jsonify(error="part not found"), 404
+        return jsonify(part=part.to_dict())
+
+    @app.patch("/api/parts/<int:part_id>")
+    @login_required
+    def update_part(part_id):
+        part = db.session.get(Part, part_id)
+        if part is None:
+            return jsonify(error="part not found"), 404
+        payload = request.get_json(silent=True) or {}
+        if "name" in payload:
+            part.name = str(payload["name"]).strip()
+        if "description" in payload:
+            part.description = str(payload["description"]).strip() or None
+        if "unit_price" in payload:
+            try:
+                part.unit_price_cents = parse_amount(payload["unit_price"])
+            except (TypeError, ValueError):
+                return jsonify(error="unit_price must be a valid number"), 400
+        if "stock_quantity" in payload:
+            try:
+                part.stock_quantity = parse_quantity(payload["stock_quantity"])
+            except (TypeError, ValueError):
+                return jsonify(error="stock_quantity must be a valid integer"), 400
+        if "active" in payload:
+            part.active = bool(payload["active"])
+        if not part.name:
+            return jsonify(error="name is required"), 400
+        db.session.commit()
+        return jsonify(part=part.to_dict())
+
+    @app.delete("/api/parts/<int:part_id>")
+    @login_required
+    def delete_part(part_id):
+        part = db.session.get(Part, part_id)
+        if part is None:
+            return jsonify(error="part not found"), 404
+        db.session.delete(part)
+        db.session.commit()
+        return jsonify(message="part deleted")
+
+    @app.post("/api/branches/<int:branch_id>/part-transactions")
+    @login_required
+    def create_part_transaction(branch_id):
+        branch = db.session.get(Branch, branch_id)
+        payload = request.get_json(silent=True) or {}
+        part = db.session.get(Part, payload.get("part_id"))
+        if branch is None or part is None or part.branch_id != branch_id:
+            return jsonify(error="branch or part not found"), 404
+        transaction_type = str(payload.get("transaction_type", "")).strip().lower()
+        if transaction_type not in {"purchase", "sale"}:
+            return jsonify(error="transaction_type must be purchase or sale"), 400
+        try:
+            quantity = parse_quantity(payload.get("quantity"))
+            unit_price_cents = parse_amount(payload.get("unit_price"))
+        except (TypeError, ValueError):
+            return jsonify(error="quantity and unit_price must be valid"), 400
+        if quantity <= 0 or unit_price_cents < 0:
+            return jsonify(error="quantity must be positive and unit_price cannot be negative"), 400
+        if transaction_type == "sale" and part.stock_quantity < quantity:
+            return jsonify(error="insufficient stock"), 409
+        supplier = get_related_partner(payload, Supplier, branch_id)
+        carrier = get_related_partner(payload, Carrier, branch_id)
+        if supplier[1] or carrier[1]:
+            return jsonify(error=supplier[1] or carrier[1]), 404
+        customer = None
+        if payload.get("customer_id") is not None:
+            customer = db.session.get(Customer, payload["customer_id"])
+            if customer is None or customer.branch_id != branch_id:
+                return jsonify(error="customer not found in this branch"), 404
+        transaction = PartTransaction(
+            branch=branch,
+            part=part,
+            supplier=supplier[0],
+            carrier=carrier[0],
+            customer=customer,
+            transaction_type=transaction_type,
+            quantity=quantity,
+            unit_price_cents=unit_price_cents,
+        )
+        part.stock_quantity += quantity if transaction_type == "purchase" else -quantity
+        db.session.add(transaction)
+        db.session.commit()
+        return jsonify(transaction=transaction.to_dict()), 201
+
+    @app.get("/api/branches/<int:branch_id>/part-transactions")
+    @login_required
+    def list_part_transactions(branch_id):
+        if db.session.get(Branch, branch_id) is None:
+            return jsonify(error="branch not found"), 404
+        transactions = PartTransaction.query.filter_by(branch_id=branch_id).all()
+        return jsonify(transactions=[transaction.to_dict() for transaction in transactions])
+
+    @app.get("/api/part-transactions/<int:transaction_id>")
+    @login_required
+    def get_part_transaction(transaction_id):
+        transaction = db.session.get(PartTransaction, transaction_id)
+        if transaction is None:
+            return jsonify(error="transaction not found"), 404
+        return jsonify(transaction=transaction.to_dict())
+
+    @app.delete("/api/part-transactions/<int:transaction_id>")
+    @login_required
+    def delete_part_transaction(transaction_id):
+        transaction = db.session.get(PartTransaction, transaction_id)
+        if transaction is None:
+            return jsonify(error="transaction not found"), 404
+        transaction.part.stock_quantity += (
+            transaction.quantity if transaction.transaction_type == "sale" else -transaction.quantity
+        )
+        if transaction.part.stock_quantity < 0:
+            return jsonify(error="cannot remove transaction because stock would be negative"), 409
+        db.session.delete(transaction)
+        db.session.commit()
+        return jsonify(message="transaction deleted")
+
 
 def activate_subscription(user: User, plan_code: str) -> tuple[Subscription | None, str | None]:
     """Simulate a successful checkout and activate the selected plan."""
@@ -495,6 +713,87 @@ def activate_subscription(user: User, plan_code: str) -> tuple[Subscription | No
 def parse_amount(value: object) -> int:
     """Convert a decimal amount to cents."""
     return round(float(value) * 100)
+
+
+def parse_quantity(value: object) -> int:
+    """Convert an inventory quantity to a non-negative integer."""
+    quantity = int(value)
+    if quantity < 0:
+        raise ValueError("quantity cannot be negative")
+    return quantity
+
+
+def create_partner(branch_id: int, model: type, key: str):
+    branch = db.session.get(Branch, branch_id)
+    payload = request.get_json(silent=True) or {}
+    if branch is None:
+        return jsonify(error="branch not found"), 404
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        return jsonify(error="name is required"), 400
+    partner = model(
+        branch=branch,
+        name=name,
+        document=str(payload.get("document", "")).strip() or None,
+        email=str(payload.get("email", "")).strip().lower() or None,
+        phone=str(payload.get("phone", "")).strip() or None,
+    )
+    db.session.add(partner)
+    db.session.commit()
+    return jsonify(**{key: partner.to_dict()}), 201
+
+
+def list_partners(branch_id: int, model: type, key: str):
+    if db.session.get(Branch, branch_id) is None:
+        return jsonify(error="branch not found"), 404
+    partners = model.query.filter_by(branch_id=branch_id).all()
+    return jsonify(**{key: [partner.to_dict() for partner in partners]})
+
+
+def get_partner(partner_id: int, model: type, key: str):
+    partner = db.session.get(model, partner_id)
+    if partner is None:
+        return jsonify(error=f"{key} not found"), 404
+    return jsonify(**{key: partner.to_dict()})
+
+
+def update_partner(partner_id: int, model: type, key: str):
+    partner = db.session.get(model, partner_id)
+    if partner is None:
+        return jsonify(error=f"{key} not found"), 404
+    payload = request.get_json(silent=True) or {}
+    if "name" in payload:
+        partner.name = str(payload["name"]).strip()
+    for field in ("document", "phone"):
+        if field in payload:
+            setattr(partner, field, str(payload[field]).strip() or None)
+    if "email" in payload:
+        partner.email = str(payload["email"]).strip().lower() or None
+    if not partner.name:
+        return jsonify(error="name is required"), 400
+    db.session.commit()
+    return jsonify(**{key: partner.to_dict()})
+
+
+def delete_partner(partner_id: int, model: type, key: str):
+    partner = db.session.get(model, partner_id)
+    if partner is None:
+        return jsonify(error=f"{key} not found"), 404
+    db.session.delete(partner)
+    db.session.commit()
+    return jsonify(message=f"{key} deleted")
+
+
+def get_related_partner(payload: dict, model: type, branch_id: int):
+    field = "supplier_id" if model is Supplier else "carrier_id"
+    partner_id = payload.get(field)
+    if partner_id is None:
+        return None, None
+    partner = db.session.get(model, partner_id)
+    if partner is None or partner.branch_id != branch_id:
+        label = "supplier" if model is Supplier else "carrier"
+        return None, f"{label} not found in this branch"
+    return partner, None
 
 
 def build_motorcycle(payload: dict, branch: Branch) -> tuple[Motorcycle | None, str | None]:
