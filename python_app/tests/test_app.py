@@ -472,3 +472,87 @@ def test_simulated_nfe_is_linked_to_motorcycle_transaction(client):
 
     listed = client.get(f"/api/branches/{branch['id']}/invoices")
     assert len(listed.get_json()["invoices"]) == 1
+
+
+def test_parts_inventory_page_manages_supplier_part_and_purchase(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Peças"}).get_json()["matrix"]
+    branch = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Filial Estoque", "code": "EST"},
+    ).get_json()["branch"]
+
+    page = client.get(f"/inventory/parts?branch_id={branch['id']}")
+    assert page.status_code == 200
+    assert b"Pe\xc3\xa7as e fornecedores" in page.data
+    assert b"cdn.tailwindcss.com" in page.data
+    assert b"Registrar compra" in page.data
+
+    supplier = client.post(
+        "/inventory/parts/suppliers",
+        data={
+            "branch_id": branch["id"],
+            "name": "Distribuidora Alfa",
+            "email": "alfa@example.com",
+        },
+    )
+    assert supplier.status_code == 302
+
+    suppliers = client.get(f"/api/branches/{branch['id']}/suppliers").get_json()["suppliers"]
+    supplier_id = suppliers[0]["id"]
+    part = client.post(
+        "/inventory/parts",
+        data={
+            "branch_id": branch["id"],
+            "name": "Filtro de ar",
+            "sku": "FLT-001",
+            "unit_price": "45.00",
+            "stock_quantity": "2",
+            "supplier_id": supplier_id,
+        },
+    )
+    assert part.status_code == 302
+    part_id = client.get(f"/api/branches/{branch['id']}/parts").get_json()["parts"][0]["id"]
+
+    purchase = client.post(
+        "/inventory/parts/purchase",
+        data={
+            "branch_id": branch["id"],
+            "part_id": part_id,
+            "supplier_id": supplier_id,
+            "quantity": "5",
+            "unit_price": "30.00",
+        },
+    )
+    assert purchase.status_code == 302
+    inventory = client.get(f"/api/branches/{branch['id']}/parts").get_json()["parts"]
+    assert inventory[0]["stock_quantity"] == 7
+
+
+def test_parts_inventory_rejects_purchase_from_another_branch(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Filiais"}).get_json()["matrix"]
+    first = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Primeira", "code": "P1"},
+    ).get_json()["branch"]
+    second = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Segunda", "code": "P2"},
+    ).get_json()["branch"]
+    part = client.post(
+        f"/api/branches/{first['id']}/parts",
+        json={"name": "Pneu", "sku": "PNE-1", "stock_quantity": 1},
+    ).get_json()["part"]
+
+    response = client.post(
+        "/inventory/parts/purchase",
+        data={
+            "branch_id": second["id"],
+            "part_id": part["id"],
+            "quantity": "2",
+            "unit_price": "20",
+        },
+    )
+    assert response.status_code == 302
+    assert client.get(f"/api/branches/{first['id']}/parts").get_json()["parts"][0]["stock_quantity"] == 1

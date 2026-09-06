@@ -148,6 +148,129 @@ def register_routes(app: Flask) -> None:
         flash(f"{motorcycle.brand} {motorcycle.model} vendida com sucesso.", "success")
         return redirect(url_for("motorcycle_inventory", branch_id=branch_id))
 
+    @app.get("/inventory/parts")
+    @login_required
+    def parts_inventory():
+        branches = Branch.query.filter_by(active=True).order_by(Branch.name).all()
+        selected_branch_id = request.args.get("branch_id", type=int)
+        branch = db.session.get(Branch, selected_branch_id) if selected_branch_id else None
+        if branch is None and branches:
+            branch = branches[0]
+        parts = Part.query.filter_by(branch_id=branch.id, active=True).order_by(Part.name).all() if branch else []
+        suppliers = Supplier.query.filter_by(branch_id=branch.id).order_by(Supplier.name).all() if branch else []
+        carriers = Carrier.query.filter_by(branch_id=branch.id).order_by(Carrier.name).all() if branch else []
+        return render_template(
+            "parts_inventory.html",
+            branches=branches,
+            branch=branch,
+            parts=parts,
+            suppliers=suppliers,
+            carriers=carriers,
+        )
+
+    @app.post("/inventory/parts/suppliers")
+    @login_required
+    def create_supplier_form():
+        branch_id = request.form.get("branch_id", type=int)
+        name = request.form.get("name", "").strip()
+        if not branch_id or not db.session.get(Branch, branch_id) or not name:
+            flash("Informe uma filial e o nome do fornecedor.", "error")
+            return redirect(url_for("parts_inventory", branch_id=branch_id))
+        supplier = Supplier(
+            branch_id=branch_id,
+            name=name,
+            document=request.form.get("document", "").strip() or None,
+            email=request.form.get("email", "").strip().lower() or None,
+            phone=request.form.get("phone", "").strip() or None,
+        )
+        db.session.add(supplier)
+        db.session.commit()
+        flash(f"Fornecedor {supplier.name} cadastrado.", "success")
+        return redirect(url_for("parts_inventory", branch_id=branch_id))
+
+    @app.post("/inventory/parts")
+    @login_required
+    def create_part_form():
+        branch_id = request.form.get("branch_id", type=int)
+        name = request.form.get("name", "").strip()
+        sku = request.form.get("sku", "").strip().upper()
+        try:
+            unit_price = parse_amount(request.form.get("unit_price", 0))
+            quantity = parse_quantity(request.form.get("stock_quantity", 0))
+        except (TypeError, ValueError):
+            flash("Preço e estoque devem ser números válidos.", "error")
+            return redirect(url_for("parts_inventory", branch_id=branch_id))
+        supplier_id = request.form.get("supplier_id", type=int)
+        supplier = db.session.get(Supplier, supplier_id) if supplier_id else None
+        if (
+            not branch_id
+            or not db.session.get(Branch, branch_id)
+            or not name
+            or not sku
+            or (supplier and supplier.branch_id != branch_id)
+        ):
+            flash("Preencha os dados da peça e selecione uma filial válida.", "error")
+            return redirect(url_for("parts_inventory", branch_id=branch_id))
+        part = Part(
+            branch_id=branch_id,
+            supplier=supplier,
+            name=name,
+            sku=sku,
+            description=request.form.get("description", "").strip() or None,
+            unit_price_cents=unit_price,
+            stock_quantity=quantity,
+        )
+        db.session.add(part)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash("Já existe uma peça com este SKU na filial.", "error")
+        else:
+            flash(f"Peça {part.name} cadastrada.", "success")
+        return redirect(url_for("parts_inventory", branch_id=branch_id))
+
+    @app.post("/inventory/parts/purchase")
+    @login_required
+    def purchase_part_form():
+        branch_id = request.form.get("branch_id", type=int)
+        part_id = request.form.get("part_id", type=int)
+        supplier_id = request.form.get("supplier_id", type=int)
+        carrier_id = request.form.get("carrier_id", type=int)
+        try:
+            quantity = parse_quantity(request.form.get("quantity"))
+            unit_price = parse_amount(request.form.get("unit_price"))
+        except (TypeError, ValueError):
+            flash("Quantidade e preço devem ser números válidos.", "error")
+            return redirect(url_for("parts_inventory", branch_id=branch_id))
+        part = db.session.get(Part, part_id)
+        supplier = db.session.get(Supplier, supplier_id) if supplier_id else None
+        carrier = db.session.get(Carrier, carrier_id) if carrier_id else None
+        if (
+            not part
+            or part.branch_id != branch_id
+            or (supplier and supplier.branch_id != branch_id)
+            or (carrier and carrier.branch_id != branch_id)
+            or quantity <= 0
+            or unit_price < 0
+        ):
+            flash("Confira a filial, a peça, a quantidade e os parceiros.", "error")
+            return redirect(url_for("parts_inventory", branch_id=branch_id))
+        transaction = PartTransaction(
+            branch_id=branch_id,
+            part=part,
+            supplier=supplier,
+            carrier=carrier,
+            transaction_type="purchase",
+            quantity=quantity,
+            unit_price_cents=unit_price,
+        )
+        part.stock_quantity += quantity
+        db.session.add(transaction)
+        db.session.commit()
+        flash(f"Compra registrada: {quantity} unidade(s) de {part.name}.", "success")
+        return redirect(url_for("parts_inventory", branch_id=branch_id))
+
     @app.post("/checkout")
     @login_required
     def checkout_form():
