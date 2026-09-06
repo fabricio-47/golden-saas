@@ -7,9 +7,12 @@
     <h1>Olá, {{ user.name.split(" ")[0] }}!</h1>
     <p class="muted">Aqui está um resumo da sua conta.</p>
   </div>
-  <form method="post" action="{{ url_for('logout_form') }}">
-    <button class="button-secondary" type="submit">Sair</button>
-  </form>
+  <div class="flex gap-2">
+    <a href="{{ url_for('motorcycle_inventory') }}" class="button-secondary rounded px-4 py-2 text-sm font-bold">Estoque de motos</a>
+    <form method="post" action="{{ url_for('logout_form') }}">
+      <button class="button-secondary" type="submit">Sair</button>
+    </form>
+  </div>
 </section>
 <section class="metrics">
   <article class="card metric">
