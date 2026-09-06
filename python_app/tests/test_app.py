@@ -351,3 +351,46 @@ def test_part_sale_rejects_insufficient_stock(client):
     )
     assert response.status_code == 409
     assert response.get_json()["error"] == "insufficient stock"
+
+
+def test_motorcycle_inventory_page_lists_branch_stock_and_simulates_sale(client):
+    authenticate(client)
+    matrix = client.post("/api/matrices", json={"name": "Grupo Visual"}).get_json()["matrix"]
+    branch = client.post(
+        f"/api/matrices/{matrix['id']}/branches",
+        json={"name": "Filial Centro", "code": "CTR"},
+    ).get_json()["branch"]
+    customer = client.post(
+        f"/api/branches/{branch['id']}/customers",
+        json={"name": "Cliente Visual"},
+    ).get_json()["customer"]
+    motorcycle = client.post(
+        f"/api/branches/{branch['id']}/motorcycles",
+        json={
+            "brand": "Golden",
+            "model": "Urban",
+            "condition": "new",
+            "year": 2025,
+            "price": 18990,
+        },
+    ).get_json()["motorcycle"]
+
+    page = client.get(f"/inventory/motorcycles?branch_id={branch['id']}")
+    assert page.status_code == 200
+    assert b"Golden Urban" in page.data
+    assert b"Simular venda" in page.data
+    assert b"tailwindcss.com" in page.data
+
+    sale = client.post(
+        "/inventory/motorcycles/sell",
+        data={
+            "branch_id": branch["id"],
+            "motorcycle_id": motorcycle["id"],
+            "customer_id": customer["id"],
+        },
+    )
+    assert sale.status_code == 302
+    assert "Filial Centro" not in sale.data.decode()
+
+    inventory_after_sale = client.get(f"/inventory/motorcycles?branch_id={branch['id']}")
+    assert b"Nenhuma moto dispon" in inventory_after_sale.data

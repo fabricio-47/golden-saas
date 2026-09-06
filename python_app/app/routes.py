@@ -91,6 +91,59 @@ def register_routes(app: Flask) -> None:
             plans=Plan.query.filter_by(active=True).order_by(Plan.price_cents).all(),
         )
 
+    @app.get("/inventory/motorcycles")
+    @login_required
+    def motorcycle_inventory():
+        branches = Branch.query.filter_by(active=True).order_by(Branch.name).all()
+        selected_branch_id = request.args.get("branch_id", type=int)
+        branch = db.session.get(Branch, selected_branch_id) if selected_branch_id else None
+        if branch is None and branches:
+            branch = branches[0]
+        motorcycles = (
+            Motorcycle.query.filter_by(branch_id=branch.id, status="available").all()
+            if branch
+            else []
+        )
+        customers = Customer.query.filter_by(branch_id=branch.id).order_by(Customer.name).all() if branch else []
+        return render_template(
+            "motorcycle_inventory.html",
+            branches=branches,
+            branch=branch,
+            motorcycles=motorcycles,
+            customers=customers,
+        )
+
+    @app.post("/inventory/motorcycles/sell")
+    @login_required
+    def sell_motorcycle_form():
+        motorcycle_id = request.form.get("motorcycle_id", type=int)
+        branch_id = request.form.get("branch_id", type=int)
+        customer_id = request.form.get("customer_id", type=int)
+        motorcycle = db.session.get(Motorcycle, motorcycle_id)
+        customer = db.session.get(Customer, customer_id)
+        if (
+            motorcycle is None
+            or customer is None
+            or motorcycle.branch_id != branch_id
+            or customer.branch_id != branch_id
+            or motorcycle.status != "available"
+        ):
+            flash("Não foi possível realizar a venda. Confira a filial, a moto e o cliente.", "error")
+            return redirect(url_for("motorcycle_inventory", branch_id=branch_id))
+        transaction = MotorcycleTransaction(
+            branch_id=branch_id,
+            motorcycle=motorcycle,
+            customer=customer,
+            transaction_type="sale",
+            amount_cents=motorcycle.price_cents,
+        )
+        motorcycle.status = "sold"
+        motorcycle.owner = customer
+        db.session.add(transaction)
+        db.session.commit()
+        flash(f"{motorcycle.brand} {motorcycle.model} vendida com sucesso.", "success")
+        return redirect(url_for("motorcycle_inventory", branch_id=branch_id))
+
     @app.post("/checkout")
     @login_required
     def checkout_form():
