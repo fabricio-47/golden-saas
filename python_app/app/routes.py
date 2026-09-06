@@ -1,10 +1,12 @@
 """JSON API and HTML routes for the initial SaaS application."""
 
+from datetime import datetime, timezone
+
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from .extensions import db
-from .models import User
+from .models import Plan, Subscription, User
 
 def register_routes(app: Flask) -> None:
     """Register the initial application routes."""
@@ -63,13 +65,29 @@ def register_routes(app: Flask) -> None:
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        activate_subscription(user, "free")
         login_user(user)
         return redirect(url_for("dashboard"))
 
     @app.get("/dashboard")
     @login_required
     def dashboard():
-        return render_template("dashboard.html", user=current_user)
+        return render_template(
+            "dashboard.html",
+            user=current_user,
+            plans=Plan.query.filter_by(active=True).order_by(Plan.price_cents).all(),
+        )
+
+    @app.post("/checkout")
+    @login_required
+    def checkout_form():
+        plan_code = request.form.get("plan_code", "").strip().lower()
+        subscription, error = activate_subscription(current_user, plan_code)
+        if error:
+            flash(error, "error")
+            return redirect(url_for("dashboard"))
+        flash(f"Plano {subscription.plan.name} ativado com sucesso.", "success")
+        return redirect(url_for("dashboard"))
 
     @app.post("/logout")
     @login_required
@@ -95,6 +113,7 @@ def register_routes(app: Flask) -> None:
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        activate_subscription(user, "free")
         login_user(user)
         return jsonify(user=user.to_dict()), 201
 
@@ -121,3 +140,35 @@ def register_routes(app: Flask) -> None:
     @login_required
     def me():
         return jsonify(user=current_user.to_dict())
+
+    @app.get("/api/plans")
+    def plans():
+        return jsonify(plans=[plan.to_dict() for plan in Plan.query.filter_by(active=True).all()])
+
+    @app.post("/api/checkout")
+    @login_required
+    def checkout():
+        payload = request.get_json(silent=True) or {}
+        plan_code = str(payload.get("plan_code", "")).strip().lower()
+        subscription, error = activate_subscription(current_user, plan_code)
+        if error:
+            return jsonify(error=error), 400
+        return jsonify(subscription=subscription.to_dict()), 200
+
+
+def activate_subscription(user: User, plan_code: str) -> tuple[Subscription | None, str | None]:
+    """Simulate a successful checkout and activate the selected plan."""
+    plan = Plan.query.filter_by(code=plan_code, active=True).first()
+    if plan is None:
+        return None, "Plano inválido ou indisponível."
+
+    subscription = user.subscription
+    if subscription is None:
+        subscription = Subscription(user=user, plan=plan, status="active")
+        db.session.add(subscription)
+    else:
+        subscription.plan = plan
+        subscription.status = "active"
+        subscription.activated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return subscription, None

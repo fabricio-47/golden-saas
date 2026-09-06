@@ -37,9 +37,16 @@ The initial endpoints are:
 - `POST /auth/login` - sign in with email and password
 - `POST /auth/logout` - end the current session
 - `GET /auth/me` - return the signed-in user
+- `GET /api/plans` - list active subscription plans
+- `POST /api/checkout` - simulate checkout and activate a plan for the signed-in user
+- `POST /checkout` - activate a plan from the dashboard
 
 Set `DATABASE_URL` to use another SQLAlchemy-supported database URL. The
 default is `sqlite:///golden_saas.db`.
+
+The initial catalog contains `free` (Gratuito) and `premium` (Premium) plans.
+New users start on the free plan. The checkout endpoints intentionally simulate
+successful activation and do not process real payments.
 
 ## Test
 

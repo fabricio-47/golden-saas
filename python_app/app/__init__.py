@@ -34,13 +34,31 @@ def create_app(test_config: dict | None = None) -> Flask:
     login_manager.login_message = "Entre para acessar o dashboard."
 
     with app.app_context():
-        from .models import User
+        from .models import Plan, User
 
         @login_manager.user_loader
         def load_user(user_id: str):
             return db.session.get(User, int(user_id))
 
         db.create_all()
+        if not Plan.query.filter_by(code="free").first():
+            db.session.add_all(
+                [
+                    Plan(
+                        code="free",
+                        name="Gratuito",
+                        description="Recursos essenciais para começar.",
+                        price_cents=0,
+                    ),
+                    Plan(
+                        code="premium",
+                        name="Premium",
+                        description="Todos os recursos para sua operação.",
+                        price_cents=9900,
+                    ),
+                ]
+            )
+            db.session.commit()
 
     from .routes import register_routes
 

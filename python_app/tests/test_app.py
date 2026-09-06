@@ -115,3 +115,41 @@ def test_dashboard_redirects_guests_to_login(client):
 
     assert response.status_code == 302
     assert "/login?next=%2Fdashboard" in response.headers["Location"]
+
+
+def test_plans_are_available_and_checkout_activates_premium(client):
+    plans = client.get("/api/plans")
+
+    assert plans.status_code == 200
+    assert [plan["code"] for plan in plans.get_json()["plans"]] == ["free", "premium"]
+
+    client.post(
+        "/auth/register",
+        json={
+            "name": "Alan Turing",
+            "email": "alan@example.com",
+            "password": "secure-password",
+        },
+    )
+    checkout = client.post("/api/checkout", json={"plan_code": "premium"})
+
+    assert checkout.status_code == 200
+    assert checkout.get_json()["subscription"]["plan"]["name"] == "Premium"
+
+    me = client.get("/auth/me")
+    assert me.get_json()["user"]["subscription"]["plan"]["code"] == "premium"
+
+
+def test_checkout_rejects_unknown_plan(client):
+    client.post(
+        "/auth/register",
+        json={
+            "name": "Grace Hopper",
+            "email": "grace@example.com",
+            "password": "secure-password",
+        },
+    )
+    response = client.post("/api/checkout", json={"plan_code": "enterprise"})
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Plano inválido ou indisponível."
