@@ -35,4 +35,9 @@ a { color: #5149e6; font-weight: 700; }
 .metric-label { color: #647086; font-size: .85rem; font-weight: 700; }
 .metric strong { font-size: 1.2rem; overflow-wrap: anywhere; }
 .metric-note { font-size: .82rem; }
+.subscription-card { display: flex; justify-content: space-between; gap: 2rem; margin-top: 1rem; padding: 1.4rem; }
+.subscription-card h2 { margin: 0; }
+.plan-options { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.plan-options form { margin: 0; }
+.plan-options button { margin: 0; }
 @media (max-width: 700px) { .page { padding-top: 1.25rem; } .brand { margin-bottom: 3rem; } .metrics { grid-template-columns: 1fr; } .dashboard-header { flex-direction: column; } }

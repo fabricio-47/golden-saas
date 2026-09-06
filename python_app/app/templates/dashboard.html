@@ -28,4 +28,21 @@
     <span class="metric-note">Novos módulos serão adicionados aqui</span>
   </article>
 </section>
+<section class="card subscription-card">
+  <div>
+    <p class="eyebrow">Assinatura</p>
+    <h2>{{ user.subscription.plan.name if user.subscription else "Sem plano" }}</h2>
+    <p class="muted">Ative ou altere seu plano com um checkout simulado.</p>
+  </div>
+  <div class="plan-options">
+    {% for plan in plans %}
+      <form method="post" action="{{ url_for('checkout_form') }}">
+        <input type="hidden" name="plan_code" value="{{ plan.code }}">
+        <button type="submit" class="{{ 'button-secondary' if user.subscription and user.subscription.plan.code == plan.code else '' }}">
+          {{ plan.name }} - R$ {{ "%.2f"|format(plan.price)|replace(".", ",") }}
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+</section>
 {% endblock %}
