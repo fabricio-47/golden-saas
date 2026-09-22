@@ -16,8 +16,17 @@ const {
 } = require('./src/auth');
 const { readBody, parseFormBody, escapeHtml, formatMoney, formatBytes } = require('./src/utils');
 const { readRawBody, getBoundary, parseMultipart } = require('./src/multipart');
-const { saveUploadedFile, deleteUploadedFile, resolveUploadPath, mimeForPath, MAX_REQUEST_BYTES } = require('./src/uploads');
+const {
+  saveUploadedFile,
+  saveDocumentFile,
+  saveBufferAsUpload,
+  deleteUploadedFile,
+  resolveUploadPath,
+  mimeForPath,
+  MAX_REQUEST_BYTES,
+} = require('./src/uploads');
 const { sendMail, isConfigured: mailConfigured } = require('./src/mailer');
+const { gerarPdfAssinado } = require('./src/contratosPdf');
 const {
   MODULOS,
   listNiveis,
@@ -56,6 +65,15 @@ const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornec
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
+const { tiposServicoListPage, tipoServicoFormPage } = require('./src/views/servicos');
+const {
+  contratosListPage,
+  contratoFormPage,
+  contratoShowPage,
+  contratoAssinarPage,
+  contratoJaProcessadoPage,
+  contratoAssinadoPage,
+} = require('./src/views/contratos');
 const { backupPage } = require('./src/views/backup');
 const { runAutoBackup, buildFullBackupZip, readState: readBackupState } = require('./src/backup');
 
@@ -112,6 +130,29 @@ function clientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) return forwarded.split(',')[0].trim();
   return req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : '';
+}
+
+function novoContratoToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+function sha256Hex(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function decodePngDataUrl(dataUrl) {
+  if (!dataUrl || !dataUrl.startsWith('data:image/png;base64,')) return null;
+  const base64 = dataUrl.slice('data:image/png;base64,'.length);
+  try {
+    return Buffer.from(base64, 'base64');
+  } catch (_e) {
+    return null;
+  }
+}
+
+function baseUrlFromReq(req) {
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  return `${proto}://${req.headers.host}`;
 }
 
 function matchRoute(pattern, pathname) {
@@ -309,7 +350,10 @@ async function handler(req, res) {
       : null;
 
     // --- auth gate ---
-    if (!PUBLIC_PATHS.has(pathname) && !user) {
+    // /contratos/assinar/... é a página pública que o CLIENTE abre pelo link
+    // (e-mail/WhatsApp), sem estar logado no sistema.
+    const isContratoPublico = pathname.startsWith('/contratos/assinar/');
+    if (!PUBLIC_PATHS.has(pathname) && !isContratoPublico && !user) {
       return redirect(res, '/login');
     }
 
@@ -921,6 +965,228 @@ async function handler(req, res) {
       return redirect(res, '/fornecedores');
     }
 
+    // ---------------- TIPOS DE SERVIÇO ----------------
+    if (pathname === '/servicos' && method === 'GET') {
+      const servicos = db.prepare('SELECT * FROM tipos_servico ORDER BY nome ASC').all();
+      return send(res, 200, tiposServicoListPage({ user, flash: takeFlash(session.sessionId), servicos }));
+    }
+
+    if (pathname === '/servicos/novo' && method === 'GET') {
+      return send(res, 200, tipoServicoFormPage({ user, flash: takeFlash(session.sessionId), servico: null, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/servicos' && method === 'POST') {
+      const valor = toFloatOrNull(body.valor);
+      if (!body.nome || !body.nome.trim() || valor === null) {
+        return send(res, 400, tipoServicoFormPage({ user, flash: { type: 'error', message: 'Nome e valor são obrigatórios.' }, servico: body, csrfToken: session.csrfToken }));
+      }
+      db.prepare('INSERT INTO tipos_servico (nome, categoria, valor) VALUES (?, ?, ?)').run(body.nome.trim(), body.categoria || '', valor);
+      setFlash(session.sessionId, 'success', 'Tipo de serviço cadastrado.');
+      return redirect(res, '/servicos');
+    }
+
+    if ((m = matchRoute('/servicos/:id/editar', pathname)) && method === 'GET') {
+      const servico = db.prepare('SELECT * FROM tipos_servico WHERE id = ?').get(m.id);
+      if (!servico) return notFound(res);
+      return send(res, 200, tipoServicoFormPage({ user, flash: takeFlash(session.sessionId), servico, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/servicos/:id', pathname)) && method === 'POST') {
+      const servico = db.prepare('SELECT * FROM tipos_servico WHERE id = ?').get(m.id);
+      if (!servico) return notFound(res);
+      const valor = toFloatOrNull(body.valor);
+      if (!body.nome || !body.nome.trim() || valor === null) {
+        return send(res, 400, tipoServicoFormPage({ user, flash: { type: 'error', message: 'Nome e valor são obrigatórios.' }, servico: { ...servico, ...body }, csrfToken: session.csrfToken }));
+      }
+      const ativo = body.ativo === '0' ? 0 : 1;
+      db.prepare('UPDATE tipos_servico SET nome=?, categoria=?, valor=?, ativo=? WHERE id=?').run(
+        body.nome.trim(), body.categoria || '', valor, ativo, m.id
+      );
+      setFlash(session.sessionId, 'success', 'Tipo de serviço atualizado.');
+      return redirect(res, '/servicos');
+    }
+
+    // ---------------- CONTRATOS (assinatura online) ----------------
+    // Rotas públicas (o cliente abre pelo link, sem estar logado) vêm primeiro.
+    if ((m = matchRoute('/contratos/assinar/:token/arquivo', pathname)) && method === 'GET') {
+      const contrato = db.prepare('SELECT * FROM contratos WHERE token = ?').get(m.token);
+      if (!contrato) return notFound(res);
+      const tipo = url.searchParams.get('tipo');
+      const caminho = tipo === 'original' ? contrato.arquivo_original : contrato.arquivo_assinado || contrato.arquivo_original;
+      const fullPath = resolveUploadPath(caminho);
+      if (!fullPath || !fs.existsSync(fullPath)) return notFound(res);
+      res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="contrato.pdf"' });
+      fs.createReadStream(fullPath).pipe(res);
+      return;
+    }
+
+    if ((m = matchRoute('/contratos/assinar/:token', pathname)) && method === 'GET') {
+      const contrato = db.prepare('SELECT * FROM contratos WHERE token = ?').get(m.token);
+      if (!contrato) return notFound(res);
+      if (contrato.status !== 'pendente') return send(res, 200, contratoJaProcessadoPage({ status: contrato.status }));
+      const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(contrato.cliente_id);
+      return send(res, 200, contratoAssinarPage({ contrato, cliente }));
+    }
+
+    if ((m = matchRoute('/contratos/assinar/:token', pathname)) && method === 'POST') {
+      const contrato = db.prepare('SELECT * FROM contratos WHERE token = ?').get(m.token);
+      if (!contrato) return notFound(res);
+      if (contrato.status !== 'pendente') return send(res, 200, contratoJaProcessadoPage({ status: contrato.status }));
+      const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(contrato.cliente_id);
+
+      const nome = (body.nome || '').trim();
+      const documento = (body.documento || '').trim();
+      const assinaturaBuffer = decodePngDataUrl(body.assinatura_png);
+      if (!nome || !documento || !assinaturaBuffer) {
+        return send(res, 400, contratoAssinarPage({
+          contrato, cliente, error: 'Preencha nome, documento e desenhe a assinatura antes de confirmar.',
+        }));
+      }
+
+      const assinadoEm = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const ip = clientIp(req);
+      const userAgent = req.headers['user-agent'] || '';
+
+      db.prepare(
+        `UPDATE contratos SET status='assinado', assinante_nome=?, assinante_documento=?, assinante_ip=?, assinante_user_agent=?, assinado_em=? WHERE id=?`
+      ).run(nome, documento, ip, userAgent, assinadoEm, contrato.id);
+      const contratoAtualizado = db.prepare('SELECT * FROM contratos WHERE id = ?').get(contrato.id);
+
+      try {
+        const originalPath = resolveUploadPath(contrato.arquivo_original);
+        const originalBuffer = fs.readFileSync(originalPath);
+        const pdfAssinadoBuffer = await gerarPdfAssinado({
+          originalBuffer,
+          contrato: contratoAtualizado,
+          clienteNome: cliente.nome,
+          assinaturaPngBuffer: assinaturaBuffer,
+        });
+        const caminhoAssinado = saveBufferAsUpload('contrato', contrato.id, pdfAssinadoBuffer, 'contrato-assinado.pdf');
+        db.prepare('UPDATE contratos SET arquivo_assinado = ? WHERE id = ?').run(caminhoAssinado, contrato.id);
+      } catch (err) {
+        console.error('[contratos] Falha ao gerar PDF assinado (o aceite já foi registrado no banco):', err);
+      }
+
+      if (cliente.email && mailConfigured()) {
+        try {
+          await sendMail({
+            to: cliente.email,
+            toName: cliente.nome,
+            subject: `Contrato assinado: ${contrato.titulo} - Golden SaaS`,
+            html: `<p>Olá ${escapeHtml(cliente.nome)}, confirmamos o recebimento da sua assinatura no documento "${escapeHtml(contrato.titulo)}" em ${assinadoEm}.</p>`,
+            text: `Confirmamos o recebimento da sua assinatura no documento "${contrato.titulo}" em ${assinadoEm}.`,
+          });
+        } catch (err) {
+          console.error('[contratos] Falha ao enviar e-mail de confirmação:', err);
+        }
+      }
+
+      const contratoFinal = db.prepare('SELECT * FROM contratos WHERE id = ?').get(contrato.id);
+      return send(res, 200, contratoAssinadoPage({ contrato: contratoFinal }));
+    }
+
+    // Rotas administrativas (dentro do sistema, exigem login).
+    if (pathname === '/contratos' && method === 'GET') {
+      const contratos = db
+        .prepare(
+          `SELECT ct.*, c.nome as cliente_nome FROM contratos ct JOIN clientes c ON c.id = ct.cliente_id ORDER BY ct.created_at DESC`
+        )
+        .all();
+      return send(res, 200, contratosListPage({ user, flash: takeFlash(session.sessionId), contratos, baseUrl: baseUrlFromReq(req) }));
+    }
+
+    if (pathname === '/contratos/novo' && method === 'GET') {
+      const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
+      return send(res, 200, contratoFormPage({
+        user, flash: takeFlash(session.sessionId), clientes, csrfToken: session.csrfToken,
+        clienteFixoId: url.searchParams.get('cliente_id'),
+      }));
+    }
+
+    if (pathname === '/contratos' && method === 'POST') {
+      const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
+      const cliente = body.cliente_id ? db.prepare('SELECT * FROM clientes WHERE id = ?').get(body.cliente_id) : null;
+      const arquivo = files.find((f) => f.fieldName === 'arquivo');
+      if (!cliente || !body.titulo || !body.titulo.trim() || !arquivo || !arquivo.data || !arquivo.data.length) {
+        return send(res, 400, contratoFormPage({
+          user, flash: { type: 'error', message: 'Selecione o cliente, o título e um arquivo PDF válido.' },
+          clientes, csrfToken: session.csrfToken, clienteFixoId: body.cliente_id,
+        }));
+      }
+      const token = novoContratoToken();
+      const info = db
+        .prepare('INSERT INTO contratos (cliente_id, titulo, token, criado_por) VALUES (?, ?, ?, ?)')
+        .run(cliente.id, body.titulo.trim(), token, user.id);
+      const contratoId = info.lastInsertRowid;
+      const saved = saveDocumentFile('contrato', contratoId, arquivo);
+      if (!saved) {
+        db.prepare('DELETE FROM contratos WHERE id = ?').run(contratoId);
+        return send(res, 400, contratoFormPage({
+          user, flash: { type: 'error', message: 'Não foi possível salvar o arquivo. Confira se é um PDF válido (até 20MB).' },
+          clientes, csrfToken: session.csrfToken, clienteFixoId: body.cliente_id,
+        }));
+      }
+      const hash = sha256Hex(arquivo.data);
+      db.prepare('UPDATE contratos SET arquivo_original = ?, hash_original = ? WHERE id = ?').run(saved.caminho_arquivo, hash, contratoId);
+      setFlash(session.sessionId, 'success', 'Contrato cadastrado. Copie o link ou envie por e-mail/WhatsApp na tela do contrato.');
+      return redirect(res, `/contratos/${contratoId}`);
+    }
+
+    if ((m = matchRoute('/contratos/:id', pathname)) && method === 'GET') {
+      const contrato = db.prepare('SELECT * FROM contratos WHERE id = ?').get(m.id);
+      if (!contrato) return notFound(res);
+      const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(contrato.cliente_id);
+      return send(res, 200, contratoShowPage({
+        user, flash: takeFlash(session.sessionId), contrato, cliente, csrfToken: session.csrfToken,
+        baseUrl: baseUrlFromReq(req), emailIsConfigured: mailConfigured(),
+      }));
+    }
+
+    if ((m = matchRoute('/contratos/:id/arquivo', pathname)) && method === 'GET') {
+      const contrato = db.prepare('SELECT * FROM contratos WHERE id = ?').get(m.id);
+      if (!contrato) return notFound(res);
+      const tipo = url.searchParams.get('tipo');
+      const caminho = tipo === 'original' ? contrato.arquivo_original : contrato.arquivo_assinado || contrato.arquivo_original;
+      const fullPath = resolveUploadPath(caminho);
+      if (!fullPath || !fs.existsSync(fullPath)) return notFound(res);
+      res.writeHead(200, { 'Content-Type': 'application/pdf' });
+      fs.createReadStream(fullPath).pipe(res);
+      return;
+    }
+
+    if ((m = matchRoute('/contratos/:id/enviar-email', pathname)) && method === 'POST') {
+      const contrato = db.prepare('SELECT * FROM contratos WHERE id = ?').get(m.id);
+      if (!contrato) return notFound(res);
+      const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(contrato.cliente_id);
+      if (!cliente.email) {
+        setFlash(session.sessionId, 'error', 'Cliente sem e-mail cadastrado.');
+        return redirect(res, `/contratos/${m.id}`);
+      }
+      const link = `${baseUrlFromReq(req)}/contratos/assinar/${contrato.token}`;
+      try {
+        await sendMail({
+          to: cliente.email,
+          toName: cliente.nome,
+          subject: `Contrato para assinatura: ${contrato.titulo} - Golden SaaS`,
+          html: `<p>Olá ${escapeHtml(cliente.nome)}, segue o link para ler e assinar online o contrato "${escapeHtml(contrato.titulo)}":</p><p><a href="${link}">${link}</a></p>`,
+          text: `Segue o link para ler e assinar online o contrato "${contrato.titulo}": ${link}`,
+        });
+        setFlash(session.sessionId, 'success', `E-mail enviado para ${cliente.email}.`);
+      } catch (err) {
+        console.error('[contratos] Falha ao enviar e-mail:', err);
+        setFlash(session.sessionId, 'error', 'Falha ao enviar e-mail: ' + (err && err.message ? err.message : 'erro desconhecido.'));
+      }
+      return redirect(res, `/contratos/${m.id}`);
+    }
+
+    if ((m = matchRoute('/contratos/:id/cancelar', pathname)) && method === 'POST') {
+      const contrato = db.prepare('SELECT * FROM contratos WHERE id = ?').get(m.id);
+      if (!contrato) return notFound(res);
+      db.prepare("UPDATE contratos SET status = 'cancelado' WHERE id = ?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Contrato cancelado.');
+      return redirect(res, `/contratos/${m.id}`);
+    }
+
     // ---------------- CONTAS A PAGAR ----------------
     if (pathname === '/contas-pagar' && method === 'GET') {
       const statusFilter = url.searchParams.get('status') || '';
@@ -1207,18 +1473,20 @@ async function handler(req, res) {
         const b = bicicletas.find((bb) => String(bb.id) === String(defaultBicicletaId));
         if (b) defaultClienteId = b.cliente_id;
       }
+      const servicosNovo = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       return send(
         res,
         200,
-        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken })
+        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken, servicos: servicosNovo })
       );
     }
 
     if (pathname === '/os' && method === 'POST') {
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
+      const servicosPost = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       if (!body.cliente_id || !body.bicicleta_id) {
-        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken }));
+        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken, servicos: servicosPost }));
       }
       const checklist = parseChecklistFromBody(body);
       const numero = nextOSNumber();
@@ -1246,7 +1514,8 @@ async function handler(req, res) {
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       const temPecasVinculadas = db.prepare('SELECT COUNT(*) c FROM os_pecas WHERE ordem_servico_id = ?').get(m.id).c > 0;
-      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken, temPecasVinculadas }));
+      const servicosEditar = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken, temPecasVinculadas, servicos: servicosEditar }));
     }
 
     if ((m = matchRoute('/os/:id/desativar', pathname)) && method === 'POST') {

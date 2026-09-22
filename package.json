@@ -9,6 +9,9 @@
   "engines": {
     "node": ">=22.5.0"
   },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  },
   "license": "UNLICENSED",
   "private": true
 }

@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+app/__init__.py
+app/extensions.py
+app/models.py
+app/routes.py
+golden_saas_python.egg-info/PKG-INFO
+golden_saas_python.egg-info/SOURCES.txt
+golden_saas_python.egg-info/dependency_links.txt
+golden_saas_python.egg-info/requires.txt
+golden_saas_python.egg-info/top_level.txt
+tests/test_app.py

@@ -1,0 +1,22 @@
+[
+  "tests/test_app.py::test_checkout_rejects_unknown_plan",
+  "tests/test_app.py::test_customer_and_motorcycle_purchase_sale_crud_is_branch_scoped",
+  "tests/test_app.py::test_dashboard_redirects_guests_to_login",
+  "tests/test_app.py::test_duplicate_email_and_blank_password_are_rejected",
+  "tests/test_app.py::test_health_check_returns_ok",
+  "tests/test_app.py::test_index_returns_application_metadata",
+  "tests/test_app.py::test_login_and_logout",
+  "tests/test_app.py::test_login_page_contains_form_and_register_link",
+  "tests/test_app.py::test_matrix_allows_at_most_three_branches",
+  "tests/test_app.py::test_motorcycle_inventory_page_lists_branch_stock_and_simulates_sale",
+  "tests/test_app.py::test_part_sale_rejects_insufficient_stock",
+  "tests/test_app.py::test_parts_inventory_page_manages_supplier_part_and_purchase",
+  "tests/test_app.py::test_parts_inventory_rejects_purchase_from_another_branch",
+  "tests/test_app.py::test_parts_suppliers_carriers_and_stock_transactions_are_branch_scoped",
+  "tests/test_app.py::test_plans_are_available_and_checkout_activates_premium",
+  "tests/test_app.py::test_price_table_updates_motorcycle_and_part_prices",
+  "tests/test_app.py::test_register_page_creates_user_and_redirects_to_dashboard",
+  "tests/test_app.py::test_simulated_nfe_is_linked_to_motorcycle_transaction",
+  "tests/test_app.py::test_unknown_route_returns_not_found",
+  "tests/test_app.py::test_user_can_register_and_access_current_user"
+]

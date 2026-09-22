@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | Golden SaaS{% endblock %}
+{% block content %}
+<section class="dashboard-header">
+  <div>
+    <p class="eyebrow">Visão geral</p>
+    <h1>Olá, {{ user.name.split(" ")[0] }}!</h1>
+    <p class="muted">Aqui está um resumo da sua conta.</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{{ url_for('motorcycle_inventory') }}" class="button-secondary rounded px-4 py-2 text-sm font-bold">Estoque de motos</a>
+    <a href="{{ url_for('parts_inventory') }}" class="button-secondary rounded px-4 py-2 text-sm font-bold">Estoque de peças</a>
+    <form method="post" action="{{ url_for('logout_form') }}">
+      <button class="button-secondary" type="submit">Sair</button>
+    </form>
+  </div>
+</section>
+<section class="metrics">
+  <article class="card metric">
+    <span class="metric-label">Status da conta</span>
+    <strong>Ativa</strong>
+    <span class="metric-note">Acesso autenticado</span>
+  </article>
+  <article class="card metric">
+    <span class="metric-label">Usuário</span>
+    <strong>{{ user.email }}</strong>
+    <span class="metric-note">Cadastro realizado em {{ user.created_at.strftime("%d/%m/%Y") }}</span>
+  </article>
+  <article class="card metric">
+    <span class="metric-label">Próximo passo</span>
+    <strong>Configurar operação</strong>
+    <span class="metric-note">Novos módulos serão adicionados aqui</span>
+  </article>
+</section>
+<section class="card subscription-card">
+  <div>
+    <p class="eyebrow">Assinatura</p>
+    <h2>{{ user.subscription.plan.name if user.subscription else "Sem plano" }}</h2>
+    <p class="muted">Ative ou altere seu plano com um checkout simulado.</p>
+  </div>
+  <div class="plan-options">
+    {% for plan in plans %}
+      <form method="post" action="{{ url_for('checkout_form') }}">
+        <input type="hidden" name="plan_code" value="{{ plan.code }}">
+        <button type="submit" class="{{ 'button-secondary' if user.subscription and user.subscription.plan.code == plan.code else '' }}">
+          {{ plan.name }} - R$ {{ "%.2f"|format(plan.price)|replace(".", ",") }}
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
