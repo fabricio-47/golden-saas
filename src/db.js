@@ -147,6 +147,15 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS peca_cores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    peca_id INTEGER NOT NULL REFERENCES pecas(id) ON DELETE CASCADE,
+    cor TEXT NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS transferencias (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     peca_origem_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
@@ -290,6 +299,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_os_pecas_peca ON os_pecas(peca_id);
   CREATE INDEX IF NOT EXISTS idx_login_audit_created ON login_audit(created_at);
   CREATE INDEX IF NOT EXISTS idx_pecas_loja ON pecas(loja_id);
+  CREATE INDEX IF NOT EXISTS idx_peca_cores_peca ON peca_cores(peca_id);
   CREATE INDEX IF NOT EXISTS idx_users_loja ON users(loja_id);
   CREATE INDEX IF NOT EXISTS idx_transferencias_origem ON transferencias(loja_origem_id);
   CREATE INDEX IF NOT EXISTS idx_transferencias_destino ON transferencias(loja_destino_id);
