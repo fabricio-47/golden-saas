@@ -338,7 +338,7 @@ function buildOsEmailContent(os, clienteNome, tipo) {
       <p>${os.servicos_realizados ? escapeHtml(os.servicos_realizados) : 'Não informado.'}</p>
       <h3 style="margin-bottom:4px;">Valores</h3>
       <p>
-        Peças: ${formatMoney(os.valor_pecas)}<br>
+        Produtos: ${formatMoney(os.valor_pecas)}<br>
         Mão de obra: ${formatMoney(os.valor_mao_obra)}<br>
         <strong>Total: ${formatMoney(total)}</strong><br>
         Forma de pagamento: ${formaPagamentoLabel(os)}
@@ -720,7 +720,7 @@ async function handler(req, res) {
       const cores = parseCoresFromBody(body);
 
       if (!body.nome || !body.nome.trim() || !lojaIdEscolhida) {
-        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça e loja são obrigatórios.' }, peca: body, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores, cores }));
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome do produto e loja são obrigatórios.' }, peca: body, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores, cores }));
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
@@ -735,7 +735,7 @@ async function handler(req, res) {
           toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId
         );
       salvarCoresPeca(info.lastInsertRowid, cores);
-      setFlash(session.sessionId, 'success', 'Peça cadastrada no estoque.');
+      setFlash(session.sessionId, 'success', 'Produto cadastrado no estoque.');
       return redirect(res, `/estoque/${info.lastInsertRowid}/editar`);
     }
 
@@ -764,7 +764,7 @@ async function handler(req, res) {
       if (!peca) return notFound(res);
       if (!canEditLoja(user, peca.loja_id)) return forbidden(res);
       db.prepare('DELETE FROM pecas WHERE id = ?').run(m.id);
-      setFlash(session.sessionId, 'success', 'Peça excluída do estoque.');
+      setFlash(session.sessionId, 'success', 'Produto excluído do estoque.');
       return redirect(res, '/estoque');
     }
 
@@ -781,7 +781,7 @@ async function handler(req, res) {
       const cores = parseCoresFromBody(body);
 
       if (!body.nome || !body.nome.trim()) {
-        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: { ...peca, ...body }, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores, cores }));
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome do produto é obrigatório.' }, peca: { ...peca, ...body }, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores, cores }));
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
@@ -793,7 +793,7 @@ async function handler(req, res) {
         toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId, m.id
       );
       salvarCoresPeca(m.id, cores);
-      setFlash(session.sessionId, 'success', 'Peça atualizada.');
+      setFlash(session.sessionId, 'success', 'Produto atualizado.');
       return redirect(res, `/estoque/${m.id}/editar`);
     }
 
@@ -839,7 +839,7 @@ async function handler(req, res) {
       if (ativo === 0 && loja.ativo === 1) {
         const lojasAtivas = db.prepare('SELECT COUNT(*) c FROM lojas WHERE ativo = 1').get().c;
         if (lojasAtivas <= 1) {
-          return send(res, 400, lojaFormPage({ user, flash: { type: 'error', message: 'Não é possível desativar a última loja ativa do sistema — sem nenhuma loja ativa, ninguém consegue cadastrar peças, vendas ou lançamentos financeiros. Cadastre outra loja antes de desativar esta.' }, loja: { ...loja, ...body }, csrfToken: session.csrfToken }));
+          return send(res, 400, lojaFormPage({ user, flash: { type: 'error', message: 'Não é possível desativar a última loja ativa do sistema — sem nenhuma loja ativa, ninguém consegue cadastrar produtos, vendas ou lançamentos financeiros. Cadastre outra loja antes de desativar esta.' }, loja: { ...loja, ...body }, csrfToken: session.csrfToken }));
         }
       }
       db.prepare('UPDATE lojas SET nome=?, endereco=?, telefone=?, ativo=? WHERE id=?').run(
@@ -868,7 +868,7 @@ async function handler(req, res) {
       const pecaId = url.searchParams.get('peca_id');
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(pecaId);
       if (!peca) {
-        setFlash(session.sessionId, 'error', 'Peça não encontrada.');
+        setFlash(session.sessionId, 'error', 'Produto não encontrado.');
         return redirect(res, '/estoque');
       }
       if (!canSeeLoja(user, peca.loja_id)) return forbidden(res);
@@ -879,7 +879,7 @@ async function handler(req, res) {
     if (pathname === '/transferencias' && method === 'POST') {
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
       if (!peca) {
-        setFlash(session.sessionId, 'error', 'Peça não encontrada.');
+        setFlash(session.sessionId, 'error', 'Produto não encontrado.');
         return redirect(res, '/estoque');
       }
       if (!canSeeLoja(user, peca.loja_id)) return forbidden(res);
@@ -1609,7 +1609,7 @@ async function handler(req, res) {
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
       const quantidade = toIntOrNull(body.quantidade) || 1;
       if (!peca) {
-        setFlash(session.sessionId, 'error', 'Peça não encontrada no estoque.');
+        setFlash(session.sessionId, 'error', 'Produto não encontrado no estoque.');
         return redirect(res, `/os/${m.id}`);
       }
       if (quantidade < 1) {
@@ -1626,8 +1626,8 @@ async function handler(req, res) {
         session.sessionId,
         novaQuantidade <= 0 ? 'error' : 'success',
         novaQuantidade <= 0
-          ? `Peça "${peca.nome}" adicionada à O.S. Atenção: o estoque dessa peça ficou zerado ou negativo (${novaQuantidade}).`
-          : `Peça "${peca.nome}" adicionada à O.S.`
+          ? `Produto "${peca.nome}" adicionado à O.S. Atenção: o estoque desse produto ficou zerado ou negativo (${novaQuantidade}).`
+          : `Produto "${peca.nome}" adicionado à O.S.`
       );
       return redirect(res, `/os/${m.id}`);
     }
@@ -1640,7 +1640,7 @@ async function handler(req, res) {
         }
         db.prepare('DELETE FROM os_pecas WHERE id = ?').run(item.id);
         recomputeValorPecas(m.id);
-        setFlash(session.sessionId, 'success', 'Peça removida da O.S. e devolvida ao estoque.');
+        setFlash(session.sessionId, 'success', 'Produto removido da O.S. e devolvido ao estoque.');
       }
       return redirect(res, `/os/${m.id}`);
     }
@@ -1879,7 +1879,7 @@ async function handler(req, res) {
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.produto_id);
       const quantidade = toIntOrNull(body.quantidade) || 1;
       if (!peca) {
-        setFlash(session.sessionId, 'error', 'Peça não encontrada no estoque.');
+        setFlash(session.sessionId, 'error', 'Produto não encontrado no estoque.');
         return redirect(res, `/vendas/${m.id}`);
       }
       if (quantidade < 1) {
@@ -1897,8 +1897,8 @@ async function handler(req, res) {
         session.sessionId,
         novaQuantidade <= 0 ? 'error' : 'success',
         novaQuantidade <= 0
-          ? `Peça "${peca.nome}" adicionada à venda. Atenção: o estoque dessa peça ficou zerado ou negativo (${novaQuantidade}).`
-          : `Peça "${peca.nome}" adicionada à venda.`
+          ? `Produto "${peca.nome}" adicionado à venda. Atenção: o estoque desse produto ficou zerado ou negativo (${novaQuantidade}).`
+          : `Produto "${peca.nome}" adicionado à venda.`
       );
       return redirect(res, `/vendas/${m.id}`);
     }
