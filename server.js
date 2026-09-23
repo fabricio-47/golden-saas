@@ -532,7 +532,7 @@ async function handler(req, res) {
     if (pathname === '/bicicletas/novo' && method === 'GET') {
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       if (!clientes.length) {
-        setFlash(session.sessionId, 'error', 'Cadastre um cliente antes de adicionar uma bicicleta.');
+        setFlash(session.sessionId, 'error', 'Cadastre um cliente antes de adicionar um veículo.');
         return redirect(res, '/clientes/novo');
       }
       return send(
@@ -570,7 +570,7 @@ async function handler(req, res) {
       if (fotoChassiFile) replaceBicicletaMedia(newId, 'chassi', fotoChassiFile);
       if (fotoBateriaFile) replaceBicicletaMedia(newId, 'bateria_serial', fotoBateriaFile);
 
-      setFlash(session.sessionId, 'success', 'Bicicleta cadastrada com sucesso.');
+      setFlash(session.sessionId, 'success', 'Veículo cadastrado com sucesso.');
       return redirect(res, `/bicicletas/${newId}`);
     }
 
@@ -584,7 +584,7 @@ async function handler(req, res) {
 
     if ((m = matchRoute('/bicicletas/:id/excluir', pathname)) && method === 'POST') {
       db.prepare('DELETE FROM bicicletas WHERE id = ?').run(m.id);
-      setFlash(session.sessionId, 'success', 'Bicicleta excluída.');
+      setFlash(session.sessionId, 'success', 'Veículo excluído.');
       return redirect(res, '/bicicletas');
     }
 
@@ -617,7 +617,7 @@ async function handler(req, res) {
       if (fotoChassiFile) replaceBicicletaMedia(m.id, 'chassi', fotoChassiFile);
       if (fotoBateriaFile) replaceBicicletaMedia(m.id, 'bateria_serial', fotoBateriaFile);
 
-      setFlash(session.sessionId, 'success', 'Bicicleta atualizada.');
+      setFlash(session.sessionId, 'success', 'Veículo atualizado.');
       return redirect(res, `/bicicletas/${m.id}`);
     }
 
@@ -1832,7 +1832,7 @@ async function handler(req, res) {
         ).run(m.id, bicicletaId, `${marca} ${modelo}`.trim(), precoVenda);
         const novoTotalVeiculo = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
         db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotalVeiculo, m.id);
-        setFlash(session.sessionId, 'success', `Veículo "${`${marca} ${modelo}`.trim()}" adicionado à venda e cadastrado em Bicicletas.`);
+        setFlash(session.sessionId, 'success', `Veículo "${`${marca} ${modelo}`.trim()}" adicionado à venda e cadastrado em Veículos.`);
         return redirect(res, `/vendas/${m.id}`);
       }
 
@@ -1884,7 +1884,7 @@ async function handler(req, res) {
         const novoTotal = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
         db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotal, m.id);
         if (item.bicicleta_id) {
-          setFlash(session.sessionId, 'success', 'Item removido da venda. O veículo cadastrado permanece no cadastro do cliente (módulo Bicicletas).');
+          setFlash(session.sessionId, 'success', 'Item removido da venda. O veículo cadastrado permanece no cadastro do cliente (módulo Veículos).');
           return redirect(res, `/vendas/${m.id}`);
         }
         setFlash(session.sessionId, 'success', 'Item removido da venda e devolvido ao estoque.');
