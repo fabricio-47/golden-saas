@@ -114,7 +114,7 @@ function checklistFormFields(checklist) {
   }).join('');
 }
 
-function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas }) {
+function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas, servicos }) {
   const isEdit = !!os;
   const checklist = os && os.checklist_json ? JSON.parse(os.checklist_json) : [];
 
@@ -211,7 +211,16 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             </div>
             <div class="field">
               <label for="valor_mao_obra">Valor de mão de obra (R$)</label>
+              ${
+                servicos && servicos.length
+                  ? `<select id="tipo_servico_select" onchange="const v=this.options[this.selectedIndex].dataset.valor; if(v) document.getElementById('valor_mao_obra').value=v;" style="margin-bottom:8px;">
+                <option value="">Escolher um serviço do catálogo (opcional)...</option>
+                ${servicos.map((s) => `<option value="${s.id}" data-valor="${s.valor}">${escapeHtml(s.nome)} - ${formatMoney(s.valor)}</option>`).join('')}
+              </select>`
+                  : ''
+              }
               <input type="number" id="valor_mao_obra" name="valor_mao_obra" min="0" step="0.01" value="${os && os.valor_mao_obra !== null ? os.valor_mao_obra : ''}">
+              <p class="muted" style="margin-top:4px;">Escolher um serviço do catálogo só preenche o valor sugerido — você ainda pode editar. Cadastre os tipos de serviço em Estoque → Tipos de Serviço.</p>
             </div>
             <div class="field">
               <label for="forma_pagamento">Forma de pagamento</label>

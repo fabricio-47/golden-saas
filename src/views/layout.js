@@ -179,6 +179,7 @@ function layout({ title, activeNav, user, flash, children }) {
     { key: 'bicicletas', href: '/bicicletas', label: 'Bicicletas' },
     { key: 'os', href: '/os', label: 'Ordens de Serviço' },
     { key: 'vendas', href: '/vendas', label: 'Venda Direto' },
+    { key: 'contratos', href: '/contratos', label: 'Contratos' },
   ];
 
   const navGroups = [
@@ -189,6 +190,7 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'estoque', href: '/estoque', label: 'Estoque' },
         { key: 'transferencias', href: '/transferencias', label: 'Transferências' },
         { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores' },
+        { key: 'servicos', href: '/servicos', label: 'Tipos de Serviço' },
       ],
     },
     {

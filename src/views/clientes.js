@@ -130,6 +130,7 @@ function clienteShowPage({ user, flash, cliente, bicicletas, ordensServico, csrf
         </div>
         <div class="actions-row" style="margin-top:0;">
           <a class="btn btn-secondary" href="/clientes/${cliente.id}/editar">Editar</a>
+          <a class="btn btn-secondary" href="/contratos/novo?cliente_id=${cliente.id}">+ Contrato p/ assinar</a>
           <a class="btn" href="/bicicletas/novo?cliente_id=${cliente.id}">+ Nova Bicicleta</a>
         </div>
       </div>
