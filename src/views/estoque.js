@@ -25,7 +25,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
     .map(
       (p) => `
     <tr>
-      <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}${p.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(p.fornecedor_nome)}</div>` : ''}</td>
+      <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}${p.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(p.fornecedor_nome)}</div>` : ''}${p.cores && p.cores.length ? `<div class="muted">Cores: ${p.cores.map((c) => `${escapeHtml(c.cor)} (${c.quantidade})`).join(', ')}</div>` : ''}</td>
       ${mostrarColunaLoja ? `<td>${escapeHtml(p.loja_nome || '-')}</td>` : ''}
       <td>${escapeHtml(p.categoria || '-')}</td>
       <td>${p.quantidade}</td>
@@ -100,8 +100,18 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
   });
 }
 
-function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, fornecedores }) {
+function corRowHtml(i, cor, quantidade) {
+  return `
+    <div class="cor-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+      <input type="text" name="cor_nome" placeholder="Cor (ex: Preto)" value="${escapeHtml(cor || '')}" style="flex:2;">
+      <input type="number" name="cor_quantidade" min="0" step="1" placeholder="Qtd." value="${quantidade !== undefined && quantidade !== null ? quantidade : ''}" style="flex:1;">
+      <button type="button" class="btn btn-sm btn-danger" onclick="this.closest('.cor-row').remove(); recalcQuantidadeTotal();">Remover</button>
+    </div>`;
+}
+
+function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, fornecedores, cores }) {
   const isEdit = !!peca;
+  const coresIniciais = cores && cores.length ? cores : [];
   const datalistOptions = CATEGORIAS_SUGERIDAS.map((c) => `<option value="${escapeHtml(c)}">`).join('');
   const fornecedorOptions = (fornecedores || [])
     .map((f) => `<option value="${f.id}" ${peca && String(peca.fornecedor_id) === String(f.id) ? 'selected' : ''}>${escapeHtml(f.nome)}</option>`)
@@ -159,10 +169,23 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             <div class="field">
               <label for="quantidade">Quantidade em estoque *</label>
               <input type="number" id="quantidade" name="quantidade" min="0" step="1" required value="${peca ? peca.quantidade : 0}">
+              <p class="muted" id="quantidade-hint" style="margin-top:4px;display:none;">Calculada automaticamente pela soma das cores abaixo.</p>
             </div>
             <div class="field">
               <label for="estoque_minimo">Estoque mínimo (avisa quando chegar nesse valor)</label>
               <input type="number" id="estoque_minimo" name="estoque_minimo" min="0" step="1" value="${peca ? peca.estoque_minimo : 1}">
+            </div>
+            <div class="field full">
+              <label>Cores desta peça (opcional)</label>
+              <p class="muted" style="margin-top:0;">Se essa peça vem em mais de uma cor, cadastre cada cor com a quantidade que você tem. A "Quantidade em estoque" acima passa a ser calculada sozinha, somando as cores.</p>
+              <div id="cores-container">
+                ${coresIniciais
+                  .map(
+                    (c, i) => corRowHtml(i, c.cor, c.quantidade)
+                  )
+                  .join('')}
+              </div>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="adicionarCorRow()">+ Adicionar cor</button>
             </div>
             <div class="field">
               <label for="custo_unitario">Custo unitário — quanto você paga (R$)</label>
@@ -190,6 +213,40 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
           </div>
         </form>
       </div>
+      <script>
+        function adicionarCorRow() {
+          var container = document.getElementById('cores-container');
+          var div = document.createElement('div');
+          div.innerHTML = ${JSON.stringify(corRowHtml(0, '', ''))};
+          container.appendChild(div.firstElementChild);
+          recalcQuantidadeTotal();
+        }
+        function recalcQuantidadeTotal() {
+          var rows = document.querySelectorAll('#cores-container .cor-row');
+          var qtdInput = document.getElementById('quantidade');
+          var hint = document.getElementById('quantidade-hint');
+          var temCor = false;
+          var soma = 0;
+          rows.forEach(function (row) {
+            var nome = row.querySelector('input[name="cor_nome"]').value.trim();
+            var qtd = parseInt(row.querySelector('input[name="cor_quantidade"]').value, 10) || 0;
+            if (nome) {
+              temCor = true;
+              soma += qtd;
+            }
+          });
+          if (temCor) {
+            qtdInput.value = soma;
+            qtdInput.readOnly = true;
+            hint.style.display = 'block';
+          } else {
+            qtdInput.readOnly = false;
+            hint.style.display = 'none';
+          }
+        }
+        document.getElementById('cores-container').addEventListener('input', recalcQuantidadeTotal);
+        recalcQuantidadeTotal();
+      </script>
     `,
   });
 }
