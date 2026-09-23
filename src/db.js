@@ -248,6 +248,38 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS tipos_servico (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    categoria TEXT,
+    valor REAL NOT NULL DEFAULT 0,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS contratos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    venda_id INTEGER REFERENCES vendas(id) ON DELETE SET NULL,
+    ordem_servico_id INTEGER REFERENCES ordens_servico(id) ON DELETE SET NULL,
+    titulo TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pendente',
+    arquivo_original TEXT,
+    arquivo_assinado TEXT,
+    hash_original TEXT,
+    assinante_nome TEXT,
+    assinante_documento TEXT,
+    assinante_ip TEXT,
+    assinante_user_agent TEXT,
+    assinado_em TEXT,
+    criado_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_contratos_cliente ON contratos(cliente_id);
+  CREATE INDEX IF NOT EXISTS idx_contratos_token ON contratos(token);
+  CREATE INDEX IF NOT EXISTS idx_contratos_status ON contratos(status);
   CREATE INDEX IF NOT EXISTS idx_bicicletas_cliente ON bicicletas(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_cliente ON ordens_servico(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_os_bicicleta ON ordens_servico(bicicleta_id);

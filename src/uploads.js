@@ -62,6 +62,49 @@ function saveUploadedFile(namespace, entityId, file) {
   };
 }
 
+const ALLOWED_DOC_EXT = {
+  'application/pdf': '.pdf',
+};
+
+function isPdf(contentType, originalName) {
+  if (contentType === 'application/pdf') return true;
+  return path.extname(originalName || '').toLowerCase() === '.pdf';
+}
+
+// Salva um documento (hoje só PDF — contratos) enviado por upload. Mesmo
+// namespace/pasta dos outros uploads, mas sem exigir imagem/vídeo.
+function saveDocumentFile(namespace, entityId, file) {
+  if (!file || !isPdf(file.contentType, file.filename)) return null;
+  if (!file.data || file.data.length === 0 || file.data.length > MAX_FILE_BYTES) return null;
+
+  const folder = `${namespace}-${entityId}`;
+  const dir = path.join(UPLOADS_DIR, folder);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  const safeName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}.pdf`;
+  const fullPath = path.join(dir, safeName);
+  fs.writeFileSync(fullPath, file.data);
+
+  return {
+    nome_arquivo: file.filename || 'contrato.pdf',
+    caminho_arquivo: `${folder}/${safeName}`,
+  };
+}
+
+// Grava um Buffer gerado pelo próprio sistema (ex: PDF assinado) na mesma
+// estrutura de pastas dos uploads, para poder ser servido depois por
+// resolveUploadPath como qualquer outro arquivo.
+function saveBufferAsUpload(namespace, entityId, buffer, suggestedName) {
+  const folder = `${namespace}-${entityId}`;
+  const dir = path.join(UPLOADS_DIR, folder);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const ext = path.extname(suggestedName || '').toLowerCase() || '.pdf';
+  const safeName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+  const fullPath = path.join(dir, safeName);
+  fs.writeFileSync(fullPath, buffer);
+  return `${folder}/${safeName}`;
+}
+
 function deleteUploadedFile(relativePath) {
   const fullPath = resolveUploadPath(relativePath);
   if (fullPath && fs.existsSync(fullPath)) {
@@ -90,6 +133,7 @@ const MIME_BY_EXT = {
   '.mp4': 'video/mp4',
   '.mov': 'video/quicktime',
   '.webm': 'video/webm',
+  '.pdf': 'application/pdf',
 };
 
 function mimeForPath(p) {
@@ -101,6 +145,8 @@ module.exports = {
   MAX_FILE_BYTES,
   MAX_REQUEST_BYTES,
   saveUploadedFile,
+  saveDocumentFile,
+  saveBufferAsUpload,
   deleteUploadedFile,
   resolveUploadPath,
   mimeForPath,
