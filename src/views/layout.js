@@ -176,7 +176,7 @@ function layout({ title, activeNav, user, flash, children }) {
   const navItems = [
     { key: 'dashboard', href: '/', label: 'Dashboard' },
     { key: 'clientes', href: '/clientes', label: 'Clientes' },
-    { key: 'bicicletas', href: '/bicicletas', label: 'Bicicletas' },
+    { key: 'bicicletas', href: '/bicicletas', label: 'Veículos' },
     { key: 'os', href: '/os', label: 'Ordens de Serviço' },
     { key: 'vendas', href: '/vendas', label: 'Venda Direto' },
     { key: 'contratos', href: '/contratos', label: 'Contratos' },

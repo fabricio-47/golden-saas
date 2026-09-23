@@ -216,7 +216,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
               <div class="field">
                 <label for="tipo_veiculo">Tipo de veículo</label>
                 <select id="tipo_veiculo" name="tipo_veiculo">
-                  <option value="bicicleta">Bicicleta elétrica</option>
+                  <option value="bicicleta">Scooter elétrica</option>
                   <option value="moto">Moto elétrica</option>
                 </select>
               </div>
@@ -249,7 +249,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
                 <input type="file" id="veiculo_foto_bateria" name="veiculo_foto_bateria" accept="image/*" capture="environment">
               </div>
             </div>
-            <p class="muted">O veículo já fica cadastrado no módulo Bicicletas, vinculado a este cliente.</p>
+            <p class="muted">O veículo já fica cadastrado no módulo Veículos, vinculado a este cliente.</p>
           </div>
 
           <button class="btn btn-sm" type="submit" style="margin-top:12px;">+ Adicionar item</button>

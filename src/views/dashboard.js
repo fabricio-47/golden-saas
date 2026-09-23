@@ -74,7 +74,7 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBa
         ${
           recentOS.length
             ? `<table>
-          <thead><tr><th>Número</th><th>Cliente</th><th>Bicicleta</th><th>Status</th><th>Entrada</th></tr></thead>
+          <thead><tr><th>Número</th><th>Cliente</th><th>Veículo</th><th>Status</th><th>Entrada</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
             : '<div class="empty">Nenhuma ordem de serviço ainda. <a class="link-btn" href="/os/novo">Criar a primeira</a></div>'
@@ -86,10 +86,10 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBa
         ${
           lowBatteryBikes.length
             ? `<table>
-          <thead><tr><th>Bicicleta</th><th>Cliente</th><th>Saúde da bateria (SOH)</th><th>Ciclos de carga</th></tr></thead>
+          <thead><tr><th>Veículo</th><th>Cliente</th><th>Saúde da bateria (SOH)</th><th>Ciclos de carga</th></tr></thead>
           <tbody>${bikeRows}</tbody>
         </table>`
-            : '<div class="empty">Nenhuma bicicleta com bateria em atenção no momento.</div>'
+            : '<div class="empty">Nenhum veículo com bateria em atenção no momento.</div>'
         }
       </div>
 

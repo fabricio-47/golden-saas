@@ -35,7 +35,7 @@ function clientesListPage({ user, flash, clientes }) {
         ${
           clientes.length
             ? `<table>
-          <thead><tr><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Bicicletas</th><th>Cadastrado em</th></tr></thead>
+          <thead><tr><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Veículos</th><th>Cadastrado em</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
             : '<div class="empty">Nenhum cliente cadastrado ainda. <a class="link-btn" href="/clientes/novo">Cadastrar o primeiro</a></div>'
@@ -131,7 +131,7 @@ function clienteShowPage({ user, flash, cliente, bicicletas, ordensServico, csrf
         <div class="actions-row" style="margin-top:0;">
           <a class="btn btn-secondary" href="/clientes/${cliente.id}/editar">Editar</a>
           <a class="btn btn-secondary" href="/contratos/novo?cliente_id=${cliente.id}">+ Contrato p/ assinar</a>
-          <a class="btn" href="/bicicletas/novo?cliente_id=${cliente.id}">+ Nova Bicicleta</a>
+          <a class="btn" href="/bicicletas/novo?cliente_id=${cliente.id}">+ Novo Veículo</a>
         </div>
       </div>
 
@@ -139,11 +139,11 @@ function clienteShowPage({ user, flash, cliente, bicicletas, ordensServico, csrf
       ${cliente.observacoes ? `<p class="muted">${escapeHtml(cliente.observacoes)}</p>` : ''}
 
       <div class="card">
-        <h2>Bicicletas (${bicicletas.length})</h2>
+        <h2>Veículos (${bicicletas.length})</h2>
         ${
           bicicletas.length
-            ? `<table><thead><tr><th>Bicicleta</th><th>Saúde da bateria</th><th>Nº série bateria</th></tr></thead><tbody>${bikeRows}</tbody></table>`
-            : '<div class="empty">Nenhuma bicicleta cadastrada para este cliente.</div>'
+            ? `<table><thead><tr><th>Veículo</th><th>Saúde da bateria</th><th>Nº série bateria</th></tr></thead><tbody>${bikeRows}</tbody></table>`
+            : '<div class="empty">Nenhum veículo cadastrado para este cliente.</div>'
         }
       </div>
 
@@ -156,7 +156,7 @@ function clienteShowPage({ user, flash, cliente, bicicletas, ordensServico, csrf
         }
       </div>
 
-      <form method="POST" action="/clientes/${cliente.id}/excluir" onsubmit="return confirm('Tem certeza que deseja excluir este cliente? Isso também removerá suas bicicletas e ordens de serviço.');">
+      <form method="POST" action="/clientes/${cliente.id}/excluir" onsubmit="return confirm('Tem certeza que deseja excluir este cliente? Isso também removerá seus veículos e ordens de serviço.');">
         <input type="hidden" name="csrf" value="${csrfToken}">
         <button class="btn btn-danger btn-sm" type="submit">Excluir cliente</button>
       </form>

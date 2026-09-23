@@ -84,7 +84,7 @@ function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas 
         ${
           ordens.length
             ? `<table>
-          <thead><tr><th>Número</th><th>Cliente</th><th>Bicicleta</th><th>Status</th><th>Valor</th><th>Entrada</th></tr></thead>
+          <thead><tr><th>Número</th><th>Cliente</th><th>Veículo</th><th>Status</th><th>Valor</th><th>Entrada</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
             : `<div class="empty">Nenhuma ordem de serviço ${mostrarDesativadas ? 'desativada' : 'encontrada'}.</div>`

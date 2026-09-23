@@ -5,7 +5,7 @@ const { escapeHtml, formatDate } = require('../utils');
 const { STATUS_LABELS } = require('./dashboard');
 
 const TIPO_VEICULO_LABELS = {
-  bicicleta: 'Bicicleta elétrica',
+  bicicleta: 'Scooter elétrica',
   moto: 'Moto elétrica',
 };
 
@@ -21,7 +21,7 @@ function bicicletasListPage({ user, flash, bicicletas }) {
       (b) => `
     <tr>
       <td><a class="link-btn" href="/bicicletas/${b.id}">${escapeHtml(b.marca || '')} ${escapeHtml(b.modelo)}</a></td>
-      <td class="muted">${TIPO_VEICULO_LABELS[b.tipo_veiculo] || 'Bicicleta elétrica'}</td>
+      <td class="muted">${TIPO_VEICULO_LABELS[b.tipo_veiculo] || 'Scooter elétrica'}</td>
       <td>${escapeHtml(b.cliente_nome)}</td>
       <td>${sohBadge(b.bateria_soh_percent)}</td>
       <td>${b.bateria_ciclos_carga !== null ? b.bateria_ciclos_carga : '-'}</td>
@@ -31,17 +31,17 @@ function bicicletasListPage({ user, flash, bicicletas }) {
     .join('');
 
   return layout({
-    title: 'Bicicletas',
+    title: 'Veículos',
     activeNav: 'bicicletas',
     user,
     flash,
     children: `
       <div class="page-header">
         <div>
-          <h1>Bicicletas</h1>
+          <h1>Veículos</h1>
           <p class="subtitle">Frota cadastrada e saúde das baterias</p>
         </div>
-        <a class="btn" href="/bicicletas/novo">+ Nova Bicicleta</a>
+        <a class="btn" href="/bicicletas/novo">+ Novo Veículo</a>
       </div>
       <div class="card">
         ${
@@ -50,7 +50,7 @@ function bicicletasListPage({ user, flash, bicicletas }) {
           <thead><tr><th>Veículo</th><th>Tipo</th><th>Cliente</th><th>SOH Bateria</th><th>Ciclos de carga</th><th>Nº série bateria</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
-            : '<div class="empty">Nenhuma bicicleta cadastrada ainda. <a class="link-btn" href="/bicicletas/novo">Cadastrar a primeira</a></div>'
+            : '<div class="empty">Nenhum veículo cadastrado ainda. <a class="link-btn" href="/bicicletas/novo">Cadastrar o primeiro</a></div>'
         }
       </div>
     `,
@@ -77,14 +77,14 @@ function bicicletaFormPage({ user, flash, bicicleta, clientes, defaultClienteId,
   const isMoto = bicicleta && bicicleta.tipo_veiculo === 'moto';
 
   return layout({
-    title: isEdit ? 'Editar Bicicleta' : 'Nova Bicicleta',
+    title: isEdit ? 'Editar Veículo' : 'Novo Veículo',
     activeNav: 'bicicletas',
     user,
     flash,
     children: `
       <div class="page-header">
         <div>
-          <h1>${isEdit ? 'Editar Bicicleta' : 'Nova Bicicleta'}</h1>
+          <h1>${isEdit ? 'Editar Veículo' : 'Novo Veículo'}</h1>
           <p class="subtitle">Dados técnicos de motor, controladora e bateria</p>
         </div>
       </div>
@@ -102,7 +102,7 @@ function bicicletaFormPage({ user, flash, bicicleta, clientes, defaultClienteId,
             <div class="field full">
               <label for="tipo_veiculo">Tipo de veículo *</label>
               <select id="tipo_veiculo" name="tipo_veiculo" required onchange="toggleFotosObrigatorias()">
-                <option value="bicicleta" ${!bicicleta || bicicleta.tipo_veiculo === 'bicicleta' ? 'selected' : ''}>Bicicleta elétrica</option>
+                <option value="bicicleta" ${!bicicleta || bicicleta.tipo_veiculo === 'bicicleta' ? 'selected' : ''}>Scooter elétrica</option>
                 <option value="moto" ${bicicleta && bicicleta.tipo_veiculo === 'moto' ? 'selected' : ''}>Moto elétrica</option>
               </select>
             </div>
@@ -172,7 +172,7 @@ function bicicletaFormPage({ user, flash, bicicleta, clientes, defaultClienteId,
           </div>
 
           <div class="actions-row">
-            <button class="btn" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar bicicleta'}</button>
+            <button class="btn" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar veículo'}</button>
             <a class="btn btn-secondary" href="${isEdit ? `/bicicletas/${bicicleta.id}` : '/bicicletas'}">Cancelar</a>
           </div>
         </form>
@@ -223,7 +223,7 @@ function bicicletaShowPage({ user, flash, bicicleta, ordensServico, midias, csrf
       <div class="page-header">
         <div>
           <h1>${escapeHtml(bicicleta.marca || '')} ${escapeHtml(bicicleta.modelo)}</h1>
-          <p class="subtitle">${TIPO_VEICULO_LABELS[bicicleta.tipo_veiculo] || 'Bicicleta elétrica'} · Dono(a): <a class="link-btn" href="/clientes/${bicicleta.cliente_id}">${escapeHtml(bicicleta.cliente_nome)}</a></p>
+          <p class="subtitle">${TIPO_VEICULO_LABELS[bicicleta.tipo_veiculo] || 'Scooter elétrica'} · Dono(a): <a class="link-btn" href="/clientes/${bicicleta.cliente_id}">${escapeHtml(bicicleta.cliente_nome)}</a></p>
         </div>
         <div class="actions-row" style="margin-top:0;">
           <a class="btn btn-secondary" href="/bicicletas/${bicicleta.id}/editar">Editar</a>
@@ -282,13 +282,13 @@ function bicicletaShowPage({ user, flash, bicicleta, ordensServico, midias, csrf
         ${
           ordensServico.length
             ? `<table><thead><tr><th>Número</th><th>Status</th><th>Entrada</th></tr></thead><tbody>${osRows}</tbody></table>`
-            : '<div class="empty">Nenhuma O.S. registrada para esta bicicleta ainda.</div>'
+            : '<div class="empty">Nenhuma O.S. registrada para este veículo ainda.</div>'
         }
       </div>
 
-      <form method="POST" action="/bicicletas/${bicicleta.id}/excluir" onsubmit="return confirm('Tem certeza que deseja excluir esta bicicleta?');">
+      <form method="POST" action="/bicicletas/${bicicleta.id}/excluir" onsubmit="return confirm('Tem certeza que deseja excluir este veículo?');">
         <input type="hidden" name="csrf" value="${csrfToken}">
-        <button class="btn btn-danger btn-sm" type="submit">Excluir bicicleta</button>
+        <button class="btn btn-danger btn-sm" type="submit">Excluir veículo</button>
       </form>
     `,
   });
