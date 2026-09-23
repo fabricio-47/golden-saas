@@ -7,7 +7,7 @@ const { db } = require('./db');
 const MODULOS = [
   { key: 'painel', label: 'Painel' },
   { key: 'clientes', label: 'Clientes' },
-  { key: 'bicicletas', label: 'Bicicletas' },
+  { key: 'bicicletas', label: 'Veículos' },
   { key: 'os', label: 'Ordens de Serviço' },
   { key: 'vendas', label: 'Venda Direto' },
   { key: 'estoque', label: 'Estoque' },
