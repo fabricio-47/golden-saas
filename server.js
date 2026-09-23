@@ -202,6 +202,29 @@ function toFloatOrNull(v) {
   return isNaN(n) ? null : n;
 }
 
+// Lê os pares cor_nome / cor_quantidade do form de peça (Estoque) e devolve
+// só as linhas com nome preenchido, já normalizadas. parseFormBody devolve
+// string quando só veio um valor, ou array quando vieram vários com o
+// mesmo name — por isso normalizamos tudo pra array primeiro.
+function parseCoresFromBody(body) {
+  const nomes = body.cor_nome === undefined ? [] : (Array.isArray(body.cor_nome) ? body.cor_nome : [body.cor_nome]);
+  const quantidades = body.cor_quantidade === undefined ? [] : (Array.isArray(body.cor_quantidade) ? body.cor_quantidade : [body.cor_quantidade]);
+  const cores = [];
+  for (let i = 0; i < nomes.length; i++) {
+    const cor = (nomes[i] || '').trim();
+    if (!cor) continue;
+    cores.push({ cor, quantidade: toIntOrNull(quantidades[i]) || 0 });
+  }
+  return cores;
+}
+
+function salvarCoresPeca(pecaId, cores) {
+  db.prepare('DELETE FROM peca_cores WHERE peca_id = ?').run(pecaId);
+  if (!cores.length) return;
+  const ins = db.prepare('INSERT INTO peca_cores (peca_id, cor, quantidade) VALUES (?, ?, ?)');
+  for (const c of cores) ins.run(pecaId, c.cor, c.quantidade);
+}
+
 function recomputeValorPecas(osId) {
   const soma = db
     .prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM os_pecas WHERE ordem_servico_id = ?')
@@ -654,7 +677,11 @@ async function handler(req, res) {
           pecas = [];
         }
       }
-      pecas.forEach((p) => { p.__podeEditar = canEditLoja(user, p.loja_id); });
+      const getCoresPeca = db.prepare('SELECT id, cor, quantidade FROM peca_cores WHERE peca_id = ? ORDER BY cor ASC');
+      pecas.forEach((p) => {
+        p.__podeEditar = canEditLoja(user, p.loja_id);
+        p.cores = getCoresPeca.all(p.id);
+      });
 
       return send(res, 200, pecasListPage({
         user,
@@ -679,6 +706,7 @@ async function handler(req, res) {
         lojas,
         lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
         fornecedores,
+        cores: [],
       }));
     }
 
@@ -689,11 +717,13 @@ async function handler(req, res) {
       const lojaFixaNome = canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null);
       const lojaIdEscolhida = canSeeAllLojas(user) ? toIntOrNull(body.loja_id) : user.loja_id;
       const fornecedorId = toIntOrNull(body.fornecedor_id);
+      const cores = parseCoresFromBody(body);
 
       if (!body.nome || !body.nome.trim() || !lojaIdEscolhida) {
-        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça e loja são obrigatórios.' }, peca: body, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores }));
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça e loja são obrigatórios.' }, peca: body, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores, cores }));
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
+      const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
       const info = db
         .prepare(
           `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes, loja_id, fornecedor_id)
@@ -701,9 +731,10 @@ async function handler(req, res) {
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
-          toIntOrNull(body.quantidade) || 0, toIntOrNull(body.estoque_minimo) || 0,
+          quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
           toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId
         );
+      salvarCoresPeca(info.lastInsertRowid, cores);
       setFlash(session.sessionId, 'success', 'Peça cadastrada no estoque.');
       return redirect(res, `/estoque/${info.lastInsertRowid}/editar`);
     }
@@ -715,6 +746,7 @@ async function handler(req, res) {
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
+      const cores = db.prepare('SELECT id, cor, quantidade FROM peca_cores WHERE peca_id = ? ORDER BY cor ASC').all(peca.id);
       return send(res, 200, pecaFormPage({
         user,
         flash: takeFlash(session.sessionId),
@@ -723,6 +755,7 @@ async function handler(req, res) {
         lojas,
         lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
         fornecedores,
+        cores,
       }));
     }
 
@@ -745,18 +778,21 @@ async function handler(req, res) {
       const lojaFixaNome = canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null);
       const lojaIdEscolhida = canSeeAllLojas(user) ? (toIntOrNull(body.loja_id) || peca.loja_id) : peca.loja_id;
       const fornecedorId = toIntOrNull(body.fornecedor_id);
+      const cores = parseCoresFromBody(body);
 
       if (!body.nome || !body.nome.trim()) {
-        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: { ...peca, ...body }, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores }));
+        return send(res, 400, pecaFormPage({ user, flash: { type: 'error', message: 'Nome da peça é obrigatório.' }, peca: { ...peca, ...body }, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores, cores }));
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
+      const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
       db.prepare(
         `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, loja_id=?, fornecedor_id=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
-        toIntOrNull(body.quantidade) || 0, toIntOrNull(body.estoque_minimo) || 0,
+        quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
         toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId, m.id
       );
+      salvarCoresPeca(m.id, cores);
       setFlash(session.sessionId, 'success', 'Peça atualizada.');
       return redirect(res, `/estoque/${m.id}/editar`);
     }
