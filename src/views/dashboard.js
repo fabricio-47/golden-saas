@@ -94,15 +94,15 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBa
       </div>
 
       <div class="card">
-        <h2>⚠ Peças com estoque baixo ou zerado</h2>
+        <h2>⚠ Produtos com estoque baixo ou zerado</h2>
         ${
           (pecasBaixoEstoque || []).length
             ? `<table>
-          <thead><tr><th>Peça</th><th>Categoria</th><th>Quantidade</th><th>Estoque mínimo</th></tr></thead>
+          <thead><tr><th>Produto</th><th>Categoria</th><th>Quantidade</th><th>Estoque mínimo</th></tr></thead>
           <tbody>${pecaRows}</tbody>
         </table>
         <a class="link-btn" href="/estoque">Ver estoque completo</a>`
-            : '<div class="empty">Nenhuma peça em estoque baixo no momento. <a class="link-btn" href="/estoque">Ver estoque</a></div>'
+            : '<div class="empty">Nenhum produto em estoque baixo no momento. <a class="link-btn" href="/estoque">Ver estoque</a></div>'
         }
       </div>
     `,

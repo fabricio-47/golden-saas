@@ -73,13 +73,13 @@ function transferenciasListPage({ user, flash, transferencias, csrfToken }) {
       <div class="page-header">
         <div>
           <h1>Transferências entre lojas</h1>
-          <p class="subtitle">Peças enviadas de uma loja para outra — aprovação da Gerência/Direção e confirmação de recebimento pela loja destino</p>
+          <p class="subtitle">Produtos enviados de uma loja para outra — aprovação da Gerência/Direção e confirmação de recebimento pela loja destino</p>
         </div>
       </div>
       <div class="card">
         ${
           transferencias.length
-            ? `<table><thead><tr><th>Peça</th><th>Qtd.</th><th>Rota</th><th>Status</th><th>Solicitado por</th><th>Data</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+            ? `<table><thead><tr><th>Produto</th><th>Qtd.</th><th>Rota</th><th>Status</th><th>Solicitado por</th><th>Data</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
             : '<div class="empty">Nenhuma transferência registrada ainda.</div>'
         }
       </div>

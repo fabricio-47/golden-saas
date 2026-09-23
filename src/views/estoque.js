@@ -38,7 +38,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
           <a class="btn btn-sm btn-secondary" href="/transferencias/novo?peca_id=${p.id}">Transferir</a>
           ${
             p.__podeEditar
-              ? `<form method="POST" action="/estoque/${p.id}/excluir" onsubmit="return confirm('Excluir esta peça do estoque?');">
+              ? `<form method="POST" action="/estoque/${p.id}/excluir" onsubmit="return confirm('Excluir este produto do estoque?');">
             <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
             <button class="btn btn-sm btn-danger" type="submit">Excluir</button>
           </form>`
@@ -66,7 +66,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
 
   const statsHtml = `
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${totalPecas}</div><div class="label">Peças cadastradas${lojaFiltroId || (lojas && lojas.length > 1) ? ' (nesta visão)' : ''}</div></div>
+        <div class="stat-card"><div class="num">${totalPecas}</div><div class="label">Produtos cadastrados${lojaFiltroId || (lojas && lojas.length > 1) ? ' (nesta visão)' : ''}</div></div>
         <div class="stat-card"><div class="num">${formatMoney(valorEstoque)}</div><div class="label">Valor em estoque (custo)</div></div>
         <div class="stat-card"><div class="num">${estoqueBaixoCount}</div><div class="label">Itens com estoque baixo ou zerado</div></div>
       </div>`;
@@ -79,10 +79,10 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
     children: `
       <div class="page-header">
         <div>
-          <h1>Estoque de Peças</h1>
-          <p class="subtitle">Controle de quantidade, custo e preço de venda das peças da oficina</p>
+          <h1>Estoque de Produtos</h1>
+          <p class="subtitle">Controle de quantidade, custo e preço de venda dos produtos da oficina</p>
         </div>
-        <a class="btn" href="/estoque/novo">+ Nova Peça</a>
+        <a class="btn" href="/estoque/novo">+ Novo Produto</a>
       </div>
       ${statsHtml}
       ${lojaFilterHtml}
@@ -90,10 +90,10 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
         ${
           pecas.length
             ? `<table>
-          <thead><tr><th>Peça</th>${mostrarColunaLoja ? '<th>Loja</th>' : ''}<th>Categoria</th><th>Qtd.</th><th>Situação</th><th>Custo</th><th>Preço de venda</th><th></th></tr></thead>
+          <thead><tr><th>Produto</th>${mostrarColunaLoja ? '<th>Loja</th>' : ''}<th>Categoria</th><th>Qtd.</th><th>Situação</th><th>Custo</th><th>Preço de venda</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
-            : '<div class="empty">Nenhuma peça cadastrada ainda. <a class="link-btn" href="/estoque/novo">Cadastrar a primeira</a></div>'
+            : '<div class="empty">Nenhum produto cadastrado ainda. <a class="link-btn" href="/estoque/novo">Cadastrar o primeiro</a></div>'
         }
       </div>
     `,
@@ -121,7 +121,7 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
     ? `<div class="field">
         <label>Loja</label>
         <input type="text" value="${escapeHtml(lojaFixaNome)}" disabled>
-        <p class="muted" style="margin-top:4px;">Você só pode cadastrar peças na sua própria loja. Pra levar estoque a outra loja, use "Transferir".</p>
+        <p class="muted" style="margin-top:4px;">Você só pode cadastrar produtos na sua própria loja. Pra levar estoque a outra loja, use "Transferir".</p>
       </div>`
     : `<div class="field">
         <label for="loja_id">Loja *</label>
@@ -132,19 +132,19 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
 
   const semLojaAtivaHtml =
     !lojaFixaNome && lojas.length === 0
-      ? `<div class="flash flash-error">Não há nenhuma loja ativa cadastrada. <a class="link-btn" href="/lojas">Cadastre ou reative uma loja em Configurações → Lojas</a> antes de cadastrar uma peça.</div>`
+      ? `<div class="flash flash-error">Não há nenhuma loja ativa cadastrada. <a class="link-btn" href="/lojas">Cadastre ou reative uma loja em Configurações → Lojas</a> antes de cadastrar um produto.</div>`
       : '';
 
   return layout({
-    title: isEdit ? `Editar ${peca.nome}` : 'Nova Peça',
+    title: isEdit ? `Editar ${peca.nome}` : 'Novo Produto',
     activeNav: 'estoque',
     user,
     flash,
     children: `
       <div class="page-header">
         <div>
-          <h1>${isEdit ? 'Editar peça' : 'Nova peça'}</h1>
-          <p class="subtitle">Cadastro de peça no estoque</p>
+          <h1>${isEdit ? 'Editar produto' : 'Novo produto'}</h1>
+          <p class="subtitle">Cadastro de produto no estoque</p>
         </div>
       </div>
       ${semLojaAtivaHtml}
@@ -153,7 +153,7 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
           <input type="hidden" name="csrf" value="${csrfToken}">
           <div class="form-grid">
             <div class="field full">
-              <label for="nome">Nome da peça *</label>
+              <label for="nome">Nome do produto *</label>
               <input type="text" id="nome" name="nome" required value="${escapeHtml(peca ? peca.nome : '')}" placeholder="Ex: Pastilha de freio (par)">
             </div>
             ${lojaFieldHtml}
@@ -164,7 +164,7 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             </div>
             <div class="field">
               <label for="numero_serie">Número de série (opcional)</label>
-              <input type="text" id="numero_serie" name="numero_serie" value="${escapeHtml(peca ? peca.numero_serie : '')}" placeholder="Para peças rastreáveis, ex: baterias">
+              <input type="text" id="numero_serie" name="numero_serie" value="${escapeHtml(peca ? peca.numero_serie : '')}" placeholder="Para produtos rastreáveis, ex: baterias">
             </div>
             <div class="field">
               <label for="quantidade">Quantidade em estoque *</label>
@@ -176,8 +176,8 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
               <input type="number" id="estoque_minimo" name="estoque_minimo" min="0" step="1" value="${peca ? peca.estoque_minimo : 1}">
             </div>
             <div class="field full">
-              <label>Cores desta peça (opcional)</label>
-              <p class="muted" style="margin-top:0;">Se essa peça vem em mais de uma cor, cadastre cada cor com a quantidade que você tem. A "Quantidade em estoque" acima passa a ser calculada sozinha, somando as cores.</p>
+              <label>Cores deste produto (opcional)</label>
+              <p class="muted" style="margin-top:0;">Se esse produto vem em mais de uma cor, cadastre cada cor com a quantidade que você tem. A "Quantidade em estoque" acima passa a ser calculada sozinha, somando as cores.</p>
               <div id="cores-container">
                 ${coresIniciais
                   .map(
@@ -208,7 +208,7 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             </div>
           </div>
           <div class="actions-row">
-            <button class="btn" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar peça'}</button>
+            <button class="btn" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar produto'}</button>
             <a class="btn btn-secondary" href="/estoque">Cancelar</a>
           </div>
         </form>

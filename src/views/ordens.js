@@ -205,9 +205,9 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
           <h2 style="margin-top:24px;">Valores</h2>
           <div class="form-grid">
             <div class="field">
-              <label for="valor_pecas">Valor de peças (R$)</label>
+              <label for="valor_pecas">Valor de produtos (R$)</label>
               <input type="number" id="valor_pecas" name="valor_pecas" min="0" step="0.01" value="${os && os.valor_pecas !== null ? os.valor_pecas : ''}">
-              ${temPecasVinculadas ? '<p class="muted" style="margin-top:4px;">Esta O.S. tem peças do Estoque vinculadas — esse valor é recalculado automaticamente ao adicionar/remover peças na tela da O.S. Editar aqui só sobrescreve manualmente.</p>' : ''}
+              ${temPecasVinculadas ? '<p class="muted" style="margin-top:4px;">Esta O.S. tem produtos do Estoque vinculados — esse valor é recalculado automaticamente ao adicionar/remover produtos na tela da O.S. Editar aqui só sobrescreve manualmente.</p>' : ''}
             </div>
             <div class="field">
               <label for="valor_mao_obra">Valor de mão de obra (R$)</label>
@@ -311,7 +311,7 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
       <td>${formatMoney(item.preco_unitario)}</td>
       <td>${formatMoney(subtotal)}</td>
       <td>
-        <form method="POST" action="/os/${osId}/pecas/${item.id}/excluir" onsubmit="return confirm('Remover esta peça da O.S.? A quantidade volta pro estoque.');">
+        <form method="POST" action="/os/${osId}/pecas/${item.id}/excluir" onsubmit="return confirm('Remover este produto da O.S.? A quantidade volta pro estoque.');">
           <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
           <button class="btn btn-sm btn-danger" type="submit">Remover</button>
         </form>
@@ -328,12 +328,12 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
 
   return `
       <div class="card">
-        <h2>Peças do estoque usadas nesta O.S.</h2>
+        <h2>Produtos do estoque usados nesta O.S.</h2>
         ${
           osPecas.length
-            ? `<table><thead><tr><th>Peça</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-               <p style="margin-top:12px;"><strong>Total em peças do estoque: ${formatMoney(totalPecas)}</strong></p>`
-            : '<p class="muted">Nenhuma peça do estoque vinculada a esta O.S. ainda.</p>'
+            ? `<table><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+               <p style="margin-top:12px;"><strong>Total em produtos do estoque: ${formatMoney(totalPecas)}</strong></p>`
+            : '<p class="muted">Nenhum produto do estoque vinculado a esta O.S. ainda.</p>'
         }
         ${
           pecasDisponiveis.length
@@ -341,7 +341,7 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
           <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
           <div class="form-grid">
             <div class="field">
-              <label for="peca_id">Peça</label>
+              <label for="peca_id">Produto</label>
               <select id="peca_id" name="peca_id" required>
                 <option value="">Selecione...</option>
                 ${options}
@@ -352,11 +352,11 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
               <input type="number" id="peca_quantidade" name="quantidade" min="1" step="1" value="1" required>
             </div>
           </div>
-          <button class="btn btn-sm" type="submit">+ Adicionar peça à O.S.</button>
+          <button class="btn btn-sm" type="submit">+ Adicionar produto à O.S.</button>
         </form>`
-            : '<p class="muted" style="margin-top:12px;">Nenhuma peça cadastrada no <a class="link-btn" href="/estoque/novo">Estoque</a> ainda.</p>'
+            : '<p class="muted" style="margin-top:12px;">Nenhum produto cadastrado no <a class="link-btn" href="/estoque/novo">Estoque</a> ainda.</p>'
         }
-        <p class="muted" style="margin-top:8px;">Ao adicionar uma peça aqui, ela é descontada do estoque automaticamente, e o "Valor de peças" da O.S. é recalculado.</p>
+        <p class="muted" style="margin-top:8px;">Ao adicionar um produto aqui, ele é descontado do estoque automaticamente, e o "Valor de produtos" da O.S. é recalculado.</p>
       </div>`;
 }
 
@@ -408,7 +408,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
       </div>
 
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${formatMoney(totalValor(os))}</div><div class="label">Valor total (peças + mão de obra)</div></div>
+        <div class="stat-card"><div class="num">${formatMoney(totalValor(os))}</div><div class="label">Valor total (produtos + mão de obra)</div></div>
         <div class="stat-card"><div class="num">${formatDate(os.data_entrada).split(' ')[0]}</div><div class="label">Data de entrada</div></div>
         <div class="stat-card"><div class="num">${os.data_conclusao ? formatDate(os.data_conclusao).split(' ')[0] : '-'}</div><div class="label">Data de conclusão</div></div>
       </div>
@@ -416,7 +416,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
       <div class="card">
         <h2>Valores</h2>
         <div class="value-breakdown">
-          <div class="item"><div class="muted">Peças</div><div style="font-size:18px;font-weight:600;">${formatMoney(os.valor_pecas)}</div></div>
+          <div class="item"><div class="muted">Produtos</div><div style="font-size:18px;font-weight:600;">${formatMoney(os.valor_pecas)}</div></div>
           <div class="item"><div class="muted">Mão de obra</div><div style="font-size:18px;font-weight:600;">${formatMoney(os.valor_mao_obra)}</div></div>
           <div class="item"><div class="muted">Total</div><div style="font-size:18px;font-weight:600;color:#1f6b3a;">${formatMoney(totalValor(os))}</div></div>
           <div class="item"><div class="muted">Pagamento</div><div style="font-size:18px;font-weight:600;">${formaPagamentoLabel(os)}</div></div>

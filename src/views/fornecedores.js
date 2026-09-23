@@ -26,7 +26,7 @@ function fornecedoresListPage({ user, flash, fornecedores }) {
       <div class="page-header">
         <div>
           <h1>Fornecedores</h1>
-          <p class="subtitle">Cadastro de fornecedores de peças e produtos</p>
+          <p class="subtitle">Cadastro de fornecedores de produtos</p>
         </div>
         <a class="btn" href="/fornecedores/novo">+ Novo Fornecedor</a>
       </div>

@@ -134,7 +134,7 @@ function contaPagarFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNome
           <div class="form-grid">
             <div class="field full">
               <label for="descricao">Descrição *</label>
-              <input type="text" id="descricao" name="descricao" required value="${escapeHtml(conta ? conta.descricao : '')}" placeholder="Ex: Conta de energia, compra de peças, aluguel...">
+              <input type="text" id="descricao" name="descricao" required value="${escapeHtml(conta ? conta.descricao : '')}" placeholder="Ex: Conta de energia, compra de produtos, aluguel...">
             </div>
             <div class="field">
               <label for="valor">Valor (R$) *</label>

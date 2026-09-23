@@ -62,7 +62,7 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
       <div class="page-header">
         <div>
           <h1>Venda Direto</h1>
-          <p class="subtitle">Vendas de peças e produtos direto no balcão, sem precisar abrir uma Ordem de Serviço</p>
+          <p class="subtitle">Vendas de produtos direto no balcão, sem precisar abrir uma Ordem de Serviço</p>
         </div>
         <a class="btn" href="/vendas/novo">+ Nova Venda</a>
       </div>
@@ -111,7 +111,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }
       <div class="page-header">
         <div>
           <h1>Nova Venda Direto</h1>
-          <p class="subtitle">Depois de salvar, você adiciona as peças vendidas na tela seguinte</p>
+          <p class="subtitle">Depois de salvar, você adiciona os produtos vendidos na tela seguinte</p>
         </div>
       </div>
       ${semLojaAtivaHtml}
@@ -203,7 +203,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
                 ${pecaOptions}
                 <option value="veiculo">🏍️ Cadastrar veículo (moto/bike elétrica)</option>
               </select>
-              ${!pecasDisponiveis.length ? '<p class="muted">Nenhuma peça no estoque desta loja ainda — mas dá pra vender um veículo direto.</p>' : ''}
+              ${!pecasDisponiveis.length ? '<p class="muted">Nenhum produto no estoque desta loja ainda — mas dá pra vender um veículo direto.</p>' : ''}
             </div>
             <div class="field" id="campo-quantidade">
               <label for="item_quantidade">Quantidade</label>
