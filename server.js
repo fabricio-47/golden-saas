@@ -380,6 +380,35 @@ async function handler(req, res) {
       return redirect(res, '/login');
     }
 
+    // --- module gate ---
+    // Cada nível de permissão liga/desliga o acesso a cada módulo (tela
+    // "Níveis de permissão"). Antes, esse checkbox só era respeitado pelas
+    // rotas de Configurações (Lojas/Usuários/Níveis/Auditoria/Backup/
+    // Fornecedores/Tipos de Serviço); as demais telas eram acessíveis via
+    // URL direta independente do que estivesse marcado. Este bloco fecha
+    // essa brecha mapeando cada prefixo de rota pro módulo correspondente
+    // e checando userCanAccessModulo antes de despachar pra rota.
+    const PREFIXO_MODULO = [
+      ['/clientes', 'clientes'],
+      ['/bicicletas', 'bicicletas'],
+      ['/os', 'os'],
+      ['/vendas', 'vendas'],
+      ['/transferencias', 'estoque'],
+      ['/estoque', 'estoque'],
+      ['/contas-pagar', 'financeiro'],
+      ['/contas-receber', 'financeiro'],
+    ];
+    if (user && !isContratoPublico) {
+      if (pathname === '/' && !userCanAccessModulo(user, 'painel')) {
+        return forbidden(res);
+      }
+      for (const [prefixo, modulo] of PREFIXO_MODULO) {
+        if (pathname.startsWith(prefixo) && !userCanAccessModulo(user, modulo)) {
+          return forbidden(res);
+        }
+      }
+    }
+
     let body = {};
     let files = [];
     if (method === 'POST') {
