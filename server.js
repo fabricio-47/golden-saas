@@ -392,9 +392,11 @@ async function handler(req, res) {
       ['/clientes', 'clientes'],
       ['/bicicletas', 'bicicletas'],
       ['/os', 'os'],
+      ['/servicos', 'os'],
       ['/vendas', 'vendas'],
       ['/transferencias', 'estoque'],
       ['/estoque', 'estoque'],
+      ['/fornecedores', 'estoque'],
       ['/contas-pagar', 'financeiro'],
       ['/contas-receber', 'financeiro'],
     ];

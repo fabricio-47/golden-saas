@@ -2,7 +2,7 @@
 
 const { escapeHtml } = require('../utils');
 const { version: APP_VERSION } = require('../../package.json');
-const { hasManagementAccess, nivelNome } = require('../roles');
+const { hasManagementAccess, nivelNome, userCanAccessModulo } = require('../roles');
 
 const STYLE = `
   :root {
@@ -173,36 +173,41 @@ const STYLE = `
 
 function layout({ title, activeNav, user, flash, children }) {
   const canManage = hasManagementAccess(user);
+  // Módulo de cada item do menu — usado pra esconder links que o usuário
+  // não tem acesso, em vez de deixar link morto que dá 403 ao clicar.
+  // 'contratos' não é um módulo (não tem checkbox em Níveis de permissão),
+  // por isso fica sempre visível, igual já era o comportamento no backend.
+  const podeVer = (modulo) => !modulo || userCanAccessModulo(user, modulo);
   const navItems = [
-    { key: 'dashboard', href: '/', label: 'Dashboard' },
-    { key: 'clientes', href: '/clientes', label: 'Clientes' },
-    { key: 'bicicletas', href: '/bicicletas', label: 'Veículos' },
-    { key: 'os', href: '/os', label: 'Ordens de Serviço' },
-    { key: 'vendas', href: '/vendas', label: 'Venda Direto' },
-    { key: 'contratos', href: '/contratos', label: 'Contratos' },
-  ];
+    { key: 'dashboard', href: '/', label: 'Dashboard', modulo: 'painel' },
+    { key: 'clientes', href: '/clientes', label: 'Clientes', modulo: 'clientes' },
+    { key: 'bicicletas', href: '/bicicletas', label: 'Veículos', modulo: 'bicicletas' },
+    { key: 'os', href: '/os', label: 'Ordens de Serviço', modulo: 'os' },
+    { key: 'vendas', href: '/vendas', label: 'Venda Direto', modulo: 'vendas' },
+    { key: 'contratos', href: '/contratos', label: 'Contratos', modulo: null },
+  ].filter((item) => podeVer(item.modulo));
 
   const navGroups = [
     {
       key: 'estoque-group',
       label: 'Estoque',
       items: [
-        { key: 'estoque', href: '/estoque', label: 'Estoque' },
-        { key: 'entrada-estoque', href: '/estoque/entrada', label: 'Registrar Entrada' },
-        { key: 'transferencias', href: '/transferencias', label: 'Transferências' },
-        { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores' },
-        { key: 'servicos', href: '/servicos', label: 'Tipos de Serviço' },
-      ],
+        { key: 'estoque', href: '/estoque', label: 'Estoque', modulo: 'estoque' },
+        { key: 'entrada-estoque', href: '/estoque/entrada', label: 'Registrar Entrada', modulo: 'estoque' },
+        { key: 'transferencias', href: '/transferencias', label: 'Transferências', modulo: 'estoque' },
+        { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores', modulo: 'estoque' },
+        { key: 'servicos', href: '/servicos', label: 'Tipos de Serviço', modulo: 'os' },
+      ].filter((item) => podeVer(item.modulo)),
     },
     {
       key: 'financeiro-group',
       label: 'Financeiro',
       items: [
-        { key: 'contas-pagar', href: '/contas-pagar', label: 'Contas a Pagar' },
-        { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber' },
-      ],
+        { key: 'contas-pagar', href: '/contas-pagar', label: 'Contas a Pagar', modulo: 'financeiro' },
+        { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber', modulo: 'financeiro' },
+      ].filter((item) => podeVer(item.modulo)),
     },
-  ];
+  ].filter((group) => group.items.length > 0);
   if (canManage) {
     navGroups.push({
       key: 'config-group',
