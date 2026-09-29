@@ -157,17 +157,74 @@ const STYLE = `
   .login-card .subtitle { color: var(--text-muted); text-align: center; margin-bottom: 28px; }
   .login-card label { color: var(--text-muted); }
   .login-card .hint { margin-top: 16px; font-size: 12px; color: var(--text-muted); text-align: center; }
-  .actions-row { display: flex; gap: 10px; margin-top: 20px; }
+  .actions-row { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
   .muted { color: #8a8474; font-size: 13px; }
   .link-btn { color: #2c6ea8; font-size: 13px; }
+
+  /* --- menu mobile (off-canvas) --- */
+  .nav-toggle-checkbox { display: none; }
+  .mobile-topbar { display: none; }
+  .nav-overlay { display: none; }
+
   @media (max-width: 720px) {
-    .app-shell { flex-direction: column; }
-    .sidebar { width: 100%; flex-direction: row; overflow-x: auto; padding: 12px; }
-    .brand { display: none; }
-    .sidebar-footer { display: none; }
-    .main { padding: 20px; }
+    .mobile-topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-dark);
+      color: var(--text-light);
+      padding: 14px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+    }
+    .hamburger-btn {
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 4px 10px;
+      border-radius: 6px;
+      user-select: none;
+    }
+    .hamburger-btn:active { background: rgba(255,255,255,0.08); }
+    .mobile-topbar-brand { font-weight: 700; letter-spacing: 0.5px; font-size: 16px; }
+    .mobile-topbar-brand span { color: var(--gold); }
+
+    .app-shell { flex-direction: column; min-height: 100vh; }
+
+    .sidebar {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: -280px;
+      width: 260px;
+      z-index: 50;
+      transition: left 0.2s ease;
+      overflow-y: auto;
+      padding: 16px 0;
+    }
+    .nav-toggle-checkbox:checked ~ .sidebar { left: 0; box-shadow: 4px 0 24px rgba(0,0,0,0.35); }
+
+    .nav-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 45;
+    }
+    .nav-toggle-checkbox:checked ~ .nav-overlay { display: block; }
+
+    .sidebar .nav-item, .sidebar .nav-group summary { padding: 14px 24px; }
+
+    .main { padding: 16px; }
     .form-grid { grid-template-columns: 1fr; }
     .checklist-row { grid-template-columns: 1fr; }
+    .value-breakdown { gap: 16px; }
+
+    table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+
+    .login-wrap { padding: 16px; }
+    .login-card { width: 100%; max-width: 360px; padding: 28px 22px; }
   }
 `;
 
@@ -261,6 +318,12 @@ function layout({ title, activeNav, user, flash, children }) {
 </head>
 <body>
   <div class="app-shell">
+    <input type="checkbox" id="nav-toggle" class="nav-toggle-checkbox">
+    <div class="mobile-topbar">
+      <label for="nav-toggle" class="hamburger-btn" aria-label="Abrir menu">&#9776;</label>
+      <div class="mobile-topbar-brand">Golden<span>SaaS</span></div>
+    </div>
+    <label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label>
     <aside class="sidebar">
       <div class="brand">Golden<span>SaaS</span></div>
       <nav>${navHtml}${navGroupsHtml}</nav>
