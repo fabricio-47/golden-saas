@@ -55,7 +55,7 @@ const {
   totalValor,
   formaPagamentoLabel,
 } = require('./src/views/ordens');
-const { pecasListPage, pecaFormPage } = require('./src/views/estoque');
+const { pecasListPage, pecaFormPage, entradaEstoqueFormPage } = require('./src/views/estoque');
 const { usuariosListPage, usuarioFormPage } = require('./src/views/usuarios');
 const { niveisPage } = require('./src/views/niveis');
 const { auditoriaPage } = require('./src/views/auditoria');
@@ -737,6 +737,109 @@ async function handler(req, res) {
       salvarCoresPeca(info.lastInsertRowid, cores);
       setFlash(session.sessionId, 'success', 'Produto cadastrado no estoque.');
       return redirect(res, `/estoque/${info.lastInsertRowid}/editar`);
+    }
+
+    if (pathname === '/estoque/entrada' && method === 'GET') {
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
+      const todasLojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      const lojasVisiveis = todasLojas.filter((l) => canSeeLoja(user, l.id));
+      const lojaIdsVisiveis = lojasVisiveis.map((l) => l.id);
+      let pecas = [];
+      if (lojaIdsVisiveis.length) {
+        const placeholders = lojaIdsVisiveis.map(() => '?').join(',');
+        pecas = db
+          .prepare(`SELECT p.*, l.nome as loja_nome FROM pecas p LEFT JOIN lojas l ON l.id = p.loja_id WHERE p.loja_id IN (${placeholders}) ORDER BY p.nome ASC`)
+          .all(...lojaIdsVisiveis);
+      }
+      const pecaSelecionadaId = toIntOrNull(url.searchParams.get('peca_id'));
+      return send(res, 200, entradaEstoqueFormPage({
+        user, flash: takeFlash(session.sessionId), pecas, csrfToken: session.csrfToken,
+        lojas, lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
+        fornecedores, pecaSelecionadaId,
+      }));
+    }
+
+    if (pathname === '/estoque/entrada' && method === 'POST') {
+      const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
+      const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
+      const lojaFixaNome = canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null);
+      const lojaIdEscolhida = canSeeAllLojas(user) ? toIntOrNull(body.loja_id) : user.loja_id;
+      const todasLojas2 = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();
+      const pecasParaForm = todasLojas2.filter((l) => canSeeLoja(user, l.id)).length
+        ? db.prepare('SELECT p.*, l.nome as loja_nome FROM pecas p LEFT JOIN lojas l ON l.id = p.loja_id ORDER BY p.nome ASC').all()
+        : [];
+
+      const rerenderComErro = (mensagem) =>
+        send(res, 400, entradaEstoqueFormPage({
+          user, flash: { type: 'error', message: mensagem }, pecas: pecasParaForm, csrfToken: session.csrfToken,
+          lojas, lojaFixaNome, fornecedores, pecaSelecionadaId: body.produto_id,
+        }));
+
+      if (!lojaIdEscolhida) return rerenderComErro('Selecione a loja.');
+      const quantidadeEntrada = toIntOrNull(body.quantidade) || 0;
+      if (quantidadeEntrada <= 0) return rerenderComErro('Informe a quantidade que está chegando (maior que zero).');
+
+      const pecaId = toIntOrNull(body.produto_id);
+      const custoUnitario = toFloatOrNull(body.custo_unitario);
+      const fornecedorId = toIntOrNull(body.fornecedor_id);
+      let peca;
+
+      if (pecaId) {
+        peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(pecaId);
+        if (!peca) return rerenderComErro('Produto não encontrado.');
+        if (!canEditLoja(user, peca.loja_id)) return forbidden(res);
+        db.prepare(
+          `UPDATE pecas SET quantidade = quantidade + ?, custo_unitario = COALESCE(?, custo_unitario), fornecedor_id = COALESCE(?, fornecedor_id), updated_at = datetime('now') WHERE id = ?`
+        ).run(quantidadeEntrada, custoUnitario, fornecedorId, peca.id);
+        peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(pecaId);
+      } else {
+        if (!body.nome || !body.nome.trim()) return rerenderComErro('Informe o nome do produto novo.');
+        const precoVenda = toFloatOrNull(body.preco_venda) || 0;
+        const info = db
+          .prepare(
+            `INSERT INTO pecas (nome, categoria, quantidade, estoque_minimo, custo_unitario, preco_venda, loja_id, fornecedor_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            body.nome.trim(), body.categoria || '', quantidadeEntrada, toIntOrNull(body.estoque_minimo) || 0,
+            custoUnitario, precoVenda, lojaIdEscolhida, fornecedorId
+          );
+        peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(info.lastInsertRowid);
+      }
+
+      const valorTotal = quantidadeEntrada * (custoUnitario || 0);
+      let contaPagarId = null;
+      if (valorTotal > 0) {
+        const infoConta = db
+          .prepare(
+            `INSERT INTO contas_pagar (descricao, valor, vencimento, forma_pagamento, loja_id, fornecedor_id, observacoes)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            `Entrada de estoque: ${peca.nome} (${quantidadeEntrada} un)`, valorTotal, body.vencimento || null,
+            body.forma_pagamento || '', lojaIdEscolhida, fornecedorId, body.observacoes || ''
+          );
+        contaPagarId = infoConta.lastInsertRowid;
+      }
+
+      db.prepare(
+        `INSERT INTO entradas_estoque (peca_id, nome_produto, quantidade, custo_unitario, valor_total, loja_id, fornecedor_id, conta_pagar_id, observacoes, criado_por)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        peca.id, peca.nome, quantidadeEntrada, custoUnitario, valorTotal, lojaIdEscolhida, fornecedorId,
+        contaPagarId, body.observacoes || '', user.id
+      );
+
+      setFlash(
+        session.sessionId, 'success',
+        contaPagarId
+          ? `Entrada registrada: +${quantidadeEntrada} un. de "${peca.nome}". Lançamento de ${formatMoney(valorTotal)} criado em Contas a Pagar.`
+          : `Entrada registrada: +${quantidadeEntrada} un. de "${peca.nome}". Nenhum custo informado, nenhum lançamento financeiro foi criado.`
+      );
+      return redirect(res, '/estoque');
     }
 
     if ((m = matchRoute('/estoque/:id/editar', pathname)) && method === 'GET') {

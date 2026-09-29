@@ -188,6 +188,7 @@ function layout({ title, activeNav, user, flash, children }) {
       label: 'Estoque',
       items: [
         { key: 'estoque', href: '/estoque', label: 'Estoque' },
+        { key: 'entrada-estoque', href: '/estoque/entrada', label: 'Registrar Entrada' },
         { key: 'transferencias', href: '/transferencias', label: 'Transferências' },
         { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores' },
         { key: 'servicos', href: '/servicos', label: 'Tipos de Serviço' },

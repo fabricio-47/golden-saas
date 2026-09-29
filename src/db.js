@@ -213,6 +213,24 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Registro de cada entrada de mercadoria no estoque (produto novo ou
+  -- reposição de um já existente), com o vínculo pra conta a pagar que foi
+  -- gerada automaticamente a partir dela (quando teve custo informado).
+  CREATE TABLE IF NOT EXISTS entradas_estoque (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    peca_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    nome_produto TEXT NOT NULL,
+    quantidade INTEGER NOT NULL,
+    custo_unitario REAL,
+    valor_total REAL NOT NULL DEFAULT 0,
+    loja_id INTEGER REFERENCES lojas(id) ON DELETE SET NULL,
+    fornecedor_id INTEGER REFERENCES fornecedores(id) ON DELETE SET NULL,
+    conta_pagar_id INTEGER REFERENCES contas_pagar(id) ON DELETE SET NULL,
+    observacoes TEXT,
+    criado_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS vendas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     numero TEXT NOT NULL UNIQUE,
@@ -306,6 +324,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transferencias_status ON transferencias(status);
   CREATE INDEX IF NOT EXISTS idx_contas_pagar_loja ON contas_pagar(loja_id);
   CREATE INDEX IF NOT EXISTS idx_contas_pagar_status ON contas_pagar(status);
+  CREATE INDEX IF NOT EXISTS idx_entradas_estoque_peca ON entradas_estoque(peca_id);
+  CREATE INDEX IF NOT EXISTS idx_entradas_estoque_loja ON entradas_estoque(loja_id);
   CREATE INDEX IF NOT EXISTS idx_contas_receber_loja ON contas_receber(loja_id);
   CREATE INDEX IF NOT EXISTS idx_contas_receber_status ON contas_receber(status);
   CREATE INDEX IF NOT EXISTS idx_contas_receber_os ON contas_receber(ordem_servico_id);

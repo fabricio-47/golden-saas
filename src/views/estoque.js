@@ -82,7 +82,10 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
           <h1>Estoque de Produtos</h1>
           <p class="subtitle">Controle de quantidade, custo e preço de venda dos produtos da oficina</p>
         </div>
-        <a class="btn" href="/estoque/novo">+ Novo Produto</a>
+        <div class="actions-row" style="margin:0;">
+          <a class="btn btn-secondary" href="/estoque/entrada">Registrar Entrada</a>
+          <a class="btn" href="/estoque/novo">+ Novo Produto</a>
+        </div>
       </div>
       ${statsHtml}
       ${lojaFilterHtml}
@@ -107,6 +110,123 @@ function corRowHtml(i, cor, quantidade) {
       <input type="number" name="cor_quantidade" min="0" step="1" placeholder="Qtd." value="${quantidade !== undefined && quantidade !== null ? quantidade : ''}" style="flex:1;">
       <button type="button" class="btn btn-sm btn-danger" onclick="this.closest('.cor-row').remove(); recalcQuantidadeTotal();">Remover</button>
     </div>`;
+}
+
+function entradaEstoqueFormPage({ user, flash, pecas, csrfToken, lojas, lojaFixaNome, fornecedores, pecaSelecionadaId }) {
+  const datalistOptions = CATEGORIAS_SUGERIDAS.map((c) => `<option value="${escapeHtml(c)}">`).join('');
+  const fornecedorOptions = (fornecedores || [])
+    .map((f) => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`)
+    .join('');
+  const produtoOptions = (pecas || [])
+    .map((p) => `<option value="${p.id}" ${String(pecaSelecionadaId) === String(p.id) ? 'selected' : ''}>${escapeHtml(p.nome)}${p.loja_nome ? ` (${escapeHtml(p.loja_nome)})` : ''} — em estoque: ${p.quantidade}</option>`)
+    .join('');
+
+  const lojaFieldHtml = lojaFixaNome
+    ? `<div class="field">
+        <label>Loja</label>
+        <input type="text" value="${escapeHtml(lojaFixaNome)}" disabled>
+      </div>`
+    : `<div class="field">
+        <label for="loja_id">Loja *</label>
+        <select id="loja_id" name="loja_id" required onchange="document.getElementById('produto_id').dispatchEvent(new Event('change'))">
+          ${lojas.map((l) => `<option value="${l.id}">${escapeHtml(l.nome)}</option>`).join('')}
+        </select>
+      </div>`;
+
+  return layout({
+    title: 'Registrar Entrada de Estoque',
+    activeNav: 'entrada-estoque',
+    user,
+    flash,
+    children: `
+      <div class="page-header">
+        <div>
+          <h1>Registrar entrada de estoque</h1>
+          <p class="subtitle">Chegou mercadoria nova? Registre aqui — a quantidade entra no estoque e, se você informar o custo, o lançamento em Contas a Pagar é criado automaticamente.</p>
+        </div>
+      </div>
+      <div class="card">
+        <form method="POST" action="/estoque/entrada">
+          <input type="hidden" name="csrf" value="${csrfToken}">
+          <div class="form-grid">
+            ${lojaFieldHtml}
+            <div class="field full">
+              <label for="produto_id">Produto</label>
+              <select id="produto_id" name="produto_id" onchange="alternarNovoProduto(this.value)">
+                <option value="">— Produto novo (ainda não cadastrado) —</option>
+                ${produtoOptions}
+              </select>
+            </div>
+            <div id="campos-produto-novo" class="field full" style="display:none;">
+              <div class="form-grid" style="padding:0;">
+                <div class="field full">
+                  <label for="nome">Nome do produto novo *</label>
+                  <input type="text" id="nome" name="nome" placeholder="Ex: Pastilha de freio (par)">
+                </div>
+                <div class="field">
+                  <label for="categoria">Categoria</label>
+                  <input type="text" id="categoria" name="categoria" list="categorias-sugeridas">
+                  <datalist id="categorias-sugeridas">${datalistOptions}</datalist>
+                </div>
+                <div class="field">
+                  <label for="estoque_minimo">Estoque mínimo</label>
+                  <input type="number" id="estoque_minimo" name="estoque_minimo" min="0" step="1" value="1">
+                </div>
+                <div class="field">
+                  <label for="preco_venda">Preço de venda (R$) *</label>
+                  <input type="number" id="preco_venda" name="preco_venda" min="0" step="0.01">
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label for="quantidade">Quantidade que está chegando *</label>
+              <input type="number" id="quantidade" name="quantidade" min="1" step="1" required>
+            </div>
+            <div class="field">
+              <label for="custo_unitario">Custo unitário desta entrada (R$)</label>
+              <input type="number" id="custo_unitario" name="custo_unitario" min="0" step="0.01">
+              <p class="muted" style="margin-top:4px;">Se preencher, gera automaticamente um lançamento em Contas a Pagar no valor total (quantidade × custo).</p>
+            </div>
+            <div class="field">
+              <label for="fornecedor_id">Fornecedor</label>
+              <select id="fornecedor_id" name="fornecedor_id">
+                <option value="">Nenhum</option>
+                ${fornecedorOptions}
+              </select>
+            </div>
+            <div class="field">
+              <label for="vencimento">Vencimento do pagamento</label>
+              <input type="date" id="vencimento" name="vencimento">
+            </div>
+            <div class="field">
+              <label for="forma_pagamento">Forma de pagamento</label>
+              <input type="text" id="forma_pagamento" name="forma_pagamento" placeholder="Ex: Boleto, Pix, Cartão">
+            </div>
+            <div class="field full">
+              <label for="observacoes">Observações</label>
+              <textarea id="observacoes" name="observacoes"></textarea>
+            </div>
+          </div>
+          <div class="actions-row">
+            <button class="btn" type="submit">Registrar entrada</button>
+            <a class="btn btn-secondary" href="/estoque">Cancelar</a>
+          </div>
+        </form>
+      </div>
+      <script>
+        function alternarNovoProduto(valor) {
+          var bloco = document.getElementById('campos-produto-novo');
+          var nome = document.getElementById('nome');
+          var precoVenda = document.getElementById('preco_venda');
+          var ehNovo = !valor;
+          bloco.style.display = ehNovo ? 'block' : 'none';
+          if (nome) nome.required = ehNovo;
+          if (precoVenda) precoVenda.required = ehNovo;
+        }
+        alternarNovoProduto(document.getElementById('produto_id').value);
+      </script>
+    `,
+  });
 }
 
 function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, fornecedores, cores }) {
@@ -251,4 +371,4 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
   });
 }
 
-module.exports = { pecasListPage, pecaFormPage, CATEGORIAS_SUGERIDAS };
+module.exports = { pecasListPage, pecaFormPage, entradaEstoqueFormPage, CATEGORIAS_SUGERIDAS };
