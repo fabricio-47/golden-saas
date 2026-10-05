@@ -163,13 +163,13 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }
   });
 }
 
-function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
+function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken) {
   const rows = itens
     .map((item) => {
       const subtotal = item.quantidade * item.preco_unitario;
       return `
     <tr>
-      <td>${escapeHtml(item.nome_peca)}${item.bicicleta_id ? ` <a class="link-btn" href="/bicicletas/${item.bicicleta_id}">(ver cadastro do veículo)</a>` : ''}</td>
+      <td>${escapeHtml(item.nome_peca)}${item.bicicleta_id ? ` <a class="link-btn" href="/bicicletas/${item.bicicleta_id}">(ver cadastro do veículo)</a>` : ''}${item.tipo_servico_id ? ' <span class="muted">(serviço)</span>' : ''}</td>
       <td>${item.quantidade}</td>
       <td>${formatMoney(item.preco_unitario)}</td>
       <td>${formatMoney(subtotal)}</td>
@@ -191,19 +191,33 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
     .map((p) => `<option value="${p.id}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — ${formatMoney(p.preco_venda)}</option>`)
     .join('');
 
+  const servicoOptions = servicosDisponiveis
+    .map((s) => `<option value="servico:${s.id}">${escapeHtml(s.nome)} — ${formatMoney(s.valor)}</option>`)
+    .join('');
+
   const addItemFormHtml =
     venda.status === 'aberta'
       ? `<form method="POST" action="/vendas/${venda.id}/itens" enctype="multipart/form-data" style="margin-top:16px;">
           <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
           <div class="form-grid">
             <div class="field">
-              <label for="produto_id">Produto</label>
+              <label for="produto_id">Produto / serviço</label>
               <select id="produto_id" name="produto_id" onchange="toggleProduto()">
                 <option value="">Selecione...</option>
                 ${pecaOptions}
+                ${servicoOptions ? `<optgroup label="Tipos de serviço">${servicoOptions}</optgroup>` : ''}
                 <option value="veiculo">🏍️ Cadastrar veículo (moto/bike elétrica)</option>
               </select>
-              ${!pecasDisponiveis.length ? '<p class="muted">Nenhum produto no estoque desta loja ainda — mas dá pra vender um veículo direto.</p>' : ''}
+              ${
+                !pecasDisponiveis.length && !servicosDisponiveis.length
+                  ? '<p class="muted">Nenhum produto no estoque nem tipo de serviço cadastrado ainda — mas dá pra vender um veículo direto.</p>'
+                  : ''
+              }
+              ${
+                !servicosDisponiveis.length && pecasDisponiveis.length
+                  ? '<p class="muted">Nenhum tipo de serviço cadastrado ainda. <a class="link-btn" href="/servicos/novo">Cadastre em Tipos de Serviço</a> pra poder vender serviços por aqui.</p>'
+                  : ''
+              }
             </div>
             <div class="field" id="campo-quantidade">
               <label for="item_quantidade">Quantidade</label>
@@ -277,7 +291,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, csrfToken) {
       </div>`;
 }
 
-function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, csrfToken }) {
+function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken }) {
   return layout({
     title: venda.numero,
     activeNav: 'vendas',
@@ -313,7 +327,7 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, csrfToken 
         <div class="stat-card"><div class="num">${formatDate(venda.created_at).split(' ')[0]}</div><div class="label">Data da venda</div></div>
       </div>
 
-      ${vendaItensSection(venda, itens, pecasDisponiveis, csrfToken)}
+      ${vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis || [], csrfToken)}
 
       ${
         venda.observacoes

@@ -360,6 +360,7 @@ ensureColumn('pecas', 'fornecedor_id', 'INTEGER');
 ensureColumn('contas_receber', 'venda_id', 'INTEGER');
 ensureColumn('bicicletas', 'chassi_numero', 'TEXT');
 ensureColumn('venda_itens', 'bicicleta_id', 'INTEGER');
+ensureColumn('venda_itens', 'tipo_servico_id', 'INTEGER');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");

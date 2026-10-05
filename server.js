@@ -1960,7 +1960,8 @@ async function handler(req, res) {
         : canSeeAllLojas(user)
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
-      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, csrfToken: session.csrfToken }));
+      const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken }));
     }
 
     if ((m = matchRoute('/vendas/:id/itens', pathname)) && method === 'POST') {
@@ -1969,6 +1970,23 @@ async function handler(req, res) {
       if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
       if (venda.status !== 'aberta') {
         setFlash(session.sessionId, 'error', 'Esta venda já foi finalizada e não pode mais ser alterada.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+
+      if (typeof body.produto_id === 'string' && body.produto_id.startsWith('servico:')) {
+        const tipoServicoId = body.produto_id.slice('servico:'.length);
+        const servico = db.prepare('SELECT * FROM tipos_servico WHERE id = ? AND ativo = 1').get(tipoServicoId);
+        if (!servico) {
+          setFlash(session.sessionId, 'error', 'Tipo de serviço não encontrado ou inativo.');
+          return redirect(res, `/vendas/${m.id}`);
+        }
+        const quantidadeServico = toIntOrNull(body.quantidade) || 1;
+        db.prepare(
+          'INSERT INTO venda_itens (venda_id, tipo_servico_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)'
+        ).run(m.id, servico.id, servico.nome, quantidadeServico, servico.valor);
+        const novoTotalServico = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
+        db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotalServico, m.id);
+        setFlash(session.sessionId, 'success', `Serviço "${servico.nome}" adicionado à venda.`);
         return redirect(res, `/vendas/${m.id}`);
       }
 
@@ -2055,6 +2073,10 @@ async function handler(req, res) {
         db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotal, m.id);
         if (item.bicicleta_id) {
           setFlash(session.sessionId, 'success', 'Item removido da venda. O veículo cadastrado permanece no cadastro do cliente (módulo Veículos).');
+          return redirect(res, `/vendas/${m.id}`);
+        }
+        if (item.tipo_servico_id) {
+          setFlash(session.sessionId, 'success', 'Serviço removido da venda.');
           return redirect(res, `/vendas/${m.id}`);
         }
         setFlash(session.sessionId, 'success', 'Item removido da venda e devolvido ao estoque.');
