@@ -22,7 +22,7 @@ function contasPagarListPage({ user, flash, contas, csrfToken, lojas, lojaFiltro
     .map(
       (c) => `
     <tr>
-      <td>${escapeHtml(c.descricao)}${c.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(c.fornecedor_nome)}</div>` : ''}</td>
+      <td>${escapeHtml(c.descricao)}${c.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(c.fornecedor_nome)}</div>` : ''}${c.anexo_caminho ? `<div><a class="link-btn" href="/uploads/${c.anexo_caminho}" target="_blank" rel="noopener">📎 Ver nota</a></div>` : ''}</td>
       ${mostrarColunaLoja ? `<td>${c.loja_nome ? escapeHtml(c.loja_nome) : '<span class="muted">Geral</span>'}</td>` : ''}
       <td>${formatDateOnly(c.vencimento)}</td>
       <td>${formatMoney(c.valor)}</td>
@@ -96,7 +96,7 @@ function contasPagarListPage({ user, flash, contas, csrfToken, lojas, lojaFiltro
 }
 
 function contaPagarFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNome, fornecedores }) {
-  const isEdit = !!conta;
+  const isEdit = !!(conta && conta.id);
 
   const lojaFieldHtml = lojaFixaNome
     ? `<div class="field">
@@ -120,6 +120,20 @@ function contaPagarFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNome
       ? `<div class="flash flash-error">Não há nenhuma loja ativa cadastrada, então o campo Loja só vai mostrar "Geral". <a class="link-btn" href="/lojas">Cadastre ou reative uma loja em Configurações → Lojas</a>, se quiser vincular esta conta a uma loja específica.</div>`
       : '';
 
+  const anexoAtualHtml =
+    isEdit && conta.anexo_caminho
+      ? `<div class="field full">
+          <label>Nota de compra anexada</label>
+          <p>
+            <a class="link-btn" href="/uploads/${conta.anexo_caminho}" target="_blank" rel="noopener">📎 ${escapeHtml(conta.anexo_nome || 'Ver anexo')}</a>
+          </p>
+          <form method="POST" action="/contas-pagar/${conta.id}/remover-anexo" onsubmit="return confirm('Remover o anexo desta conta?');" style="margin-top:4px;">
+            <input type="hidden" name="csrf" value="${csrfToken}">
+            <button class="btn btn-sm btn-danger" type="submit">Remover anexo</button>
+          </form>
+        </div>`
+      : '';
+
   return layout({
     title: isEdit ? 'Editar conta a pagar' : 'Nova conta a pagar',
     activeNav: 'contas-pagar',
@@ -129,9 +143,15 @@ function contaPagarFormPage({ user, flash, conta, csrfToken, lojas, lojaFixaNome
       <div class="page-header"><div><h1>${isEdit ? 'Editar conta a pagar' : 'Nova conta a pagar'}</h1></div></div>
       ${semLojaAtivaHtml}
       <div class="card">
-        <form method="POST" action="${isEdit ? `/contas-pagar/${conta.id}` : '/contas-pagar'}">
+        <form method="POST" action="${isEdit ? `/contas-pagar/${conta.id}` : '/contas-pagar'}" enctype="multipart/form-data">
           <input type="hidden" name="csrf" value="${csrfToken}">
           <div class="form-grid">
+            ${anexoAtualHtml}
+            <div class="field full">
+              <label for="anexo">${isEdit && conta.anexo_caminho ? 'Substituir nota de compra (opcional)' : 'Nota de compra (opcional)'}</label>
+              <input type="file" id="anexo" name="anexo" accept="application/pdf,image/*">
+              <p class="muted">PDF ou foto do comprovante/nota fiscal, até 20MB.</p>
+            </div>
             <div class="field full">
               <label for="descricao">Descrição *</label>
               <input type="text" id="descricao" name="descricao" required value="${escapeHtml(conta ? conta.descricao : '')}" placeholder="Ex: Conta de energia, compra de produtos, aluguel...">

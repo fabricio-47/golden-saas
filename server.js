@@ -19,6 +19,7 @@ const { readRawBody, getBoundary, parseMultipart } = require('./src/multipart');
 const {
   saveUploadedFile,
   saveDocumentFile,
+  saveReceiptFile,
   saveBufferAsUpload,
   deleteUploadedFile,
   resolveUploadPath,
@@ -1410,13 +1411,24 @@ async function handler(req, res) {
       if (!body.descricao || !body.descricao.trim() || !body.valor) {
         return send(res, 400, contaPagarFormPage({ user, flash: { type: 'error', message: 'Descrição e valor são obrigatórios.' }, conta: body, csrfToken: session.csrfToken, lojas, lojaFixaNome, fornecedores }));
       }
-      db.prepare(
+      const infoContaPagar = db.prepare(
         `INSERT INTO contas_pagar (descricao, valor, vencimento, forma_pagamento, loja_id, fornecedor_id, observacoes)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run(
         body.descricao.trim(), toFloatOrNull(body.valor) || 0, body.vencimento || null, body.forma_pagamento || '',
         lojaIdEscolhida, toIntOrNull(body.fornecedor_id), body.observacoes || ''
       );
+      const contaPagarId = infoContaPagar.lastInsertRowid;
+      const anexoNovo = files.find((f) => f.fieldName === 'anexo' && f.data && f.data.length > 0);
+      if (anexoNovo) {
+        const savedAnexo = saveReceiptFile('conta-pagar', contaPagarId, anexoNovo);
+        if (savedAnexo) {
+          db.prepare('UPDATE contas_pagar SET anexo_caminho = ?, anexo_nome = ? WHERE id = ?').run(savedAnexo.caminho_arquivo, savedAnexo.nome_arquivo, contaPagarId);
+        } else {
+          setFlash(session.sessionId, 'error', 'Conta a pagar cadastrada, mas o anexo não pôde ser salvo (use PDF, JPG, PNG, WEBP ou HEIC, até 20MB).');
+          return redirect(res, `/contas-pagar/${contaPagarId}/editar`);
+        }
+      }
       setFlash(session.sessionId, 'success', 'Conta a pagar cadastrada.');
       return redirect(res, '/contas-pagar');
     }
@@ -1452,7 +1464,30 @@ async function handler(req, res) {
         body.descricao.trim(), toFloatOrNull(body.valor) || 0, body.vencimento || null, body.forma_pagamento || '',
         lojaIdEscolhida, toIntOrNull(body.fornecedor_id), body.observacoes || '', m.id
       );
+      const anexoSubstituto = files.find((f) => f.fieldName === 'anexo' && f.data && f.data.length > 0);
+      if (anexoSubstituto) {
+        const savedAnexo = saveReceiptFile('conta-pagar', m.id, anexoSubstituto);
+        if (savedAnexo) {
+          if (conta.anexo_caminho) deleteUploadedFile(conta.anexo_caminho);
+          db.prepare('UPDATE contas_pagar SET anexo_caminho = ?, anexo_nome = ? WHERE id = ?').run(savedAnexo.caminho_arquivo, savedAnexo.nome_arquivo, m.id);
+        } else {
+          setFlash(session.sessionId, 'error', 'Conta atualizada, mas o novo anexo não pôde ser salvo (use PDF, JPG, PNG, WEBP ou HEIC, até 20MB).');
+          return redirect(res, `/contas-pagar/${m.id}/editar`);
+        }
+      }
       setFlash(session.sessionId, 'success', 'Conta a pagar atualizada.');
+      return redirect(res, `/contas-pagar/${m.id}/editar`);
+    }
+
+    if ((m = matchRoute('/contas-pagar/:id/remover-anexo', pathname)) && method === 'POST') {
+      const conta = db.prepare('SELECT * FROM contas_pagar WHERE id = ?').get(m.id);
+      if (!conta) return notFound(res);
+      if (!canEditLoja(user, conta.loja_id)) return forbidden(res);
+      if (conta.anexo_caminho) {
+        deleteUploadedFile(conta.anexo_caminho);
+        db.prepare('UPDATE contas_pagar SET anexo_caminho = NULL, anexo_nome = NULL WHERE id = ?').run(m.id);
+        setFlash(session.sessionId, 'success', 'Anexo removido.');
+      }
       return redirect(res, `/contas-pagar/${m.id}/editar`);
     }
 

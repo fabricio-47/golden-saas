@@ -91,6 +91,44 @@ function saveDocumentFile(namespace, entityId, file) {
   };
 }
 
+const ALLOWED_RECEIPT_EXT = {
+  'application/pdf': '.pdf',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/heic': '.heic',
+};
+
+function extForReceipt(contentType, originalName) {
+  if (ALLOWED_RECEIPT_EXT[contentType]) return ALLOWED_RECEIPT_EXT[contentType];
+  const ext = path.extname(originalName || '').toLowerCase();
+  if (['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.heic'].includes(ext)) return ext;
+  return null;
+}
+
+// Salva um comprovante/nota de compra (PDF ou foto) anexado a um registro
+// qualquer (ex: contas_pagar). Mesma estrutura de pastas dos outros uploads.
+function saveReceiptFile(namespace, entityId, file) {
+  if (!file || !file.data || !file.data.length) return null;
+  const ext = extForReceipt(file.contentType, file.filename);
+  if (!ext) return null;
+  if (file.data.length > MAX_FILE_BYTES) return null;
+
+  const folder = `${namespace}-${entityId}`;
+  const dir = path.join(UPLOADS_DIR, folder);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  const safeName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+  const fullPath = path.join(dir, safeName);
+  fs.writeFileSync(fullPath, file.data);
+
+  return {
+    nome_arquivo: file.filename || `anexo${ext}`,
+    caminho_arquivo: `${folder}/${safeName}`,
+    tipo_arquivo: ext === '.pdf' ? 'pdf' : 'imagem',
+  };
+}
+
 // Grava um Buffer gerado pelo próprio sistema (ex: PDF assinado) na mesma
 // estrutura de pastas dos uploads, para poder ser servido depois por
 // resolveUploadPath como qualquer outro arquivo.
@@ -146,6 +184,7 @@ module.exports = {
   MAX_REQUEST_BYTES,
   saveUploadedFile,
   saveDocumentFile,
+  saveReceiptFile,
   saveBufferAsUpload,
   deleteUploadedFile,
   resolveUploadPath,
