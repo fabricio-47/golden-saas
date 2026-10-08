@@ -161,6 +161,14 @@ const STYLE = `
   .muted { color: #8a8474; font-size: 13px; }
   .link-btn { color: #2c6ea8; font-size: 13px; }
 
+  /* --- campo de arquivo com texto em português (o navegador sempre mostra
+     "Choose File / No file chosen" em inglês, então disfarçamos com um botão
+     próprio por cima do input real, que continua funcionando normalmente) --- */
+  .file-input-ptbr { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; }
+  .file-input-ptbr input[type=file] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; margin: 0; }
+  .file-input-btn { background: #e5e2d8; color: var(--text-dark); padding: 9px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+  .file-input-name { font-size: 13px; color: #6b6558; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   /* --- menu mobile (off-canvas) --- */
   .nav-toggle-checkbox { display: none; }
   .mobile-topbar { display: none; }
@@ -339,6 +347,40 @@ function layout({ title, activeNav, user, flash, children }) {
       ${children}
     </main>
   </div>
+  <script>
+    (function () {
+      document.querySelectorAll('input[type=file]').forEach(function (input) {
+        if (input.dataset.ptbrWrapped) return;
+        input.dataset.ptbrWrapped = '1';
+
+        var wrap = document.createElement('div');
+        wrap.className = 'file-input-ptbr';
+        input.parentNode.insertBefore(wrap, input);
+
+        var btn = document.createElement('span');
+        btn.className = 'file-input-btn';
+        btn.textContent = 'Escolher arquivo';
+
+        var nome = document.createElement('span');
+        nome.className = 'file-input-name';
+        nome.textContent = 'Nenhum arquivo selecionado';
+
+        wrap.appendChild(btn);
+        wrap.appendChild(nome);
+        wrap.appendChild(input);
+
+        input.addEventListener('change', function () {
+          if (!input.files || input.files.length === 0) {
+            nome.textContent = 'Nenhum arquivo selecionado';
+          } else if (input.files.length === 1) {
+            nome.textContent = input.files[0].name;
+          } else {
+            nome.textContent = input.files.length + ' arquivos selecionados';
+          }
+        });
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }
