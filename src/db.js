@@ -186,6 +186,15 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS os_servicos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ordem_servico_id INTEGER NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
+    tipo_servico_id INTEGER REFERENCES tipos_servico(id) ON DELETE SET NULL,
+    nome_servico TEXT NOT NULL,
+    valor REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS fornecedores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
@@ -315,6 +324,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_midias_bicicleta ON bicicleta_midias(bicicleta_id);
   CREATE INDEX IF NOT EXISTS idx_os_pecas_os ON os_pecas(ordem_servico_id);
   CREATE INDEX IF NOT EXISTS idx_os_pecas_peca ON os_pecas(peca_id);
+  CREATE INDEX IF NOT EXISTS idx_os_servicos_os ON os_servicos(ordem_servico_id);
+  CREATE INDEX IF NOT EXISTS idx_os_servicos_tipo ON os_servicos(tipo_servico_id);
   CREATE INDEX IF NOT EXISTS idx_login_audit_created ON login_audit(created_at);
   CREATE INDEX IF NOT EXISTS idx_pecas_loja ON pecas(loja_id);
   CREATE INDEX IF NOT EXISTS idx_peca_cores_peca ON peca_cores(peca_id);

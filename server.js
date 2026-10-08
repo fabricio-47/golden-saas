@@ -237,6 +237,17 @@ function recomputeValorPecas(osId) {
   ).run(soma, soma + valorMaoObra, osId);
 }
 
+function recomputeValorMaoObra(osId) {
+  const soma = db
+    .prepare('SELECT COALESCE(SUM(valor), 0) as total FROM os_servicos WHERE ordem_servico_id = ?')
+    .get(osId).total;
+  const os = db.prepare('SELECT valor_pecas FROM ordens_servico WHERE id = ?').get(osId);
+  const valorPecas = os ? Number(os.valor_pecas) || 0 : 0;
+  db.prepare(
+    `UPDATE ordens_servico SET valor_mao_obra = ?, valor_estimado = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(soma, soma + valorPecas, osId);
+}
+
 function gerarParcelasAReceber({ formaPagamento, parcelas, total, lojaId, clienteId, ordemServicoId, vendaId, origemLabel }) {
   if (formaPagamento !== 'credito' || !parcelas || parcelas < 1) return;
   if (!total || total <= 0) return;
@@ -1678,20 +1689,18 @@ async function handler(req, res) {
         const b = bicicletas.find((bb) => String(bb.id) === String(defaultBicicletaId));
         if (b) defaultClienteId = b.cliente_id;
       }
-      const servicosNovo = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       return send(
         res,
         200,
-        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken, servicos: servicosNovo })
+        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken })
       );
     }
 
     if (pathname === '/os' && method === 'POST') {
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
-      const servicosPost = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       if (!body.cliente_id || !body.bicicleta_id) {
-        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken, servicos: servicosPost }));
+        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken }));
       }
       const checklist = parseChecklistFromBody(body);
       const numero = nextOSNumber();
@@ -1719,8 +1728,8 @@ async function handler(req, res) {
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       const temPecasVinculadas = db.prepare('SELECT COUNT(*) c FROM os_pecas WHERE ordem_servico_id = ?').get(m.id).c > 0;
-      const servicosEditar = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
-      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken, temPecasVinculadas, servicos: servicosEditar }));
+      const temServicosVinculados = db.prepare('SELECT COUNT(*) c FROM os_servicos WHERE ordem_servico_id = ?').get(m.id).c > 0;
+      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken, temPecasVinculadas, temServicosVinculados }));
     }
 
     if ((m = matchRoute('/os/:id/desativar', pathname)) && method === 'POST') {
@@ -1810,6 +1819,38 @@ async function handler(req, res) {
         db.prepare('DELETE FROM os_pecas WHERE id = ?').run(item.id);
         recomputeValorPecas(m.id);
         setFlash(session.sessionId, 'success', 'Produto removido da O.S. e devolvido ao estoque.');
+      }
+      return redirect(res, `/os/${m.id}`);
+    }
+
+    if ((m = matchRoute('/os/:id/servicos', pathname)) && method === 'POST') {
+      const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
+      if (!os) return notFound(res);
+      const nomeServico = (body.nome_servico || '').trim();
+      const valorServico = toFloatOrNull(body.valor);
+      const tipoServicoId = body.tipo_servico_id ? toIntOrNull(body.tipo_servico_id) : null;
+      if (!nomeServico) {
+        setFlash(session.sessionId, 'error', 'Informe o nome do serviço.');
+        return redirect(res, `/os/${m.id}`);
+      }
+      if (valorServico === null || valorServico < 0) {
+        setFlash(session.sessionId, 'error', 'Valor do serviço inválido.');
+        return redirect(res, `/os/${m.id}`);
+      }
+      db.prepare(
+        'INSERT INTO os_servicos (ordem_servico_id, tipo_servico_id, nome_servico, valor) VALUES (?, ?, ?, ?)'
+      ).run(m.id, tipoServicoId, nomeServico, valorServico);
+      recomputeValorMaoObra(m.id);
+      setFlash(session.sessionId, 'success', `Serviço "${nomeServico}" adicionado à O.S.`);
+      return redirect(res, `/os/${m.id}`);
+    }
+
+    if ((m = matchRoute('/os/:id/servicos/:itemId/excluir', pathname)) && method === 'POST') {
+      const item = db.prepare('SELECT * FROM os_servicos WHERE id = ? AND ordem_servico_id = ?').get(m.itemId, m.id);
+      if (item) {
+        db.prepare('DELETE FROM os_servicos WHERE id = ?').run(item.id);
+        recomputeValorMaoObra(m.id);
+        setFlash(session.sessionId, 'success', 'Serviço removido da O.S.');
       }
       return redirect(res, `/os/${m.id}`);
     }
@@ -1912,7 +1953,9 @@ async function handler(req, res) {
       const pecasDisponiveis = canSeeAllLojas(user)
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
-      return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, csrfToken: session.csrfToken }));
+      const osServicos = db.prepare('SELECT * FROM os_servicos WHERE ordem_servico_id = ? ORDER BY created_at DESC').all(m.id);
+      const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, osServicos, servicosDisponiveis, csrfToken: session.csrfToken }));
     }
 
     // ---------------- VENDA DIRETO ----------------

@@ -114,7 +114,7 @@ function checklistFormFields(checklist) {
   }).join('');
 }
 
-function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas, servicos }) {
+function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas, temServicosVinculados }) {
   const isEdit = !!os;
   const checklist = os && os.checklist_json ? JSON.parse(os.checklist_json) : [];
 
@@ -211,16 +211,12 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             </div>
             <div class="field">
               <label for="valor_mao_obra">Valor de mão de obra (R$)</label>
-              ${
-                servicos && servicos.length
-                  ? `<select id="tipo_servico_select" onchange="const v=this.options[this.selectedIndex].dataset.valor; if(v) document.getElementById('valor_mao_obra').value=v;" style="margin-bottom:8px;">
-                <option value="">Escolher um serviço do catálogo (opcional)...</option>
-                ${servicos.map((s) => `<option value="${s.id}" data-valor="${s.valor}">${escapeHtml(s.nome)} - ${formatMoney(s.valor)}</option>`).join('')}
-              </select>`
-                  : ''
-              }
               <input type="number" id="valor_mao_obra" name="valor_mao_obra" min="0" step="0.01" value="${os && os.valor_mao_obra !== null ? os.valor_mao_obra : ''}">
-              <p class="muted" style="margin-top:4px;">Escolher um serviço do catálogo só preenche o valor sugerido — você ainda pode editar. Cadastre os tipos de serviço em Estoque → Tipos de Serviço.</p>
+              ${
+                temServicosVinculados
+                  ? '<p class="muted" style="margin-top:4px;">Esta O.S. tem serviços vinculados — esse valor é recalculado automaticamente ao adicionar/remover serviços na tela da O.S. Editar aqui só sobrescreve manualmente.</p>'
+                  : '<p class="muted" style="margin-top:4px;">Depois de salvar, você pode selecionar os serviços feitos e o valor de cada um na tela da O.S. — esse campo é recalculado automaticamente a partir deles.</p>'
+              }
             </div>
             <div class="field">
               <label for="forma_pagamento">Forma de pagamento</label>
@@ -360,7 +356,68 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
       </div>`;
 }
 
-function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, csrfToken }) {
+function servicosOsSection(osId, osServicos, servicosDisponiveis, csrfToken) {
+  const rows = osServicos
+    .map(
+      (item) => `
+    <tr>
+      <td>${escapeHtml(item.nome_servico)}</td>
+      <td>${formatMoney(item.valor)}</td>
+      <td>
+        <form method="POST" action="/os/${osId}/servicos/${item.id}/excluir" onsubmit="return confirm('Remover este serviço da O.S.?');">
+          <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+          <button class="btn btn-sm btn-danger" type="submit">Remover</button>
+        </form>
+      </td>
+    </tr>`
+    )
+    .join('');
+
+  const catalogoOptions = servicosDisponiveis
+    .map((s) => `<option value="${s.id}" data-nome="${escapeHtml(s.nome)}" data-valor="${s.valor}">${escapeHtml(s.nome)} — ${formatMoney(s.valor)}</option>`)
+    .join('');
+
+  const totalServicos = osServicos.reduce((sum, item) => sum + Number(item.valor), 0);
+
+  return `
+      <div class="card">
+        <h2>Serviços realizados (mão de obra)</h2>
+        ${
+          osServicos.length
+            ? `<table><thead><tr><th>Serviço</th><th>Valor</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+               <p style="margin-top:12px;"><strong>Total em mão de obra: ${formatMoney(totalServicos)}</strong></p>`
+            : '<p class="muted">Nenhum serviço vinculado a esta O.S. ainda.</p>'
+        }
+        <form method="POST" action="/os/${osId}/servicos" style="margin-top:16px;">
+          <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+          <div class="form-grid">
+            ${
+              catalogoOptions
+                ? `<div class="field">
+              <label for="servico_catalogo">Serviço do catálogo (opcional)</label>
+              <select id="servico_catalogo" name="tipo_servico_id" onchange="const o=this.options[this.selectedIndex]; if(o.dataset.nome){ document.getElementById('servico_nome').value=o.dataset.nome; document.getElementById('servico_valor').value=o.dataset.valor; }">
+                <option value="">Digitar manualmente...</option>
+                ${catalogoOptions}
+              </select>
+            </div>`
+                : ''
+            }
+            <div class="field">
+              <label for="servico_nome">Nome do serviço *</label>
+              <input type="text" id="servico_nome" name="nome_servico" required placeholder="Ex: Troca de pneu traseiro">
+            </div>
+            <div class="field">
+              <label for="servico_valor">Valor (R$) *</label>
+              <input type="number" id="servico_valor" name="valor" min="0" step="0.01" required>
+            </div>
+          </div>
+          <button class="btn btn-sm" type="submit">+ Adicionar serviço à O.S.</button>
+        </form>
+        <p class="muted" style="margin-top:8px;">Escolher um serviço do catálogo só preenche nome e valor sugeridos — você pode editar antes de adicionar. O "Valor de mão de obra" da O.S. é recalculado automaticamente pela soma dos serviços. Cadastre tipos de serviço em Estoque → Tipos de Serviço.</p>
+      </div>`;
+}
+
+function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, osServicos, servicosDisponiveis, csrfToken }) {
   const checklist = os.checklist_json ? JSON.parse(os.checklist_json) : [];
   const checklistRows = checklist
     .map(
@@ -424,6 +481,8 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
       </div>
 
       ${pecasOsSection(os.id, osPecas, pecasDisponiveis, csrfToken)}
+
+      ${servicosOsSection(os.id, osServicos || [], servicosDisponiveis || [], csrfToken)}
 
       <div class="card">
         <h2>Problema relatado pelo cliente</h2>
