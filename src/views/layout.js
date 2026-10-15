@@ -259,6 +259,15 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores', modulo: 'estoque' },
       ].filter((item) => podeVer(item.modulo)),
     },
+    {
+      type: 'group',
+      key: 'itens-group',
+      label: 'Itens',
+      items: [
+        { key: 'estoque', href: '/estoque', label: 'Produtos', modulo: 'estoque' },
+        { key: 'servicos', href: '/servicos', label: 'Serviços', modulo: 'os' },
+      ].filter((item) => podeVer(item.modulo)),
+    },
     { type: 'link', key: 'vendas', href: '/vendas', label: 'Vendas', modulo: 'vendas' },
     { type: 'link', key: 'os', href: '/os', label: 'Ordens de serviços', modulo: 'os' },
     {
@@ -266,10 +275,8 @@ function layout({ title, activeNav, user, flash, children }) {
       key: 'estoque-group',
       label: 'Estoque',
       items: [
-        { key: 'estoque', href: '/estoque', label: 'Estoque', modulo: 'estoque' },
         { key: 'entrada-estoque', href: '/estoque/entrada', label: 'Registrar Entrada', modulo: 'estoque' },
         { key: 'transferencias', href: '/transferencias', label: 'Transferências', modulo: 'estoque' },
-        { key: 'servicos', href: '/servicos', label: 'Tipos de Serviço', modulo: 'os' },
       ].filter((item) => podeVer(item.modulo)),
     },
     {
