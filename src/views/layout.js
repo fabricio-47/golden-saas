@@ -243,28 +243,37 @@ function layout({ title, activeNav, user, flash, children }) {
   // 'contratos' não é um módulo (não tem checkbox em Níveis de permissão),
   // por isso fica sempre visível, igual já era o comportamento no backend.
   const podeVer = (modulo) => !modulo || userCanAccessModulo(user, modulo);
-  const navItems = [
-    { key: 'dashboard', href: '/', label: 'Dashboard', modulo: 'painel' },
-    { key: 'clientes', href: '/clientes', label: 'Clientes', modulo: 'clientes' },
-    { key: 'bicicletas', href: '/bicicletas', label: 'Veículos', modulo: 'bicicletas' },
-    { key: 'os', href: '/os', label: 'Ordens de Serviço', modulo: 'os' },
-    { key: 'vendas', href: '/vendas', label: 'Venda Direto', modulo: 'vendas' },
-    { key: 'contratos', href: '/contratos', label: 'Contratos', modulo: null },
-  ].filter((item) => podeVer(item.modulo));
-
-  const navGroups = [
+  // Ordem e agrupamento do menu inspirados no padrão de ERPs de gestão
+  // (Cadastros / Vendas / Ordens de serviço / Estoque / Financeiro / Contratos / Configurações).
+  // Cada entrada é um link solto ('link') ou um grupo expansível ('group');
+  // a ordem deste array é exatamente a ordem exibida na barra lateral.
+  const navEntries = [
+    { type: 'link', key: 'dashboard', href: '/', label: 'Dashboard', modulo: 'painel' },
     {
+      type: 'group',
+      key: 'cadastros-group',
+      label: 'Cadastros',
+      items: [
+        { key: 'clientes', href: '/clientes', label: 'Clientes', modulo: 'clientes' },
+        { key: 'bicicletas', href: '/bicicletas', label: 'Veículos', modulo: 'bicicletas' },
+        { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores', modulo: 'estoque' },
+      ].filter((item) => podeVer(item.modulo)),
+    },
+    { type: 'link', key: 'vendas', href: '/vendas', label: 'Vendas', modulo: 'vendas' },
+    { type: 'link', key: 'os', href: '/os', label: 'Ordens de serviços', modulo: 'os' },
+    {
+      type: 'group',
       key: 'estoque-group',
       label: 'Estoque',
       items: [
         { key: 'estoque', href: '/estoque', label: 'Estoque', modulo: 'estoque' },
         { key: 'entrada-estoque', href: '/estoque/entrada', label: 'Registrar Entrada', modulo: 'estoque' },
         { key: 'transferencias', href: '/transferencias', label: 'Transferências', modulo: 'estoque' },
-        { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores', modulo: 'estoque' },
         { key: 'servicos', href: '/servicos', label: 'Tipos de Serviço', modulo: 'os' },
       ].filter((item) => podeVer(item.modulo)),
     },
     {
+      type: 'group',
       key: 'financeiro-group',
       label: 'Financeiro',
       items: [
@@ -272,9 +281,13 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber', modulo: 'financeiro' },
       ].filter((item) => podeVer(item.modulo)),
     },
-  ].filter((group) => group.items.length > 0);
+    { type: 'link', key: 'contratos', href: '/contratos', label: 'Contratos', modulo: null },
+  ]
+    .filter((entry) => (entry.type === 'link' ? podeVer(entry.modulo) : entry.items.length > 0));
+
   if (canManage) {
-    navGroups.push({
+    navEntries.push({
+      type: 'group',
       key: 'config-group',
       label: 'Configurações',
       items: [
@@ -287,24 +300,20 @@ function layout({ title, activeNav, user, flash, children }) {
     });
   }
 
-  const navHtml = navItems
-    .map(
-      (item) =>
-        `<a class="nav-item ${item.key === activeNav ? 'active' : ''}" href="${item.href}">${item.label}</a>`
-    )
-    .join('');
-
-  const navGroupsHtml = navGroups
-    .map((group) => {
-      const groupHasActive = group.items.some((item) => item.key === activeNav);
-      const itemsHtml = group.items
+  const navHtml = navEntries
+    .map((entry) => {
+      if (entry.type === 'link') {
+        return `<a class="nav-item ${entry.key === activeNav ? 'active' : ''}" href="${entry.href}">${entry.label}</a>`;
+      }
+      const groupHasActive = entry.items.some((item) => item.key === activeNav);
+      const itemsHtml = entry.items
         .map(
           (item) =>
             `<a class="nav-item nav-sub ${item.key === activeNav ? 'active' : ''}" href="${item.href}">${item.label}</a>`
         )
         .join('');
       return `<details class="nav-group" ${groupHasActive ? 'open' : ''}>
-        <summary>${group.label}</summary>
+        <summary>${entry.label}</summary>
         ${itemsHtml}
       </details>`;
     })
@@ -334,7 +343,7 @@ function layout({ title, activeNav, user, flash, children }) {
     <label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label>
     <aside class="sidebar">
       <div class="brand">Golden<span>SaaS</span></div>
-      <nav>${navHtml}${navGroupsHtml}</nav>
+      <nav>${navHtml}</nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">${escapeHtml(user ? user.name : '')}</div>
         ${roleLabelHtml}
