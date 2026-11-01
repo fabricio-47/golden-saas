@@ -207,6 +207,16 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS funcionarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    funcao TEXT,
+    telefone TEXT,
+    observacoes TEXT,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS contas_pagar (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     descricao TEXT NOT NULL,
@@ -378,6 +388,7 @@ ensureColumn('ordens_servico', 'previsao_entrega', 'TEXT');
 ensureColumn('ordens_servico', 'prioridade', "TEXT NOT NULL DEFAULT 'normal'");
 ensureColumn('ordens_servico', 'termos_garantia', 'TEXT');
 ensureColumn('ordens_servico', 'acessorios', 'TEXT');
+ensureColumn('ordens_servico', 'tecnico_id', 'INTEGER');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");

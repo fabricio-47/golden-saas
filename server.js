@@ -64,6 +64,7 @@ const { auditoriaPage } = require('./src/views/auditoria');
 const { lojasListPage, lojaFormPage } = require('./src/views/lojas');
 const { transferenciasListPage, transferenciaFormPage } = require('./src/views/transferencias');
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
+const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
@@ -194,6 +195,15 @@ function parseChecklistFromBody(body) {
 }
 
 const PRIORIDADES_OS = ['baixa', 'normal', 'alta', 'urgente'];
+
+// Confere se o id de técnico informado corresponde a um funcionário existente;
+// devolve o id (número) ou null, evitando gravar um FK inválido na O.S.
+function validTecnicoId(raw) {
+  const id = parseInt(raw, 10);
+  if (!id || isNaN(id)) return null;
+  const f = db.prepare('SELECT id FROM funcionarios WHERE id = ?').get(id);
+  return f ? id : null;
+}
 
 function toIntOrNull(v) {
   if (v === undefined || v === null || v === '') return null;
@@ -1150,6 +1160,47 @@ async function handler(req, res) {
       return redirect(res, '/fornecedores');
     }
 
+    // ---------------- FUNCIONÁRIOS ----------------
+    if (pathname === '/funcionarios' && method === 'GET') {
+      const funcionarios = db.prepare('SELECT * FROM funcionarios ORDER BY ativo DESC, nome ASC').all();
+      return send(res, 200, funcionariosListPage({ user, flash: takeFlash(session.sessionId), funcionarios }));
+    }
+
+    if (pathname === '/funcionarios/novo' && method === 'GET') {
+      return send(res, 200, funcionarioFormPage({ user, flash: takeFlash(session.sessionId), funcionario: null, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/funcionarios' && method === 'POST') {
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, funcionarioFormPage({ user, flash: { type: 'error', message: 'Nome do funcionário é obrigatório.' }, funcionario: body, csrfToken: session.csrfToken }));
+      }
+      db.prepare('INSERT INTO funcionarios (nome, funcao, telefone, observacoes) VALUES (?, ?, ?, ?)').run(
+        body.nome.trim(), body.funcao || '', body.telefone || '', body.observacoes || ''
+      );
+      setFlash(session.sessionId, 'success', 'Funcionário cadastrado.');
+      return redirect(res, '/funcionarios');
+    }
+
+    if ((m = matchRoute('/funcionarios/:id/editar', pathname)) && method === 'GET') {
+      const funcionario = db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(m.id);
+      if (!funcionario) return notFound(res);
+      return send(res, 200, funcionarioFormPage({ user, flash: takeFlash(session.sessionId), funcionario, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/funcionarios/:id', pathname)) && method === 'POST') {
+      const funcionario = db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(m.id);
+      if (!funcionario) return notFound(res);
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, funcionarioFormPage({ user, flash: { type: 'error', message: 'Nome do funcionário é obrigatório.' }, funcionario: { ...funcionario, ...body }, csrfToken: session.csrfToken }));
+      }
+      const ativo = body.ativo === '0' ? 0 : 1;
+      db.prepare('UPDATE funcionarios SET nome=?, funcao=?, telefone=?, observacoes=?, ativo=? WHERE id=?').run(
+        body.nome.trim(), body.funcao || '', body.telefone || '', body.observacoes || '', ativo, m.id
+      );
+      setFlash(session.sessionId, 'success', 'Funcionário atualizado.');
+      return redirect(res, '/funcionarios');
+    }
+
     // ---------------- TIPOS DE SERVIÇO ----------------
     if (pathname === '/servicos' && method === 'GET') {
       const servicos = db.prepare('SELECT * FROM tipos_servico ORDER BY nome ASC').all();
@@ -1702,7 +1753,14 @@ async function handler(req, res) {
            FROM ordens_servico WHERE ativo = 1 GROUP BY ym ORDER BY ym DESC LIMIT 6`
         )
         .all();
-      return send(res, 200, ordemPainelPage({ user, flash: takeFlash(session.sessionId), abertas, fatur, hoje, amanha }));
+      const faturTecnico = db
+        .prepare(
+          `SELECT COALESCE(f.nome, 'Sem técnico') as tecnico, COUNT(*) as n, COALESCE(SUM(os.valor_estimado), 0) as total
+           FROM ordens_servico os LEFT JOIN funcionarios f ON f.id = os.tecnico_id
+           WHERE os.ativo = 1 GROUP BY os.tecnico_id ORDER BY total DESC`
+        )
+        .all();
+      return send(res, 200, ordemPainelPage({ user, flash: takeFlash(session.sessionId), abertas, fatur, faturTecnico, hoje, amanha }));
     }
 
     if (pathname === '/os/novo' && method === 'GET') {
@@ -1718,10 +1776,11 @@ async function handler(req, res) {
         const b = bicicletas.find((bb) => String(bb.id) === String(defaultBicicletaId));
         if (b) defaultClienteId = b.cliente_id;
       }
+      const funcionarios = db.prepare('SELECT * FROM funcionarios WHERE ativo = 1 ORDER BY nome ASC').all();
       return send(
         res,
         200,
-        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken })
+        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken, funcionarios })
       );
     }
 
@@ -1729,7 +1788,8 @@ async function handler(req, res) {
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       if (!body.cliente_id || !body.bicicleta_id) {
-        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken }));
+        const funcionarios = db.prepare('SELECT * FROM funcionarios WHERE ativo = 1 ORDER BY nome ASC').all();
+        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken, funcionarios }));
       }
       const checklist = parseChecklistFromBody(body);
       const numero = nextOSNumber();
@@ -1739,16 +1799,17 @@ async function handler(req, res) {
       const parcelas = formaPagamento === 'credito' ? toIntOrNull(body.parcelas) : null;
       const prioridade = PRIORIDADES_OS.includes(body.prioridade) ? body.prioridade : 'normal';
       const previsaoEntrega = body.previsao_entrega || null;
+      const tecnicoId = validTecnicoId(body.tecnico_id);
       const info = db
         .prepare(
-          `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, valor_estimado, forma_pagamento, parcelas, prioridade, previsao_entrega, acessorios, termos_garantia)
-           VALUES (?, ?, ?, 'orcamento', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, valor_estimado, forma_pagamento, parcelas, prioridade, previsao_entrega, acessorios, termos_garantia, tecnico_id)
+           VALUES (?, ?, ?, 'orcamento', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           numero, body.cliente_id, body.bicicleta_id, JSON.stringify(checklist),
           body.problema_relatado || '', body.diagnostico || '', body.servicos_realizados || '',
           valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas,
-          prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || ''
+          prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || '', tecnicoId
         );
       setFlash(session.sessionId, 'success', `Ordem de Serviço ${numero} criada com sucesso.`);
       return redirect(res, `/os/${info.lastInsertRowid}`);
@@ -1761,7 +1822,8 @@ async function handler(req, res) {
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       const temPecasVinculadas = db.prepare('SELECT COUNT(*) c FROM os_pecas WHERE ordem_servico_id = ?').get(m.id).c > 0;
       const temServicosVinculados = db.prepare('SELECT COUNT(*) c FROM os_servicos WHERE ordem_servico_id = ?').get(m.id).c > 0;
-      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken, temPecasVinculadas, temServicosVinculados }));
+      const funcionarios = db.prepare('SELECT * FROM funcionarios WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, ordemFormPage({ user, flash: takeFlash(session.sessionId), os, clientes, bicicletas, csrfToken: session.csrfToken, temPecasVinculadas, temServicosVinculados, funcionarios }));
     }
 
     if ((m = matchRoute('/os/:id/desativar', pathname)) && method === 'POST') {
@@ -1962,13 +2024,14 @@ async function handler(req, res) {
       const parcelas = formaPagamento === 'credito' ? toIntOrNull(body.parcelas) : null;
       const prioridade = PRIORIDADES_OS.includes(body.prioridade) ? body.prioridade : os.prioridade || 'normal';
       const previsaoEntrega = body.previsao_entrega || null;
+      const tecnicoId = validTecnicoId(body.tecnico_id);
       db.prepare(
-        `UPDATE ordens_servico SET cliente_id=?, bicicleta_id=?, status=?, checklist_json=?, problema_relatado=?, diagnostico=?, servicos_realizados=?, valor_pecas=?, valor_mao_obra=?, valor_estimado=?, forma_pagamento=?, parcelas=?, data_conclusao=?, prioridade=?, previsao_entrega=?, acessorios=?, termos_garantia=?, updated_at=datetime('now') WHERE id=?`
+        `UPDATE ordens_servico SET cliente_id=?, bicicleta_id=?, status=?, checklist_json=?, problema_relatado=?, diagnostico=?, servicos_realizados=?, valor_pecas=?, valor_mao_obra=?, valor_estimado=?, forma_pagamento=?, parcelas=?, data_conclusao=?, prioridade=?, previsao_entrega=?, acessorios=?, termos_garantia=?, tecnico_id=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.cliente_id || os.cliente_id, body.bicicleta_id || os.bicicleta_id, status, JSON.stringify(checklist),
         body.problema_relatado || '', body.diagnostico || '', body.servicos_realizados || '',
         valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas, dataConclusao,
-        prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || '', m.id
+        prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || '', tecnicoId, m.id
       );
       setFlash(session.sessionId, 'success', 'Ordem de Serviço atualizada.');
       return redirect(res, `/os/${m.id}`);
@@ -1977,8 +2040,9 @@ async function handler(req, res) {
     if ((m = matchRoute('/os/:id', pathname)) && method === 'GET') {
       const os = db
         .prepare(
-          `SELECT os.*, c.nome as cliente_nome, b.marca, b.modelo FROM ordens_servico os
-           JOIN clientes c ON c.id = os.cliente_id JOIN bicicletas b ON b.id = os.bicicleta_id WHERE os.id = ?`
+          `SELECT os.*, c.nome as cliente_nome, b.marca, b.modelo, f.nome as tecnico_nome FROM ordens_servico os
+           JOIN clientes c ON c.id = os.cliente_id JOIN bicicletas b ON b.id = os.bicicleta_id
+           LEFT JOIN funcionarios f ON f.id = os.tecnico_id WHERE os.id = ?`
         )
         .get(m.id);
       if (!os) return notFound(res);

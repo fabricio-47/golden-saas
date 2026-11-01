@@ -134,7 +134,7 @@ function checklistFormFields(checklist) {
   }).join('');
 }
 
-function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas, temServicosVinculados }) {
+function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas, temServicosVinculados, funcionarios }) {
   const isEdit = !!os;
   const checklist = os && os.checklist_json ? JSON.parse(os.checklist_json) : [];
 
@@ -211,6 +211,19 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
               <label for="previsao_entrega">Previsão de entrega</label>
               <input type="date" id="previsao_entrega" name="previsao_entrega" value="${os && os.previsao_entrega ? escapeHtml(os.previsao_entrega) : ''}">
               <p class="muted" style="margin-top:4px;">Data prometida pro cliente buscar o veículo.</p>
+            </div>
+            <div class="field">
+              <label for="tecnico_id">Técnico responsável</label>
+              <select id="tecnico_id" name="tecnico_id">
+                <option value="">Não definido</option>
+                ${(funcionarios || [])
+                  .map(
+                    (f) =>
+                      `<option value="${f.id}" ${os && String(os.tecnico_id) === String(f.id) ? 'selected' : ''}>${escapeHtml(f.nome)}${f.funcao ? ` — ${escapeHtml(f.funcao)}` : ''}</option>`
+                  )
+                  .join('')}
+              </select>
+              ${(funcionarios || []).length === 0 ? '<p class="muted" style="margin-top:4px;">Cadastre a equipe em Cadastros → Funcionários.</p>' : ''}
             </div>
           </div>
 
@@ -495,6 +508,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
             Cliente: <a class="link-btn" href="/clientes/${os.cliente_id}">${escapeHtml(os.cliente_nome)}</a>
             &nbsp;·&nbsp;
             Veículo: <a class="link-btn" href="/bicicletas/${os.bicicleta_id}">${escapeHtml(os.marca || '')} ${escapeHtml(os.modelo)}</a>
+            ${os.tecnico_nome ? `&nbsp;·&nbsp; Técnico: ${escapeHtml(os.tecnico_nome)}` : ''}
           </p>
         </div>
         <div class="actions-row" style="margin-top:0;">
@@ -616,7 +630,7 @@ function diasAtraso(previsao, hoje) {
   return Math.round((b - a) / 86400000);
 }
 
-function ordemPainelPage({ user, flash, abertas, fatur, hoje, amanha }) {
+function ordemPainelPage({ user, flash, abertas, fatur, faturTecnico, hoje, amanha }) {
   // separa as O.S. abertas por prazo de entrega
   const bucket = { vencidas: [], hoje: [], amanha: [], futuras: [], sem: [] };
   for (const os of abertas) {
@@ -736,6 +750,27 @@ function ordemPainelPage({ user, flash, abertas, fatur, hoje, amanha }) {
         <h2>Faturamento das O.S. por mês</h2>
         <p class="muted" style="margin-top:-4px;margin-bottom:16px;">Soma do valor estimado das O.S. abertas em cada mês (últimos 6 meses).</p>
         ${faturBars || '<p class="muted">Sem O.S. registradas ainda.</p>'}
+      </div>
+
+      <div class="card" style="margin-top:4px;">
+        <h2>Faturamento por técnico</h2>
+        <p class="muted" style="margin-top:-4px;margin-bottom:16px;">Total das O.S. de cada técnico responsável.</p>
+        ${
+          (faturTecnico || []).length
+            ? `<table>
+          <thead><tr><th>Técnico</th><th>O.S.</th><th style="text-align:right;">Total</th></tr></thead>
+          <tbody>${faturTecnico
+            .map(
+              (t) => `<tr>
+                <td>${escapeHtml(t.tecnico)}</td>
+                <td>${t.n}</td>
+                <td style="text-align:right;font-weight:600;">${formatMoney(t.total)}</td>
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table>`
+            : '<p class="muted">Sem O.S. registradas ainda.</p>'
+        }
       </div>
     `,
   });
