@@ -52,6 +52,7 @@ const {
   ordensListPage,
   ordemFormPage,
   ordemShowPage,
+  ordemPainelPage,
   STATUS_LABELS,
   totalValor,
   formaPagamentoLabel,
@@ -1676,6 +1677,32 @@ async function handler(req, res) {
       query += ' ORDER BY os.created_at DESC';
       const ordens = db.prepare(query).all(...params);
       return send(res, 200, ordensListPage({ user, flash: takeFlash(session.sessionId), ordens, statusFilter, mostrarDesativadas }));
+    }
+
+    if (pathname === '/os/painel' && method === 'GET') {
+      const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const amanha = (() => {
+        const d = new Date(hoje + 'T12:00:00');
+        d.setDate(d.getDate() + 1);
+        return d.toLocaleDateString('en-CA');
+      })();
+      const abertas = db
+        .prepare(
+          `SELECT os.*, c.nome as cliente_nome, b.marca, b.modelo
+           FROM ordens_servico os
+           JOIN clientes c ON c.id = os.cliente_id
+           JOIN bicicletas b ON b.id = os.bicicleta_id
+           WHERE os.ativo = 1 AND os.status != 'concluida'
+           ORDER BY os.created_at DESC`
+        )
+        .all();
+      const fatur = db
+        .prepare(
+          `SELECT strftime('%Y-%m', data_entrada) as ym, COALESCE(SUM(valor_estimado), 0) as total, COUNT(*) as n
+           FROM ordens_servico WHERE ativo = 1 GROUP BY ym ORDER BY ym DESC LIMIT 6`
+        )
+        .all();
+      return send(res, 200, ordemPainelPage({ user, flash: takeFlash(session.sessionId), abertas, fatur, hoje, amanha }));
     }
 
     if (pathname === '/os/novo' && method === 'GET') {

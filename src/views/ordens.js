@@ -610,10 +610,142 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
   });
 }
 
+function diasAtraso(previsao, hoje) {
+  const a = new Date(previsao + 'T00:00:00');
+  const b = new Date(hoje + 'T00:00:00');
+  return Math.round((b - a) / 86400000);
+}
+
+function ordemPainelPage({ user, flash, abertas, fatur, hoje, amanha }) {
+  // separa as O.S. abertas por prazo de entrega
+  const bucket = { vencidas: [], hoje: [], amanha: [], futuras: [], sem: [] };
+  for (const os of abertas) {
+    const p = os.previsao_entrega;
+    if (!p) bucket.sem.push(os);
+    else if (p < hoje) bucket.vencidas.push(os);
+    else if (p === hoje) bucket.hoje.push(os);
+    else if (p === amanha) bucket.amanha.push(os);
+    else bucket.futuras.push(os);
+  }
+  const prio = { urgente: 0, alta: 0, normal: 0, baixa: 0 };
+  for (const os of abertas) {
+    const k = os.prioridade && prio[os.prioridade] !== undefined ? os.prioridade : 'normal';
+    prio[k]++;
+  }
+
+  const prazoCard = (titulo, lista, cor) => `
+    <div class="stat-card" style="${cor ? `border-left:4px solid ${cor};` : ''}">
+      <div class="num">${lista.length}</div>
+      <div class="label">${titulo}</div>
+    </div>`;
+
+  // O.S. que precisam de atenção = vencidas + de hoje, mais urgentes primeiro
+  const ordemPrio = { urgente: 0, alta: 1, normal: 2, baixa: 3 };
+  const atencao = [...bucket.vencidas, ...bucket.hoje].sort((a, b) => {
+    const pa = a.previsao_entrega || '';
+    const pb = b.previsao_entrega || '';
+    if (pa !== pb) return pa.localeCompare(pb);
+    return (ordemPrio[a.prioridade] ?? 2) - (ordemPrio[b.prioridade] ?? 2);
+  });
+
+  const atencaoRows = atencao
+    .map((os) => {
+      const atraso = os.previsao_entrega && os.previsao_entrega < hoje ? diasAtraso(os.previsao_entrega, hoje) : 0;
+      const prazoTxt = atraso > 0
+        ? `<span style="color:#a1352a;font-weight:600;">${formatDateOnly(os.previsao_entrega)} · ${atraso} dia${atraso > 1 ? 's' : ''} em atraso</span>`
+        : `<span style="color:#a66a00;font-weight:600;">Hoje</span>`;
+      return `
+      <tr>
+        <td><a class="link-btn" href="/os/${os.id}">${escapeHtml(os.numero)}</a></td>
+        <td>${escapeHtml(os.cliente_nome)}</td>
+        <td>${escapeHtml(os.marca || '')} ${escapeHtml(os.modelo)}</td>
+        <td>${prioridadeBadge(os.prioridade)}</td>
+        <td><span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span></td>
+        <td>${prazoTxt}</td>
+      </tr>`;
+    })
+    .join('');
+
+  // faturamento das O.S. por mês (fatur vem do mais recente pro mais antigo)
+  const faturCron = [...fatur].reverse();
+  const maxFatur = Math.max(1, ...faturCron.map((f) => Number(f.total) || 0));
+  const faturBars = faturCron
+    .map((f) => {
+      const total = Number(f.total) || 0;
+      const pct = Math.round((total / maxFatur) * 100);
+      const [ano, mes] = f.ym.split('-');
+      return `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <div style="width:70px;font-size:13px;color:var(--text-muted);">${mes}/${ano}</div>
+        <div style="flex:1;background:var(--border);border-radius:6px;height:22px;position:relative;overflow:hidden;">
+          <div style="width:${pct}%;background:var(--gold, #b8922f);height:100%;border-radius:6px;min-width:2px;"></div>
+        </div>
+        <div style="width:110px;text-align:right;font-size:13px;font-weight:600;">${formatMoney(total)}</div>
+        <div style="width:70px;text-align:right;font-size:12px;color:var(--text-muted);">${f.n} O.S.</div>
+      </div>`;
+    })
+    .join('');
+
+  return layout({
+    title: 'Painel de O.S.',
+    activeNav: 'os-painel',
+    user,
+    flash,
+    children: `
+      <div class="page-header">
+        <div>
+          <h1>Painel de Ordens de Serviço</h1>
+          <p class="subtitle">Prazos de entrega e prioridade das O.S. em aberto</p>
+        </div>
+        <div class="actions-row" style="margin-top:0;">
+          <a class="btn btn-secondary" href="/os">Ver todas as O.S.</a>
+          <a class="btn" href="/os/novo">+ Nova O.S.</a>
+        </div>
+      </div>
+
+      <h2 style="margin-bottom:12px;">Prazos de entrega</h2>
+      <div class="stat-grid">
+        ${prazoCard('Vencidas', bucket.vencidas, '#a1352a')}
+        ${prazoCard('Entrega hoje', bucket.hoje, '#a66a00')}
+        ${prazoCard('Entrega amanhã', bucket.amanha, '#2f6b3a')}
+        ${prazoCard('Futuras', bucket.futuras, '#8a8575')}
+        ${prazoCard('Sem previsão', bucket.sem, '')}
+      </div>
+
+      <h2 style="margin:24px 0 12px;">Prioridade (O.S. em aberto)</h2>
+      <div class="stat-grid">
+        <div class="stat-card" style="border-left:4px solid #a1352a;"><div class="num">${prio.urgente}</div><div class="label">Urgente</div></div>
+        <div class="stat-card" style="border-left:4px solid #a66a00;"><div class="num">${prio.alta}</div><div class="label">Alta</div></div>
+        <div class="stat-card" style="border-left:4px solid #2f6b3a;"><div class="num">${prio.normal}</div><div class="label">Normal</div></div>
+        <div class="stat-card" style="border-left:4px solid #8a8575;"><div class="num">${prio.baixa}</div><div class="label">Baixa</div></div>
+      </div>
+
+      <div class="card" style="margin-top:24px;">
+        <h2>Precisam de atenção (vencidas e de hoje)</h2>
+        ${
+          atencao.length
+            ? `<table>
+          <thead><tr><th>Número</th><th>Cliente</th><th>Veículo</th><th>Prioridade</th><th>Status</th><th>Prazo</th></tr></thead>
+          <tbody>${atencaoRows}</tbody>
+        </table>`
+            : '<p class="muted">Nenhuma O.S. vencida ou com entrega hoje. Tudo em dia. 👍</p>'
+        }
+      </div>
+
+      <div class="card" style="margin-top:4px;">
+        <h2>Faturamento das O.S. por mês</h2>
+        <p class="muted" style="margin-top:-4px;margin-bottom:16px;">Soma do valor estimado das O.S. abertas em cada mês (últimos 6 meses).</p>
+        ${faturBars || '<p class="muted">Sem O.S. registradas ainda.</p>'}
+      </div>
+    `,
+  });
+}
+
 module.exports = {
   ordensListPage,
   ordemFormPage,
   ordemShowPage,
+  ordemPainelPage,
   CHECKLIST_ITEMS,
   STATUS_LABELS,
   totalValor,

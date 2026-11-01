@@ -269,7 +269,15 @@ function layout({ title, activeNav, user, flash, children }) {
       ].filter((item) => podeVer(item.modulo)),
     },
     { type: 'link', key: 'vendas', href: '/vendas', label: 'Vendas', modulo: 'vendas' },
-    { type: 'link', key: 'os', href: '/os', label: 'Ordens de serviços', modulo: 'os' },
+    {
+      type: 'group',
+      key: 'os-group',
+      label: 'Ordens de serviços',
+      items: [
+        { key: 'os', href: '/os', label: 'Gerenciar O.S.', modulo: 'os' },
+        { key: 'os-painel', href: '/os/painel', label: 'Painel', modulo: 'os' },
+      ].filter((item) => podeVer(item.modulo)),
+    },
     {
       type: 'group',
       key: 'estoque-group',
