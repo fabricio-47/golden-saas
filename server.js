@@ -65,6 +65,7 @@ const { lojasListPage, lojaFormPage } = require('./src/views/lojas');
 const { transferenciasListPage, transferenciaFormPage } = require('./src/views/transferencias');
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
+const { financeiroResumoPage } = require('./src/views/financeiro');
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
@@ -424,6 +425,7 @@ async function handler(req, res) {
       ['/fornecedores', 'estoque'],
       ['/contas-pagar', 'financeiro'],
       ['/contas-receber', 'financeiro'],
+      ['/financeiro', 'financeiro'],
     ];
     if (user && !isContratoPublico) {
       if (pathname === '/' && !userCanAccessModulo(user, 'painel')) {
@@ -1424,6 +1426,85 @@ async function handler(req, res) {
     }
 
     // ---------------- CONTAS A PAGAR ----------------
+    // ---------------- FINANCEIRO (resumo consolidado) ----------------
+    if (pathname === '/financeiro' && method === 'GET') {
+      const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const mesAtual = hoje.slice(0, 7);
+      // janela dos últimos 6 meses (YYYY-MM, do mais antigo pro mais recente)
+      const months = [];
+      const base = new Date(hoje + 'T12:00:00');
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(base);
+        d.setMonth(d.getMonth() - i);
+        months.push(d.toISOString().slice(0, 7));
+      }
+      const mesLabelMap = {
+        '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril', '05': 'Maio', '06': 'Junho',
+        '07': 'Julho', '08': 'Agosto', '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro',
+      };
+
+      // só as contas das lojas que o usuário pode ver
+      const receber = db
+        .prepare('SELECT cr.*, c.nome as cliente_nome FROM contas_receber cr LEFT JOIN clientes c ON c.id = cr.cliente_id')
+        .all()
+        .filter((r) => canSeeLoja(user, r.loja_id));
+      const pagar = db
+        .prepare('SELECT cp.*, f.nome as fornecedor_nome FROM contas_pagar cp LEFT JOIN fornecedores f ON f.id = cp.fornecedor_id')
+        .all()
+        .filter((p) => canSeeLoja(user, p.loja_id));
+
+      const soma = (arr) => arr.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+
+      const receberPend = receber.filter((r) => r.status !== 'recebido');
+      const pagarPend = pagar.filter((p) => p.status !== 'pago');
+      const receberVenc = receberPend.filter((r) => r.vencimento && r.vencimento < hoje);
+      const pagarVenc = pagarPend.filter((p) => p.vencimento && p.vencimento < hoje);
+
+      const aReceberPendente = soma(receberPend);
+      const aPagarPendente = soma(pagarPend);
+
+      const recebidoMes = soma(receber.filter((r) => r.recebido_em && r.recebido_em.slice(0, 7) === mesAtual));
+      const pagoMes = soma(pagar.filter((p) => p.pago_em && p.pago_em.slice(0, 7) === mesAtual));
+
+      const fluxo = months.map((ym) => {
+        const recebido = soma(receber.filter((r) => r.recebido_em && r.recebido_em.slice(0, 7) === ym));
+        const pago = soma(pagar.filter((p) => p.pago_em && p.pago_em.slice(0, 7) === ym));
+        const [ano, mes] = ym.split('-');
+        return { ym, label: `${mesLabelMap[mes]}/${ano}`, recebido, pago, saldo: recebido - pago };
+      });
+
+      // vencidas + vencendo nos próximos 7 dias
+      const limite = new Date(base);
+      limite.setDate(limite.getDate() + 7);
+      const limite7 = limite.toISOString().slice(0, 10);
+      const vencimentos = [
+        ...receberPend
+          .filter((r) => r.vencimento && r.vencimento <= limite7)
+          .map((r) => ({ tipo: 'receber', descricao: r.descricao, valor: r.valor, vencimento: r.vencimento, atrasada: r.vencimento < hoje, nome: r.cliente_nome })),
+        ...pagarPend
+          .filter((p) => p.vencimento && p.vencimento <= limite7)
+          .map((p) => ({ tipo: 'pagar', descricao: p.descricao, valor: p.valor, vencimento: p.vencimento, atrasada: p.vencimento < hoje, nome: p.fornecedor_nome })),
+      ].sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+
+      return send(res, 200, financeiroResumoPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        aReceberPendente,
+        aReceberVencidasValor: soma(receberVenc),
+        aReceberVencidasQtd: receberVenc.length,
+        aPagarPendente,
+        aPagarVencidasValor: soma(pagarVenc),
+        aPagarVencidasQtd: pagarVenc.length,
+        saldoPrevisto: aReceberPendente - aPagarPendente,
+        recebidoMes,
+        pagoMes,
+        resultadoMes: recebidoMes - pagoMes,
+        mesLabel: `${mesLabelMap[mesAtual.slice(5, 7)]}/${mesAtual.slice(0, 4)}`,
+        fluxo,
+        vencimentos,
+      }));
+    }
+
     if (pathname === '/contas-pagar' && method === 'GET') {
       const statusFilter = url.searchParams.get('status') || '';
       const lojaFiltroId = url.searchParams.get('loja_id') || '';

@@ -293,6 +293,7 @@ function layout({ title, activeNav, user, flash, children }) {
       key: 'financeiro-group',
       label: 'Financeiro',
       items: [
+        { key: 'financeiro-resumo', href: '/financeiro', label: 'Visão geral', modulo: 'financeiro' },
         { key: 'contas-pagar', href: '/contas-pagar', label: 'Contas a Pagar', modulo: 'financeiro' },
         { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber', modulo: 'financeiro' },
       ].filter((item) => podeVer(item.modulo)),
