@@ -1,13 +1,31 @@
 'use strict';
 
 const { layout } = require('./layout');
-const { escapeHtml, formatDate, formatMoney } = require('../utils');
+const { escapeHtml, formatDate, formatDateOnly, formatMoney } = require('../utils');
 
 const STATUS_LABELS = {
   orcamento: 'Orçamento',
   execucao: 'Execução',
   concluida: 'Concluída',
 };
+
+const PRIORIDADE_LABELS = {
+  baixa: 'Baixa',
+  normal: 'Normal',
+  alta: 'Alta',
+  urgente: 'Urgente',
+};
+// cores sólidas com texto branco — legíveis no tema claro e escuro
+const PRIORIDADE_COR = {
+  baixa: '#8a8575',
+  normal: '#2f6b3a',
+  alta: '#a66a00',
+  urgente: '#a1352a',
+};
+function prioridadeBadge(prioridade) {
+  const p = prioridade && PRIORIDADE_LABELS[prioridade] ? prioridade : 'normal';
+  return `<span class="badge" style="background:${PRIORIDADE_COR[p]};color:#fff;">${PRIORIDADE_LABELS[p]}</span>`;
+}
 
 const CHECKLIST_ITEMS = [
   'Inspeção visual do quadro',
@@ -51,6 +69,8 @@ function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas 
       <td>${escapeHtml(os.cliente_nome)}</td>
       <td>${escapeHtml(os.marca || '')} ${escapeHtml(os.modelo)}</td>
       <td>${os.ativo ? `<span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span>` : '<span class="badge badge-desativada">Desativada</span>'}</td>
+      <td>${prioridadeBadge(os.prioridade)}</td>
+      <td>${os.previsao_entrega ? formatDateOnly(os.previsao_entrega) : '<span class="muted">—</span>'}</td>
       <td>${formatMoney(totalValor(os))}</td>
       <td>${formatDate(os.data_entrada)}</td>
     </tr>`
@@ -84,7 +104,7 @@ function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas 
         ${
           ordens.length
             ? `<table>
-          <thead><tr><th>Número</th><th>Cliente</th><th>Veículo</th><th>Status</th><th>Valor</th><th>Entrada</th></tr></thead>
+          <thead><tr><th>Número</th><th>Cliente</th><th>Veículo</th><th>Status</th><th>Prioridade</th><th>Previsão</th><th>Valor</th><th>Entrada</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
             : `<div class="empty">Nenhuma ordem de serviço ${mostrarDesativadas ? 'desativada' : 'encontrada'}.</div>`
@@ -176,6 +196,22 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             </div>`
                 : ''
             }
+            <div class="field">
+              <label for="prioridade">Prioridade</label>
+              <select id="prioridade" name="prioridade">
+                ${['baixa', 'normal', 'alta', 'urgente']
+                  .map(
+                    (p) =>
+                      `<option value="${p}" ${(os && os.prioridade === p) || (!os && p === 'normal') ? 'selected' : ''}>${PRIORIDADE_LABELS[p]}</option>`
+                  )
+                  .join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label for="previsao_entrega">Previsão de entrega</label>
+              <input type="date" id="previsao_entrega" name="previsao_entrega" value="${os && os.previsao_entrega ? escapeHtml(os.previsao_entrega) : ''}">
+              <p class="muted" style="margin-top:4px;">Data prometida pro cliente buscar o veículo.</p>
+            </div>
           </div>
 
           <h2 style="margin-top:24px;">Problema relatado pelo cliente</h2>
@@ -183,6 +219,11 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             <div class="field full">
               <label for="problema_relatado">O que o cliente relatou ao trazer o veículo</label>
               <textarea id="problema_relatado" name="problema_relatado" placeholder="Ex: cliente relata ruído no motor e autonomia baixa">${escapeHtml(os ? os.problema_relatado : '')}</textarea>
+            </div>
+            <div class="field full">
+              <label for="acessorios">Acessórios entregues com o veículo</label>
+              <textarea id="acessorios" name="acessorios" placeholder="Ex: carregador, bateria extra, chave reserva">${escapeHtml(os ? os.acessorios || '' : '')}</textarea>
+              <p class="muted" style="margin-top:4px;">O que veio junto na entrada, pra conferir na devolução.</p>
             </div>
           </div>
 
@@ -231,6 +272,15 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             <div class="field" id="campo-parcelas">
               <label for="parcelas">Parcelado em quantas vezes</label>
               <input type="number" id="parcelas" name="parcelas" min="1" max="24" value="${os && os.parcelas ? os.parcelas : 1}">
+            </div>
+          </div>
+
+          <h2 style="margin-top:24px;">Garantia</h2>
+          <div class="form-grid">
+            <div class="field full">
+              <label for="termos_garantia">Termos de garantia</label>
+              <textarea id="termos_garantia" name="termos_garantia" placeholder="Ex: 90 dias de garantia no serviço executado e nas peças trocadas. Não cobre mau uso, quedas ou contato com água.">${escapeHtml(os ? os.termos_garantia || '' : '')}</textarea>
+              <p class="muted" style="margin-top:4px;">O que está coberto e por quanto tempo — aparece na O.S. pra evitar discussão depois.</p>
             </div>
           </div>
 
@@ -440,7 +490,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
 
       <div class="page-header">
         <div>
-          <h1>${escapeHtml(os.numero)} ${os.ativo ? `<span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span>` : '<span class="badge badge-desativada">Desativada</span>'}</h1>
+          <h1>${escapeHtml(os.numero)} ${os.ativo ? `<span class="badge badge-${os.status}">${STATUS_LABELS[os.status] || os.status}</span>` : '<span class="badge badge-desativada">Desativada</span>'} ${os.ativo ? prioridadeBadge(os.prioridade) : ''}</h1>
           <p class="subtitle">
             Cliente: <a class="link-btn" href="/clientes/${os.cliente_id}">${escapeHtml(os.cliente_nome)}</a>
             &nbsp;·&nbsp;
@@ -467,6 +517,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
       <div class="stat-grid">
         <div class="stat-card"><div class="num">${formatMoney(totalValor(os))}</div><div class="label">Valor total (produtos + mão de obra)</div></div>
         <div class="stat-card"><div class="num">${formatDate(os.data_entrada).split(' ')[0]}</div><div class="label">Data de entrada</div></div>
+        <div class="stat-card"><div class="num">${os.previsao_entrega ? formatDateOnly(os.previsao_entrega) : '-'}</div><div class="label">Previsão de entrega</div></div>
         <div class="stat-card"><div class="num">${os.data_conclusao ? formatDate(os.data_conclusao).split(' ')[0] : '-'}</div><div class="label">Data de conclusão</div></div>
       </div>
 
@@ -487,6 +538,12 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
       <div class="card">
         <h2>Problema relatado pelo cliente</h2>
         <p>${os.problema_relatado ? escapeHtml(os.problema_relatado).replace(/\n/g, '<br>') : '<span class="muted">Nenhum problema relatado registrado.</span>'}</p>
+        ${
+          os.acessorios
+            ? `<h2 style="margin-top:20px;">Acessórios entregues</h2>
+        <p>${escapeHtml(os.acessorios).replace(/\n/g, '<br>')}</p>`
+            : ''
+        }
       </div>
 
       <div class="card">
@@ -528,6 +585,15 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
         </form>
         <p class="muted" style="margin-top:8px;">Arquivos até 20MB cada. No plano gratuito de hospedagem, esses arquivos podem ser apagados quando o servidor "dormir" por inatividade.</p>
       </div>
+
+      ${
+        os.termos_garantia
+          ? `<div class="card">
+        <h2>Termos de garantia</h2>
+        <p>${escapeHtml(os.termos_garantia).replace(/\n/g, '<br>')}</p>
+      </div>`
+          : ''
+      }
 
       ${
         os.ativo

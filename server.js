@@ -192,6 +192,8 @@ function parseChecklistFromBody(body) {
   return checklist;
 }
 
+const PRIORIDADES_OS = ['baixa', 'normal', 'alta', 'urgente'];
+
 function toIntOrNull(v) {
   if (v === undefined || v === null || v === '') return null;
   const n = parseInt(v, 10);
@@ -1708,15 +1710,18 @@ async function handler(req, res) {
       const valorMaoObra = toFloatOrNull(body.valor_mao_obra);
       const formaPagamento = body.forma_pagamento || null;
       const parcelas = formaPagamento === 'credito' ? toIntOrNull(body.parcelas) : null;
+      const prioridade = PRIORIDADES_OS.includes(body.prioridade) ? body.prioridade : 'normal';
+      const previsaoEntrega = body.previsao_entrega || null;
       const info = db
         .prepare(
-          `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, valor_estimado, forma_pagamento, parcelas)
-           VALUES (?, ?, ?, 'orcamento', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, valor_estimado, forma_pagamento, parcelas, prioridade, previsao_entrega, acessorios, termos_garantia)
+           VALUES (?, ?, ?, 'orcamento', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           numero, body.cliente_id, body.bicicleta_id, JSON.stringify(checklist),
           body.problema_relatado || '', body.diagnostico || '', body.servicos_realizados || '',
-          valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas
+          valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas,
+          prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || ''
         );
       setFlash(session.sessionId, 'success', `Ordem de Serviço ${numero} criada com sucesso.`);
       return redirect(res, `/os/${info.lastInsertRowid}`);
@@ -1928,12 +1933,15 @@ async function handler(req, res) {
       const valorMaoObra = toFloatOrNull(body.valor_mao_obra);
       const formaPagamento = body.forma_pagamento || null;
       const parcelas = formaPagamento === 'credito' ? toIntOrNull(body.parcelas) : null;
+      const prioridade = PRIORIDADES_OS.includes(body.prioridade) ? body.prioridade : os.prioridade || 'normal';
+      const previsaoEntrega = body.previsao_entrega || null;
       db.prepare(
-        `UPDATE ordens_servico SET cliente_id=?, bicicleta_id=?, status=?, checklist_json=?, problema_relatado=?, diagnostico=?, servicos_realizados=?, valor_pecas=?, valor_mao_obra=?, valor_estimado=?, forma_pagamento=?, parcelas=?, data_conclusao=?, updated_at=datetime('now') WHERE id=?`
+        `UPDATE ordens_servico SET cliente_id=?, bicicleta_id=?, status=?, checklist_json=?, problema_relatado=?, diagnostico=?, servicos_realizados=?, valor_pecas=?, valor_mao_obra=?, valor_estimado=?, forma_pagamento=?, parcelas=?, data_conclusao=?, prioridade=?, previsao_entrega=?, acessorios=?, termos_garantia=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.cliente_id || os.cliente_id, body.bicicleta_id || os.bicicleta_id, status, JSON.stringify(checklist),
         body.problema_relatado || '', body.diagnostico || '', body.servicos_realizados || '',
-        valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas, dataConclusao, m.id
+        valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas, dataConclusao,
+        prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || '', m.id
       );
       setFlash(session.sessionId, 'success', 'Ordem de Serviço atualizada.');
       return redirect(res, `/os/${m.id}`);
