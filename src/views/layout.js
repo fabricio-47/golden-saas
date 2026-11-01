@@ -269,6 +269,7 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'servicos', href: '/servicos', label: 'Serviços', modulo: 'os' },
       ].filter((item) => podeVer(item.modulo)),
     },
+    { type: 'link', key: 'orcamentos', href: '/orcamentos', label: 'Orçamentos', modulo: 'vendas' },
     { type: 'link', key: 'vendas', href: '/vendas', label: 'Vendas', modulo: 'vendas' },
     {
       type: 'group',

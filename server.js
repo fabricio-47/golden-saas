@@ -66,6 +66,7 @@ const { transferenciasListPage, transferenciaFormPage } = require('./src/views/t
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { financeiroResumoPage } = require('./src/views/financeiro');
+const { orcamentosListPage, orcamentoFormPage, orcamentoShowPage } = require('./src/views/orcamentos');
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
@@ -309,6 +310,18 @@ function gerarContasReceberDaVenda(venda, user) {
   });
 }
 
+function nextOrcamentoNumber() {
+  const row = db.prepare('SELECT COUNT(*) as c FROM orcamentos').get();
+  return 'ORC-' + String(row.c + 1).padStart(4, '0');
+}
+
+function recomputeOrcamentoTotal(orcamentoId) {
+  const total = db
+    .prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as t FROM orcamento_itens WHERE orcamento_id = ?')
+    .get(orcamentoId).t;
+  db.prepare("UPDATE orcamentos SET valor_total = ?, updated_at = datetime('now') WHERE id = ?").run(total, orcamentoId);
+}
+
 function nextVendaNumber() {
   const row = db.prepare('SELECT COUNT(*) as c FROM vendas').get();
   const n = row.c + 1;
@@ -419,6 +432,7 @@ async function handler(req, res) {
       ['/bicicletas', 'bicicletas'],
       ['/os', 'os'],
       ['/servicos', 'os'],
+      ['/orcamentos', 'vendas'],
       ['/vendas', 'vendas'],
       ['/transferencias', 'estoque'],
       ['/estoque', 'estoque'],
@@ -1201,6 +1215,166 @@ async function handler(req, res) {
       );
       setFlash(session.sessionId, 'success', 'Funcionário atualizado.');
       return redirect(res, '/funcionarios');
+    }
+
+    // ---------------- ORÇAMENTOS ----------------
+    if (pathname === '/orcamentos' && method === 'GET') {
+      const statusFilter = url.searchParams.get('status') || '';
+      let q = `SELECT o.*, c.nome as cliente_nome, b.marca, b.modelo
+               FROM orcamentos o JOIN clientes c ON c.id = o.cliente_id
+               LEFT JOIN bicicletas b ON b.id = o.bicicleta_id`;
+      const params = [];
+      if (statusFilter) { q += ' WHERE o.status = ?'; params.push(statusFilter); }
+      q += ' ORDER BY o.created_at DESC';
+      const orcamentos = db.prepare(q).all(...params);
+      return send(res, 200, orcamentosListPage({ user, flash: takeFlash(session.sessionId), orcamentos, statusFilter }));
+    }
+
+    if (pathname === '/orcamentos/novo' && method === 'GET') {
+      const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
+      if (!clientes.length) {
+        setFlash(session.sessionId, 'error', 'Cadastre um cliente antes de criar um orçamento.');
+        return redirect(res, '/clientes');
+      }
+      const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
+      return send(res, 200, orcamentoFormPage({ user, flash: takeFlash(session.sessionId), clientes, bicicletas, csrfToken: session.csrfToken, defaultClienteId: url.searchParams.get('cliente_id') }));
+    }
+
+    if (pathname === '/orcamentos' && method === 'POST') {
+      if (!body.cliente_id) {
+        const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
+        const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
+        return send(res, 400, orcamentoFormPage({ user, flash: { type: 'error', message: 'Selecione o cliente.' }, clientes, bicicletas, csrfToken: session.csrfToken }));
+      }
+      const numero = nextOrcamentoNumber();
+      const bicicletaId = body.bicicleta_id ? toIntOrNull(body.bicicleta_id) : null;
+      const info = db
+        .prepare('INSERT INTO orcamentos (numero, cliente_id, bicicleta_id, validade, observacoes) VALUES (?, ?, ?, ?, ?)')
+        .run(numero, body.cliente_id, bicicletaId, body.validade || null, body.observacoes || '');
+      setFlash(session.sessionId, 'success', `Orçamento ${numero} criado. Adicione os itens abaixo.`);
+      return redirect(res, `/orcamentos/${info.lastInsertRowid}`);
+    }
+
+    if ((m = matchRoute('/orcamentos/:id/itens/:itemId/excluir', pathname)) && method === 'POST') {
+      const o = db.prepare('SELECT status FROM orcamentos WHERE id = ?').get(m.id);
+      if (o && o.status === 'aberto') {
+        db.prepare('DELETE FROM orcamento_itens WHERE id = ? AND orcamento_id = ?').run(m.itemId, m.id);
+        recomputeOrcamentoTotal(m.id);
+        setFlash(session.sessionId, 'success', 'Item removido.');
+      }
+      return redirect(res, `/orcamentos/${m.id}`);
+    }
+
+    if ((m = matchRoute('/orcamentos/:id/itens', pathname)) && method === 'POST') {
+      const o = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(m.id);
+      if (!o) return notFound(res);
+      if (o.status !== 'aberto') {
+        setFlash(session.sessionId, 'error', 'Só é possível editar itens de um orçamento aberto.');
+        return redirect(res, `/orcamentos/${m.id}`);
+      }
+      const nome = (body.nome || '').trim();
+      const preco = toFloatOrNull(body.preco_unitario);
+      const qtd = toIntOrNull(body.quantidade) || 1;
+      const tipo = body.tipo === 'produto' ? 'produto' : 'servico';
+      if (!nome) {
+        setFlash(session.sessionId, 'error', 'Informe a descrição do item.');
+        return redirect(res, `/orcamentos/${m.id}`);
+      }
+      if (preco === null || preco < 0 || qtd < 1) {
+        setFlash(session.sessionId, 'error', 'Quantidade ou valor inválido.');
+        return redirect(res, `/orcamentos/${m.id}`);
+      }
+      db.prepare('INSERT INTO orcamento_itens (orcamento_id, tipo, nome, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)').run(m.id, tipo, nome, qtd, preco);
+      recomputeOrcamentoTotal(m.id);
+      setFlash(session.sessionId, 'success', 'Item adicionado ao orçamento.');
+      return redirect(res, `/orcamentos/${m.id}`);
+    }
+
+    if ((m = matchRoute('/orcamentos/:id/aprovar', pathname)) && method === 'POST') {
+      const o = db.prepare('SELECT status FROM orcamentos WHERE id = ?').get(m.id);
+      if (!o) return notFound(res);
+      if (o.status === 'aberto') {
+        db.prepare("UPDATE orcamentos SET status='aprovado', updated_at=datetime('now') WHERE id=?").run(m.id);
+        setFlash(session.sessionId, 'success', 'Orçamento aprovado. Agora você pode convertê-lo em O.S.');
+      }
+      return redirect(res, `/orcamentos/${m.id}`);
+    }
+
+    if ((m = matchRoute('/orcamentos/:id/recusar', pathname)) && method === 'POST') {
+      const o = db.prepare('SELECT status FROM orcamentos WHERE id = ?').get(m.id);
+      if (!o) return notFound(res);
+      if (o.status === 'aberto') {
+        db.prepare("UPDATE orcamentos SET status='recusado', updated_at=datetime('now') WHERE id=?").run(m.id);
+        setFlash(session.sessionId, 'success', 'Orçamento marcado como recusado.');
+      }
+      return redirect(res, `/orcamentos/${m.id}`);
+    }
+
+    if ((m = matchRoute('/orcamentos/:id/reabrir', pathname)) && method === 'POST') {
+      const o = db.prepare('SELECT status FROM orcamentos WHERE id = ?').get(m.id);
+      if (!o) return notFound(res);
+      if (o.status === 'recusado') {
+        db.prepare("UPDATE orcamentos SET status='aberto', updated_at=datetime('now') WHERE id=?").run(m.id);
+        setFlash(session.sessionId, 'success', 'Orçamento reaberto.');
+      }
+      return redirect(res, `/orcamentos/${m.id}`);
+    }
+
+    if ((m = matchRoute('/orcamentos/:id/converter', pathname)) && method === 'POST') {
+      const o = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(m.id);
+      if (!o) return notFound(res);
+      if (o.status !== 'aprovado') {
+        setFlash(session.sessionId, 'error', 'Só é possível converter um orçamento aprovado.');
+        return redirect(res, `/orcamentos/${m.id}`);
+      }
+      if (o.convertido_os_id) {
+        setFlash(session.sessionId, 'error', 'Este orçamento já foi convertido em O.S.');
+        return redirect(res, `/orcamentos/${m.id}`);
+      }
+      if (!o.bicicleta_id) {
+        setFlash(session.sessionId, 'error', 'Defina um veículo no orçamento antes de converter em O.S. (a O.S. exige um veículo).');
+        return redirect(res, `/orcamentos/${m.id}`);
+      }
+      const itens = db.prepare('SELECT * FROM orcamento_itens WHERE orcamento_id = ?').all(m.id);
+      const servicos = itens.filter((i) => i.tipo === 'servico');
+      const produtos = itens.filter((i) => i.tipo === 'produto');
+      const valorPecas = produtos.reduce((s, i) => s + i.quantidade * i.preco_unitario, 0);
+      // resumo dos produtos pro diagnóstico, já que a conversão NÃO mexe no estoque
+      const resumoProd = produtos.length
+        ? `Produtos previstos (orçamento ${o.numero}) — retire do estoque ao usar:\n` +
+          produtos.map((p) => `- ${p.nome} x${p.quantidade} = ${(p.quantidade * p.preco_unitario).toFixed(2)}`).join('\n')
+        : '';
+      const diagnostico = [o.observacoes || '', resumoProd].filter(Boolean).join('\n\n');
+      const numero = nextOSNumber();
+      const info = db
+        .prepare(
+          `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, valor_estimado)
+           VALUES (?, ?, ?, 'orcamento', ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(numero, o.cliente_id, o.bicicleta_id, JSON.stringify([]), '', diagnostico, '', valorPecas, 0, valorPecas);
+      const osId = info.lastInsertRowid;
+      const insS = db.prepare('INSERT INTO os_servicos (ordem_servico_id, tipo_servico_id, nome_servico, valor) VALUES (?, ?, ?, ?)');
+      for (const s of servicos) insS.run(osId, s.tipo_servico_id || null, s.nome, s.quantidade * s.preco_unitario);
+      recomputeValorMaoObra(osId);
+      db.prepare("UPDATE orcamentos SET status='convertido', convertido_os_id=?, updated_at=datetime('now') WHERE id=?").run(osId, m.id);
+      setFlash(session.sessionId, 'success', `Orçamento ${o.numero} convertido na Ordem de Serviço ${numero}.`);
+      return redirect(res, `/os/${osId}`);
+    }
+
+    if ((m = matchRoute('/orcamentos/:id', pathname)) && method === 'GET') {
+      const orcamento = db
+        .prepare(
+          `SELECT o.*, c.nome as cliente_nome, b.marca, b.modelo FROM orcamentos o
+           JOIN clientes c ON c.id = o.cliente_id LEFT JOIN bicicletas b ON b.id = o.bicicleta_id WHERE o.id = ?`
+        )
+        .get(m.id);
+      if (!orcamento) return notFound(res);
+      const itens = db.prepare('SELECT * FROM orcamento_itens WHERE orcamento_id = ? ORDER BY created_at ASC').all(m.id);
+      const pecasDisponiveis = canSeeAllLojas(user)
+        ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+      const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, orcamentoShowPage({ user, flash: takeFlash(session.sessionId), orcamento, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken }));
     }
 
     // ---------------- TIPOS DE SERVIÇO ----------------

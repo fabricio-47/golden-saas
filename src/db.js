@@ -294,6 +294,32 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS orcamentos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero TEXT NOT NULL UNIQUE,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    bicicleta_id INTEGER REFERENCES bicicletas(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'aberto',
+    validade TEXT,
+    observacoes TEXT,
+    valor_total REAL NOT NULL DEFAULT 0,
+    convertido_os_id INTEGER REFERENCES ordens_servico(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS orcamento_itens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL DEFAULT 'servico',
+    peca_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    tipo_servico_id INTEGER REFERENCES tipos_servico(id) ON DELETE SET NULL,
+    nome TEXT NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 1,
+    preco_unitario REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS tipos_servico (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
@@ -336,6 +362,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_os_pecas_peca ON os_pecas(peca_id);
   CREATE INDEX IF NOT EXISTS idx_os_servicos_os ON os_servicos(ordem_servico_id);
   CREATE INDEX IF NOT EXISTS idx_os_servicos_tipo ON os_servicos(tipo_servico_id);
+  CREATE INDEX IF NOT EXISTS idx_orcamentos_cliente ON orcamentos(cliente_id);
+  CREATE INDEX IF NOT EXISTS idx_orcamentos_status ON orcamentos(status);
+  CREATE INDEX IF NOT EXISTS idx_orcamento_itens_orc ON orcamento_itens(orcamento_id);
   CREATE INDEX IF NOT EXISTS idx_login_audit_created ON login_audit(created_at);
   CREATE INDEX IF NOT EXISTS idx_pecas_loja ON pecas(loja_id);
   CREATE INDEX IF NOT EXISTS idx_peca_cores_peca ON peca_cores(peca_id);
