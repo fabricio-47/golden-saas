@@ -67,6 +67,7 @@ const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornec
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { financeiroResumoPage } = require('./src/views/financeiro');
 const { orcamentosListPage, orcamentoFormPage, orcamentoShowPage } = require('./src/views/orcamentos');
+const { relatoriosPage } = require('./src/views/relatorios');
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
@@ -320,6 +321,67 @@ function recomputeOrcamentoTotal(orcamentoId) {
     .prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as t FROM orcamento_itens WHERE orcamento_id = ?')
     .get(orcamentoId).t;
   db.prepare("UPDATE orcamentos SET valor_total = ?, updated_at = datetime('now') WHERE id = ?").run(total, orcamentoId);
+}
+
+// Período de um relatório: usa os parâmetros de/ate ou, por padrão, do 1º dia
+// do mês corrente até hoje (horário de São Paulo).
+function relatorioPeriodo(url) {
+  const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const de = url.searchParams.get('de') || hoje.slice(0, 8) + '01';
+  const ate = url.searchParams.get('ate') || hoje;
+  return { de, ate };
+}
+
+// Busca os dados dos relatórios no período, respeitando a visibilidade de loja.
+function queryRelatorios(user, de, ate) {
+  const osRows = db
+    .prepare(
+      `SELECT os.*, c.nome as cliente_nome, b.marca, b.modelo, f.nome as tecnico_nome
+       FROM ordens_servico os
+       JOIN clientes c ON c.id = os.cliente_id
+       JOIN bicicletas b ON b.id = os.bicicleta_id
+       LEFT JOIN funcionarios f ON f.id = os.tecnico_id
+       WHERE os.ativo = 1 AND date(os.data_entrada) BETWEEN ? AND ?
+       ORDER BY os.data_entrada ASC, os.id ASC`
+    )
+    .all(de, ate)
+    .map((o) => ({ ...o, valor: (Number(o.valor_pecas) || 0) + (Number(o.valor_mao_obra) || 0) }));
+  const vendas = db
+    .prepare(
+      `SELECT v.*, c.nome as cliente_nome FROM vendas v JOIN clientes c ON c.id = v.cliente_id
+       WHERE date(v.created_at) BETWEEN ? AND ? ORDER BY v.created_at ASC, v.id ASC`
+    )
+    .all(de, ate)
+    .filter((v) => canSeeLoja(user, v.loja_id));
+  const receb = db
+    .prepare(
+      `SELECT cr.*, c.nome as cliente_nome FROM contas_receber cr LEFT JOIN clientes c ON c.id = cr.cliente_id
+       WHERE cr.status = 'recebido' AND cr.recebido_em IS NOT NULL AND date(cr.recebido_em) BETWEEN ? AND ?
+       ORDER BY cr.recebido_em ASC`
+    )
+    .all(de, ate)
+    .filter((r) => canSeeLoja(user, r.loja_id));
+  const pagam = db
+    .prepare(
+      `SELECT cp.*, f.nome as fornecedor_nome FROM contas_pagar cp LEFT JOIN fornecedores f ON f.id = cp.fornecedor_id
+       WHERE cp.status = 'pago' AND cp.pago_em IS NOT NULL AND date(cp.pago_em) BETWEEN ? AND ?
+       ORDER BY cp.pago_em ASC`
+    )
+    .all(de, ate)
+    .filter((p) => canSeeLoja(user, p.loja_id));
+  return { osRows, vendas, receb, pagam };
+}
+
+// Monta e envia um CSV (delimitador ';' e BOM, pra abrir com acento no Excel pt-BR).
+function sendCsv(res, filename, headers, rows) {
+  const esc = (v) => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
+  const linhas = [headers.map(esc).join(';'), ...rows.map((r) => r.map(esc).join(';'))];
+  const body = '﻿' + linhas.join('\r\n');
+  res.writeHead(200, {
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+  });
+  res.end(body);
 }
 
 function nextVendaNumber() {
@@ -1375,6 +1437,75 @@ async function handler(req, res) {
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       return send(res, 200, orcamentoShowPage({ user, flash: takeFlash(session.sessionId), orcamento, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken }));
+    }
+
+    // ---------------- RELATÓRIOS ----------------
+    if (pathname === '/relatorios' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const { de, ate } = relatorioPeriodo(url);
+      const { osRows, vendas, receb, pagam } = queryRelatorios(user, de, ate);
+      const osTotal = osRows.reduce((s, o) => s + o.valor, 0);
+      const vendasTotal = vendas.reduce((s, v) => s + (Number(v.valor_total) || 0), 0);
+      const recebido = receb.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+      const pago = pagam.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+      return send(res, 200, relatoriosPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        de,
+        ate,
+        osList: osRows,
+        osTotal,
+        vendasList: vendas,
+        vendasTotal,
+        recebido,
+        pago,
+        resultado: recebido - pago,
+      }));
+    }
+
+    if (pathname === '/relatorios/export' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const { de, ate } = relatorioPeriodo(url);
+      const tipo = url.searchParams.get('tipo');
+      const money = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
+      const dataBR = (s) => (s ? String(s).slice(0, 10).split('-').reverse().join('/') : '');
+      const { osRows, vendas, receb, pagam } = queryRelatorios(user, de, ate);
+      if (tipo === 'os') {
+        return sendCsv(
+          res,
+          `os_${de}_a_${ate}.csv`,
+          ['Número', 'Entrada', 'Cliente', 'Veículo', 'Técnico', 'Status', 'Produtos (R$)', 'Mão de obra (R$)', 'Valor total (R$)'],
+          osRows.map((o) => [
+            o.numero, dataBR(o.data_entrada), o.cliente_nome, `${o.marca || ''} ${o.modelo || ''}`.trim(),
+            o.tecnico_nome || '', STATUS_LABELS[o.status] || o.status, money(o.valor_pecas), money(o.valor_mao_obra), money(o.valor),
+          ])
+        );
+      }
+      if (tipo === 'vendas') {
+        return sendCsv(
+          res,
+          `vendas_${de}_a_${ate}.csv`,
+          ['Número', 'Data', 'Cliente', 'Status', 'Forma de pagamento', 'Valor total (R$)'],
+          vendas.map((v) => [v.numero, dataBR(v.created_at), v.cliente_nome, v.status, v.forma_pagamento || '', money(v.valor_total)])
+        );
+      }
+      if (tipo === 'recebimentos') {
+        return sendCsv(
+          res,
+          `recebimentos_${de}_a_${ate}.csv`,
+          ['Recebido em', 'Descrição', 'Cliente', 'Valor (R$)'],
+          receb.map((r) => [dataBR(r.recebido_em), r.descricao, r.cliente_nome || '', money(r.valor)])
+        );
+      }
+      if (tipo === 'pagamentos') {
+        return sendCsv(
+          res,
+          `pagamentos_${de}_a_${ate}.csv`,
+          ['Pago em', 'Descrição', 'Fornecedor', 'Valor (R$)'],
+          pagam.map((p) => [dataBR(p.pago_em), p.descricao, p.fornecedor_nome || '', money(p.valor)])
+        );
+      }
+      return redirect(res, '/relatorios');
     }
 
     // ---------------- TIPOS DE SERVIÇO ----------------

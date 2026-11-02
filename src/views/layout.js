@@ -304,6 +304,7 @@ function layout({ title, activeNav, user, flash, children }) {
     .filter((entry) => (entry.type === 'link' ? podeVer(entry.modulo) : entry.items.length > 0));
 
   if (canManage) {
+    navEntries.push({ type: 'link', key: 'relatorios', href: '/relatorios', label: 'Relatórios' });
     navEntries.push({
       type: 'group',
       key: 'config-group',
