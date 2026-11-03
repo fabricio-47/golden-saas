@@ -2,6 +2,7 @@
 
 const { layout } = require('./layout');
 const { escapeHtml, formatDate, formatDateOnly, formatMoney } = require('../utils');
+const { LOGO_DATA_URI } = require('../assets/logo');
 
 const STATUS_LABELS = {
   orcamento: 'Orçamento',
@@ -824,13 +825,12 @@ function ordemImprimirPage({ os, osPecas, osServicos }) {
   .sheet { background: #fff; max-width: 780px; margin: 16px auto; padding: 28px 32px; }
   .toolbar { max-width: 780px; margin: 10px auto 0; text-align: right; }
   .toolbar button { background: #111; color: #fff; border: none; padding: 9px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #b8922f; padding-bottom: 12px; }
-  .brand { font-size: 26px; font-weight: 800; letter-spacing: .5px; }
-  .brand span { color: #b8922f; }
-  .brand .sub { font-size: 12px; font-weight: 400; color: #555; letter-spacing: 2px; text-transform: uppercase; }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 16px; background: #000; color: #fff; border-radius: 8px; padding: 14px 20px; }
+  .head img { height: 60px; width: auto; display: block; }
   .doc { text-align: right; }
-  .doc .num { font-size: 20px; font-weight: 700; }
-  .doc .meta { font-size: 12px; color: #555; }
+  .doc .num { font-size: 19px; font-weight: 700; color: #fff; }
+  .doc .meta { font-size: 11.5px; color: #cfc9bb; }
+  .head-rule { height: 3px; background: #b8922f; border-radius: 2px; margin: 0 0 4px; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #b8922f; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin: 18px 0 8px; }
   .cols { display: flex; gap: 24px; }
   .cols > div { flex: 1; }
@@ -860,15 +860,15 @@ function ordemImprimirPage({ os, osPecas, osServicos }) {
   <div class="toolbar"><button onclick="window.print()">🖨 Imprimir / Salvar PDF</button></div>
   <div class="sheet">
     <div class="head">
-      <div class="brand">GOLDEN<span>MOTORS</span><div class="sub">Scooter &amp; Moto Elétrica</div></div>
+      <img src="${LOGO_DATA_URI}" alt="Golden Motors">
       <div class="doc">
-        <div class="num">Ordem de Serviço</div>
-        <div class="num">${escapeHtml(os.numero)}</div>
+        <div class="num">Ordem de Serviço ${escapeHtml(os.numero)}</div>
         <div class="meta">Entrada: ${formatDate(os.data_entrada)}</div>
         ${os.previsao_entrega ? `<div class="meta">Previsão de entrega: ${formatDateOnly(os.previsao_entrega)}</div>` : ''}
         <div class="meta">Status: ${STATUS_LABELS[os.status] || os.status} · Prioridade: ${PRIORIDADE_LABELS[os.prioridade] || 'Normal'}</div>
       </div>
     </div>
+    <div class="head-rule"></div>
 
     <div class="cols">
       <div>
