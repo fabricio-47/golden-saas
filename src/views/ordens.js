@@ -512,6 +512,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
           </p>
         </div>
         <div class="actions-row" style="margin-top:0;">
+          <a class="btn btn-secondary" href="/os/${os.id}/imprimir" target="_blank" rel="noopener">🖨 Imprimir</a>
           <form method="POST" action="/os/${os.id}/enviar-email" onsubmit="return confirm('Enviar um resumo desta O.S. por e-mail para o cliente?');">
             <input type="hidden" name="csrf" value="${csrfToken}">
             <button class="btn btn-secondary" type="submit">✉ Enviar por e-mail</button>
@@ -776,11 +777,165 @@ function ordemPainelPage({ user, flash, abertas, fatur, faturTecnico, hoje, aman
   });
 }
 
+const TIPO_VEICULO_LABEL = { bicicleta: 'Scooter elétrica', moto: 'Moto elétrica' };
+
+// Folha A4 limpa da O.S., pronta pra imprimir ou salvar em PDF. Documento HTML
+// próprio (sem o menu lateral do sistema).
+function ordemImprimirPage({ os, osPecas, osServicos }) {
+  const checklist = os.checklist_json ? JSON.parse(os.checklist_json) : [];
+  const linha = (label, valor) =>
+    valor ? `<div class="row"><span class="lbl">${label}</span><span class="val">${escapeHtml(String(valor))}</span></div>` : '';
+
+  const servicosRows = (osServicos || [])
+    .map((s) => `<tr><td>${escapeHtml(s.nome_servico)}</td><td class="r">${formatMoney(s.valor)}</td></tr>`)
+    .join('');
+  const pecasRows = (osPecas || [])
+    .map(
+      (p) =>
+        `<tr><td>${escapeHtml(p.nome_peca)}</td><td class="c">${p.quantidade}</td><td class="r">${formatMoney(p.preco_unitario)}</td><td class="r">${formatMoney(p.quantidade * p.preco_unitario)}</td></tr>`
+    )
+    .join('');
+
+  const checklistRows = checklist
+    .map(
+      (c) =>
+        `<tr><td>${escapeHtml(c.item)}</td><td>${c.status === 'ok' ? 'OK' : 'Atenção'}</td><td>${escapeHtml(c.observacao || '-')}</td></tr>`
+    )
+    .join('');
+
+  const seriais = [
+    os.motor_serial ? `Motor: ${os.motor_serial}` : '',
+    os.controladora_serial ? `Controladora: ${os.controladora_serial}` : '',
+    os.bateria_serial ? `Bateria: ${os.bateria_serial}` : '',
+    os.chassi_numero ? `Chassi: ${os.chassi_numero}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(os.numero)} - Golden Motors</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 0; background: #f2f2f2; font-size: 13px; }
+  .sheet { background: #fff; max-width: 780px; margin: 16px auto; padding: 28px 32px; }
+  .toolbar { max-width: 780px; margin: 10px auto 0; text-align: right; }
+  .toolbar button { background: #111; color: #fff; border: none; padding: 9px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #b8922f; padding-bottom: 12px; }
+  .brand { font-size: 26px; font-weight: 800; letter-spacing: .5px; }
+  .brand span { color: #b8922f; }
+  .brand .sub { font-size: 12px; font-weight: 400; color: #555; letter-spacing: 2px; text-transform: uppercase; }
+  .doc { text-align: right; }
+  .doc .num { font-size: 20px; font-weight: 700; }
+  .doc .meta { font-size: 12px; color: #555; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #b8922f; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin: 18px 0 8px; }
+  .cols { display: flex; gap: 24px; }
+  .cols > div { flex: 1; }
+  .row { display: flex; gap: 8px; padding: 2px 0; }
+  .row .lbl { color: #666; min-width: 92px; }
+  .row .val { font-weight: 600; }
+  .box { white-space: pre-wrap; border: 1px solid #e3e3e3; border-radius: 4px; padding: 8px 10px; min-height: 20px; background: #fafafa; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e3e3e3; font-size: 12.5px; }
+  th { background: #f6f3ea; color: #555; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+  td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
+  .totais { margin-top: 10px; margin-left: auto; width: 280px; }
+  .totais .row { justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0; }
+  .totais .tot { font-weight: 800; font-size: 15px; border-bottom: none; border-top: 2px solid #111; padding-top: 6px; }
+  .assinaturas { display: flex; gap: 40px; margin-top: 48px; }
+  .assinaturas > div { flex: 1; border-top: 1px solid #111; padding-top: 6px; text-align: center; font-size: 12px; color: #555; }
+  .foot { margin-top: 24px; font-size: 11px; color: #888; text-align: center; }
+  @media print {
+    body { background: #fff; }
+    .toolbar { display: none; }
+    .sheet { margin: 0; max-width: none; padding: 0 6mm; }
+    @page { size: A4; margin: 12mm; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar"><button onclick="window.print()">🖨 Imprimir / Salvar PDF</button></div>
+  <div class="sheet">
+    <div class="head">
+      <div class="brand">GOLDEN<span>MOTORS</span><div class="sub">Scooter &amp; Moto Elétrica</div></div>
+      <div class="doc">
+        <div class="num">Ordem de Serviço</div>
+        <div class="num">${escapeHtml(os.numero)}</div>
+        <div class="meta">Entrada: ${formatDate(os.data_entrada)}</div>
+        ${os.previsao_entrega ? `<div class="meta">Previsão de entrega: ${formatDateOnly(os.previsao_entrega)}</div>` : ''}
+        <div class="meta">Status: ${STATUS_LABELS[os.status] || os.status} · Prioridade: ${PRIORIDADE_LABELS[os.prioridade] || 'Normal'}</div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h2>Cliente</h2>
+        ${linha('Nome', os.cliente_nome)}
+        ${linha('Telefone', os.cliente_telefone)}
+        ${linha('E-mail', os.cliente_email)}
+      </div>
+      <div>
+        <h2>Veículo</h2>
+        ${linha('Tipo', TIPO_VEICULO_LABEL[os.tipo_veiculo] || os.tipo_veiculo)}
+        ${linha('Marca/Mod.', `${os.marca || ''} ${os.modelo || ''}`.trim())}
+        ${linha('Cor', os.cor)}
+        ${linha('Técnico', os.tecnico_nome)}
+      </div>
+    </div>
+    ${seriais ? `<div class="row" style="margin-top:6px;"><span class="lbl">Seriais</span><span class="val" style="font-weight:400;">${escapeHtml(seriais)}</span></div>` : ''}
+
+    ${os.problema_relatado ? `<h2>Problema relatado</h2><div class="box">${escapeHtml(os.problema_relatado)}</div>` : ''}
+    ${os.acessorios ? `<h2>Acessórios entregues</h2><div class="box">${escapeHtml(os.acessorios)}</div>` : ''}
+    ${os.diagnostico ? `<h2>Diagnóstico técnico</h2><div class="box">${escapeHtml(os.diagnostico)}</div>` : ''}
+
+    ${
+      checklist.length
+        ? `<h2>Checklist de entrada</h2><table><thead><tr><th>Item</th><th>Status</th><th>Observação</th></tr></thead><tbody>${checklistRows}</tbody></table>`
+        : ''
+    }
+
+    ${
+      (osServicos || []).length
+        ? `<h2>Serviços</h2><table><thead><tr><th>Serviço</th><th class="r">Valor</th></tr></thead><tbody>${servicosRows}</tbody></table>`
+        : ''
+    }
+
+    ${
+      (osPecas || []).length
+        ? `<h2>Produtos / Peças</h2><table><thead><tr><th>Produto</th><th class="c">Qtd.</th><th class="r">Unit.</th><th class="r">Subtotal</th></tr></thead><tbody>${pecasRows}</tbody></table>`
+        : ''
+    }
+
+    <div class="totais">
+      <div class="row"><span>Produtos</span><span>${formatMoney(os.valor_pecas)}</span></div>
+      <div class="row"><span>Mão de obra</span><span>${formatMoney(os.valor_mao_obra)}</span></div>
+      <div class="row tot"><span>Total</span><span>${formatMoney(totalValor(os))}</span></div>
+      <div class="row" style="border:none;"><span>Pagamento</span><span>${formaPagamentoLabel(os)}</span></div>
+    </div>
+
+    ${os.termos_garantia ? `<h2>Termos de garantia</h2><div class="box">${escapeHtml(os.termos_garantia)}</div>` : ''}
+
+    <div class="assinaturas">
+      <div>Assinatura do cliente</div>
+      <div>Responsável — Golden Motors</div>
+    </div>
+
+    <div class="foot">Golden Motors — Ordem de Serviço ${escapeHtml(os.numero)} · Emitida em ${formatDate(new Date().toISOString())}</div>
+  </div>
+  <script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 350); });</script>
+</body>
+</html>`;
+}
+
 module.exports = {
   ordensListPage,
   ordemFormPage,
   ordemShowPage,
   ordemPainelPage,
+  ordemImprimirPage,
   CHECKLIST_ITEMS,
   STATUS_LABELS,
   totalValor,

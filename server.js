@@ -53,6 +53,7 @@ const {
   ordemFormPage,
   ordemShowPage,
   ordemPainelPage,
+  ordemImprimirPage,
   STATUS_LABELS,
   totalValor,
   formaPagamentoLabel,
@@ -2421,6 +2422,23 @@ async function handler(req, res) {
       );
       setFlash(session.sessionId, 'success', 'Ordem de Serviço atualizada.');
       return redirect(res, `/os/${m.id}`);
+    }
+
+    if ((m = matchRoute('/os/:id/imprimir', pathname)) && method === 'GET') {
+      const os = db
+        .prepare(
+          `SELECT os.*, c.nome as cliente_nome, c.telefone as cliente_telefone, c.email as cliente_email,
+                  b.marca, b.modelo, b.cor, b.tipo_veiculo, b.motor_serial, b.controladora_serial, b.bateria_serial, b.chassi_numero,
+                  f.nome as tecnico_nome
+           FROM ordens_servico os
+           JOIN clientes c ON c.id = os.cliente_id JOIN bicicletas b ON b.id = os.bicicleta_id
+           LEFT JOIN funcionarios f ON f.id = os.tecnico_id WHERE os.id = ?`
+        )
+        .get(m.id);
+      if (!os) return notFound(res);
+      const osPecas = db.prepare('SELECT * FROM os_pecas WHERE ordem_servico_id = ? ORDER BY created_at ASC').all(m.id);
+      const osServicos = db.prepare('SELECT * FROM os_servicos WHERE ordem_servico_id = ? ORDER BY created_at ASC').all(m.id);
+      return send(res, 200, ordemImprimirPage({ os, osPecas, osServicos }));
     }
 
     if ((m = matchRoute('/os/:id', pathname)) && method === 'GET') {
