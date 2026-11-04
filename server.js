@@ -247,22 +247,24 @@ function recomputeValorPecas(osId) {
   const soma = db
     .prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM os_pecas WHERE ordem_servico_id = ?')
     .get(osId).total;
-  const os = db.prepare('SELECT valor_mao_obra FROM ordens_servico WHERE id = ?').get(osId);
+  const os = db.prepare('SELECT valor_mao_obra, desconto FROM ordens_servico WHERE id = ?').get(osId);
   const valorMaoObra = os ? Number(os.valor_mao_obra) || 0 : 0;
+  const desconto = os ? Number(os.desconto) || 0 : 0;
   db.prepare(
     `UPDATE ordens_servico SET valor_pecas = ?, valor_estimado = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(soma, soma + valorMaoObra, osId);
+  ).run(soma, Math.max(0, soma + valorMaoObra - desconto), osId);
 }
 
 function recomputeValorMaoObra(osId) {
   const soma = db
     .prepare('SELECT COALESCE(SUM(valor), 0) as total FROM os_servicos WHERE ordem_servico_id = ?')
     .get(osId).total;
-  const os = db.prepare('SELECT valor_pecas FROM ordens_servico WHERE id = ?').get(osId);
+  const os = db.prepare('SELECT valor_pecas, desconto FROM ordens_servico WHERE id = ?').get(osId);
   const valorPecas = os ? Number(os.valor_pecas) || 0 : 0;
+  const desconto = os ? Number(os.desconto) || 0 : 0;
   db.prepare(
     `UPDATE ordens_servico SET valor_mao_obra = ?, valor_estimado = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(soma, soma + valorPecas, osId);
+  ).run(soma, Math.max(0, soma + valorPecas - desconto), osId);
 }
 
 function gerarParcelasAReceber({ formaPagamento, parcelas, total, lojaId, clienteId, ordemServicoId, vendaId, origemLabel }) {
@@ -2187,15 +2189,17 @@ async function handler(req, res) {
       const prioridade = PRIORIDADES_OS.includes(body.prioridade) ? body.prioridade : 'normal';
       const previsaoEntrega = body.previsao_entrega || null;
       const tecnicoId = validTecnicoId(body.tecnico_id);
+      const desconto = toFloatOrNull(body.desconto) || 0;
+      const totalEstimado = Math.max(0, (valorPecas || 0) + (valorMaoObra || 0) - desconto);
       const info = db
         .prepare(
-          `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, valor_estimado, forma_pagamento, parcelas, prioridade, previsao_entrega, acessorios, termos_garantia, tecnico_id)
-           VALUES (?, ?, ?, 'orcamento', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO ordens_servico (numero, cliente_id, bicicleta_id, status, checklist_json, problema_relatado, diagnostico, servicos_realizados, valor_pecas, valor_mao_obra, desconto, valor_estimado, forma_pagamento, parcelas, prioridade, previsao_entrega, acessorios, termos_garantia, tecnico_id)
+           VALUES (?, ?, ?, 'orcamento', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           numero, body.cliente_id, body.bicicleta_id, JSON.stringify(checklist),
           body.problema_relatado || '', body.diagnostico || '', body.servicos_realizados || '',
-          valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas,
+          valorPecas, valorMaoObra, desconto, totalEstimado, formaPagamento, parcelas,
           prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || '', tecnicoId
         );
       setFlash(session.sessionId, 'success', `Ordem de Serviço ${numero} criada com sucesso.`);
@@ -2412,12 +2416,14 @@ async function handler(req, res) {
       const prioridade = PRIORIDADES_OS.includes(body.prioridade) ? body.prioridade : os.prioridade || 'normal';
       const previsaoEntrega = body.previsao_entrega || null;
       const tecnicoId = validTecnicoId(body.tecnico_id);
+      const desconto = toFloatOrNull(body.desconto) || 0;
+      const totalEstimado = Math.max(0, (valorPecas || 0) + (valorMaoObra || 0) - desconto);
       db.prepare(
-        `UPDATE ordens_servico SET cliente_id=?, bicicleta_id=?, status=?, checklist_json=?, problema_relatado=?, diagnostico=?, servicos_realizados=?, valor_pecas=?, valor_mao_obra=?, valor_estimado=?, forma_pagamento=?, parcelas=?, data_conclusao=?, prioridade=?, previsao_entrega=?, acessorios=?, termos_garantia=?, tecnico_id=?, updated_at=datetime('now') WHERE id=?`
+        `UPDATE ordens_servico SET cliente_id=?, bicicleta_id=?, status=?, checklist_json=?, problema_relatado=?, diagnostico=?, servicos_realizados=?, valor_pecas=?, valor_mao_obra=?, desconto=?, valor_estimado=?, forma_pagamento=?, parcelas=?, data_conclusao=?, prioridade=?, previsao_entrega=?, acessorios=?, termos_garantia=?, tecnico_id=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.cliente_id || os.cliente_id, body.bicicleta_id || os.bicicleta_id, status, JSON.stringify(checklist),
         body.problema_relatado || '', body.diagnostico || '', body.servicos_realizados || '',
-        valorPecas, valorMaoObra, (valorPecas || 0) + (valorMaoObra || 0), formaPagamento, parcelas, dataConclusao,
+        valorPecas, valorMaoObra, desconto, totalEstimado, formaPagamento, parcelas, dataConclusao,
         prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || '', tecnicoId, m.id
       );
       setFlash(session.sessionId, 'success', 'Ordem de Serviço atualizada.');

@@ -418,6 +418,7 @@ ensureColumn('ordens_servico', 'prioridade', "TEXT NOT NULL DEFAULT 'normal'");
 ensureColumn('ordens_servico', 'termos_garantia', 'TEXT');
 ensureColumn('ordens_servico', 'acessorios', 'TEXT');
 ensureColumn('ordens_servico', 'tecnico_id', 'INTEGER');
+ensureColumn('ordens_servico', 'desconto', 'REAL');
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");

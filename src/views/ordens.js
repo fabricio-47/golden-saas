@@ -42,7 +42,8 @@ const CHECKLIST_ITEMS = [
 function totalValor(os) {
   const pecas = Number(os.valor_pecas) || 0;
   const maoObra = Number(os.valor_mao_obra) || 0;
-  return pecas + maoObra;
+  const desconto = Number(os.desconto) || 0;
+  return Math.max(0, pecas + maoObra - desconto);
 }
 
 const FORMA_PAGAMENTO_LABELS = {
@@ -272,6 +273,11 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
                   ? '<p class="muted" style="margin-top:4px;">Esta O.S. tem serviços vinculados — esse valor é recalculado automaticamente ao adicionar/remover serviços na tela da O.S. Editar aqui só sobrescreve manualmente.</p>'
                   : '<p class="muted" style="margin-top:4px;">Depois de salvar, você pode selecionar os serviços feitos e o valor de cada um na tela da O.S. — esse campo é recalculado automaticamente a partir deles.</p>'
               }
+            </div>
+            <div class="field">
+              <label for="desconto">Desconto (R$)</label>
+              <input type="number" id="desconto" name="desconto" min="0" step="0.01" value="${os && os.desconto ? os.desconto : ''}">
+              <p class="muted" style="margin-top:4px;">Abatido do total (produtos + mão de obra − desconto).</p>
             </div>
             <div class="field">
               <label for="forma_pagamento">Forma de pagamento</label>
@@ -542,6 +548,7 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
         <div class="value-breakdown">
           <div class="item"><div class="muted">Produtos</div><div style="font-size:18px;font-weight:600;">${formatMoney(os.valor_pecas)}</div></div>
           <div class="item"><div class="muted">Mão de obra</div><div style="font-size:18px;font-weight:600;">${formatMoney(os.valor_mao_obra)}</div></div>
+          ${Number(os.desconto) > 0 ? `<div class="item"><div class="muted">Desconto</div><div style="font-size:18px;font-weight:600;color:#a1352a;">− ${formatMoney(os.desconto)}</div></div>` : ''}
           <div class="item"><div class="muted">Total</div><div style="font-size:18px;font-weight:600;color:#1f6b3a;">${formatMoney(totalValor(os))}</div></div>
           <div class="item"><div class="muted">Pagamento</div><div style="font-size:18px;font-weight:600;">${formaPagamentoLabel(os)}</div></div>
         </div>
@@ -912,6 +919,7 @@ function ordemImprimirPage({ os, osPecas, osServicos }) {
     <div class="totais">
       <div class="row"><span>Produtos</span><span>${formatMoney(os.valor_pecas)}</span></div>
       <div class="row"><span>Mão de obra</span><span>${formatMoney(os.valor_mao_obra)}</span></div>
+      ${Number(os.desconto) > 0 ? `<div class="row"><span>Desconto</span><span>− ${formatMoney(os.desconto)}</span></div>` : ''}
       <div class="row tot"><span>Total</span><span>${formatMoney(totalValor(os))}</span></div>
       <div class="row" style="border:none;"><span>Pagamento</span><span>${formaPagamentoLabel(os)}</span></div>
     </div>
