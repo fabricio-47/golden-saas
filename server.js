@@ -83,6 +83,8 @@ const {
 } = require('./src/views/contratos');
 const { backupPage } = require('./src/views/backup');
 const { runAutoBackup, buildFullBackupZip, readState: readBackupState } = require('./src/backup');
+const { configFiscalPage } = require('./src/views/configuracoesFiscais');
+const focus = require('./src/focus');
 
 const PORT = process.env.PORT || 3000;
 
@@ -99,6 +101,75 @@ function takeFlash(sessionId) {
   const f = flashStore.get(sessionId);
   flashStore.delete(sessionId);
   return f || null;
+}
+
+// ---------------- Integração fiscal (NF-e / Focus NFe) ----------------
+function getConfigFiscal() {
+  return (
+    db.prepare('SELECT * FROM config_fiscal WHERE id = 1').get() || {
+      ambiente: 'homologacao',
+      regime_tributario: 1,
+      origem_padrao: 0,
+      unidade_padrao: 'UN',
+    }
+  );
+}
+const { focusCreds, buildNfePayload } = require('./src/nfePayload');
+// Mapeia a resposta da Focus para as colunas nfe_* da venda.
+function applyNfeResponse(vendaId, ambiente, data) {
+  if (!data) return;
+  const status = data.status || null;
+  const chave = data.chave_nfe || null;
+  const numero = data.numero != null ? String(data.numero) : null;
+  const serie = data.serie != null ? String(data.serie) : null;
+  // Guarda o CAMINHO relativo (não a URL completa): o download passa pelo nosso
+  // proxy, que anexa o token da Focus. Link direto no navegador daria 401.
+  const danfe = data.caminho_danfe || null;
+  const xml = data.caminho_xml_nota_fiscal || null;
+  let msg = data.mensagem_sefaz || null;
+  if (!msg && Array.isArray(data.erros)) {
+    msg = data.erros.map((e) => (e && e.mensagem ? e.mensagem : JSON.stringify(e))).join(' | ');
+  }
+  if (!msg && data.mensagem) msg = data.mensagem;
+  db.prepare(
+    `UPDATE vendas SET
+       nfe_status = ?,
+       nfe_chave = COALESCE(?, nfe_chave),
+       nfe_numero = COALESCE(?, nfe_numero),
+       nfe_serie = COALESCE(?, nfe_serie),
+       nfe_danfe_url = COALESCE(?, nfe_danfe_url),
+       nfe_xml_url = COALESCE(?, nfe_xml_url),
+       nfe_mensagem = ?,
+       nfe_ambiente = ?
+     WHERE id = ?`
+  ).run(status, chave, numero, serie, danfe, xml, msg, ambiente, vendaId);
+}
+
+// Baixa o DANFE (PDF) ou o XML da Focus usando o token, e serve ao navegador.
+async function servirArquivoNfe(res, vendaId, tipo, user) {
+  const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(vendaId);
+  if (!venda) return notFound(res);
+  if (!canSeeLoja(user, venda.loja_id)) return forbidden(res);
+  const caminho = tipo === 'xml' ? venda.nfe_xml_url : venda.nfe_danfe_url;
+  if (!caminho) return notFound(res);
+  const config = getConfigFiscal();
+  const ambiente = venda.nfe_ambiente || 'homologacao';
+  const token = ambiente === 'producao' ? config.focus_token_producao : config.focus_token_homologacao;
+  try {
+    const r = await focus.baixarArquivo({ ambiente, token }, caminho);
+    if (r.status !== 200) {
+      return send(res, 502, `<h1>Não foi possível baixar o arquivo</h1><p>A Focus respondeu HTTP ${r.status}.</p><p><a href="/vendas/${vendaId}">Voltar</a></p>`);
+    }
+    const isXml = tipo === 'xml';
+    res.writeHead(200, {
+      'Content-Type': r.contentType || (isXml ? 'application/xml' : 'application/pdf'),
+      'Content-Disposition': `inline; filename="nfe-${venda.numero}.${isXml ? 'xml' : 'pdf'}"`,
+    });
+    res.end(r.buffer);
+  } catch (err) {
+    console.error('[nfe] Falha ao baixar arquivo da Focus:', err);
+    return send(res, 502, `<h1>Falha ao baixar</h1><pre>${escapeHtml(err.message)}</pre><p><a href="/vendas/${vendaId}">Voltar</a></p>`);
+  }
 }
 
 function send(res, status, body, headers = {}) {
@@ -640,8 +711,19 @@ async function handler(req, res) {
         return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: body, csrfToken: session.csrfToken }));
       }
       const info = db
-        .prepare('INSERT INTO clientes (nome, telefone, email, endereco, observacoes) VALUES (?, ?, ?, ?, ?)')
-        .run(body.nome.trim(), body.telefone || '', body.email || '', body.endereco || '', body.observacoes || '');
+        .prepare(
+          `INSERT INTO clientes
+             (nome, telefone, email, endereco, observacoes,
+              cpf_cnpj, ie, cep, logradouro, numero, complemento, bairro, municipio, codigo_municipio, uf)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          body.nome.trim(), body.telefone || '', body.email || '', body.endereco || '', body.observacoes || '',
+          (body.cpf_cnpj || '').trim() || null, (body.ie || '').trim() || null, (body.cep || '').trim() || null,
+          (body.logradouro || '').trim() || null, (body.numero || '').trim() || null, (body.complemento || '').trim() || null,
+          (body.bairro || '').trim() || null, (body.municipio || '').trim() || null, (body.codigo_municipio || '').trim() || null,
+          (body.uf || '').trim().toUpperCase() || null
+        );
       setFlash(session.sessionId, 'success', 'Cliente cadastrado com sucesso.');
       return redirect(res, `/clientes/${info.lastInsertRowid}`);
     }
@@ -664,8 +746,17 @@ async function handler(req, res) {
       if (!body.nome || !body.nome.trim()) {
         return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: { ...cliente, ...body }, csrfToken: session.csrfToken }));
       }
-      db.prepare('UPDATE clientes SET nome=?, telefone=?, email=?, endereco=?, observacoes=? WHERE id=?').run(
-        body.nome.trim(), body.telefone || '', body.email || '', body.endereco || '', body.observacoes || '', m.id
+      db.prepare(
+        `UPDATE clientes SET
+           nome=?, telefone=?, email=?, endereco=?, observacoes=?,
+           cpf_cnpj=?, ie=?, cep=?, logradouro=?, numero=?, complemento=?, bairro=?, municipio=?, codigo_municipio=?, uf=?
+         WHERE id=?`
+      ).run(
+        body.nome.trim(), body.telefone || '', body.email || '', body.endereco || '', body.observacoes || '',
+        (body.cpf_cnpj || '').trim() || null, (body.ie || '').trim() || null, (body.cep || '').trim() || null,
+        (body.logradouro || '').trim() || null, (body.numero || '').trim() || null, (body.complemento || '').trim() || null,
+        (body.bairro || '').trim() || null, (body.municipio || '').trim() || null, (body.codigo_municipio || '').trim() || null,
+        (body.uf || '').trim().toUpperCase() || null, m.id
       );
       setFlash(session.sessionId, 'success', 'Cliente atualizado.');
       return redirect(res, `/clientes/${m.id}`);
@@ -861,15 +952,19 @@ async function handler(req, res) {
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
+      const origemPeca = body.origem_mercadoria === '' || body.origem_mercadoria == null ? null : Number(body.origem_mercadoria);
       const info = db
         .prepare(
-          `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes, loja_id, fornecedor_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes, loja_id, fornecedor_id,
+                              ncm, cfop, csosn, origem_mercadoria, unidade_comercial)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
           quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
-          toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId
+          toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId,
+          (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
+          origemPeca, (body.unidade_comercial || '').trim() || null
         );
       salvarCoresPeca(info.lastInsertRowid, cores);
       setFlash(session.sessionId, 'success', 'Produto cadastrado no estoque.');
@@ -1025,12 +1120,16 @@ async function handler(req, res) {
       }
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
+      const origemPecaUp = body.origem_mercadoria === '' || body.origem_mercadoria == null ? null : Number(body.origem_mercadoria);
       db.prepare(
-        `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, loja_id=?, fornecedor_id=?, updated_at=datetime('now') WHERE id=?`
+        `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, loja_id=?, fornecedor_id=?,
+           ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
         quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
-        toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId, m.id
+        toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId,
+        (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
+        origemPecaUp, (body.unidade_comercial || '').trim() || null, m.id
       );
       salvarCoresPeca(m.id, cores);
       setFlash(session.sessionId, 'success', 'Produto atualizado.');
@@ -2548,7 +2647,7 @@ async function handler(req, res) {
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
-      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken }));
+      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal() }));
     }
 
     if ((m = matchRoute('/vendas/:id/itens', pathname)) && method === 'POST') {
@@ -2942,6 +3041,171 @@ async function handler(req, res) {
         setFlash(session.sessionId, 'error', 'Falha ao gerar o backup completo: ' + (err && err.message ? err.message : 'erro desconhecido, veja os Logs do servidor.'));
         return redirect(res, '/backup');
       }
+    }
+
+    // ---------------- CONFIGURAÇÕES FISCAIS (NF-e) ----------------
+    if (pathname === '/configuracoes/fiscal' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, configFiscalPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        config: getConfigFiscal(),
+        csrfToken: session.csrfToken,
+      }));
+    }
+
+    if (pathname === '/configuracoes/fiscal' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const atual = getConfigFiscal();
+      const ambiente = body.ambiente === 'producao' ? 'producao' : 'homologacao';
+      // Tokens: só sobrescreve se o campo veio preenchido (senão mantém o atual).
+      const tokenHomo = (body.token_homologacao || '').trim() || atual.focus_token_homologacao || null;
+      const tokenProd = (body.token_producao || '').trim() || atual.focus_token_producao || null;
+      const regime = [1, 2, 3].includes(Number(body.regime_tributario)) ? Number(body.regime_tributario) : 1;
+      const origem = [0, 1, 2, 3, 8].includes(Number(body.origem_padrao)) ? Number(body.origem_padrao) : 0;
+      db.prepare(
+        `UPDATE config_fiscal SET
+           focus_token_homologacao = ?,
+           focus_token_producao = ?,
+           ambiente = ?,
+           regime_tributario = ?,
+           natureza_operacao = ?,
+           serie_nfe = ?,
+           ncm_padrao = ?,
+           cfop_padrao = ?,
+           cfop_interestadual_padrao = ?,
+           csosn_padrao = ?,
+           origem_padrao = ?,
+           unidade_padrao = ?,
+           atualizado_em = datetime('now')
+         WHERE id = 1`
+      ).run(
+        tokenHomo,
+        tokenProd,
+        ambiente,
+        regime,
+        (body.natureza_operacao || 'Venda de mercadoria').trim(),
+        (body.serie_nfe || '').trim() || null,
+        (body.ncm_padrao || '').trim() || null,
+        (body.cfop_padrao || '').trim() || null,
+        (body.cfop_interestadual_padrao || '').trim() || null,
+        (body.csosn_padrao || '').trim() || null,
+        origem,
+        (body.unidade_padrao || 'UN').trim() || 'UN'
+      );
+      setFlash(
+        session.sessionId,
+        ambiente === 'producao' ? 'error' : 'success',
+        ambiente === 'producao'
+          ? 'Configurações salvas. ATENÇÃO: ambiente de PRODUÇÃO ativo — as próximas notas terão valor jurídico.'
+          : 'Configurações fiscais salvas (ambiente de homologação/teste).'
+      );
+      return redirect(res, '/configuracoes/fiscal');
+    }
+
+    // ---------------- NF-e a partir da VENDA ----------------
+    if ((m = matchRoute('/vendas/:id/nfe/emitir', pathname)) && method === 'POST') {
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
+      if (venda.nfe_status === 'autorizado') {
+        setFlash(session.sessionId, 'error', 'Esta venda já tem NF-e autorizada. Para refazer, cancele a nota antes.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(venda.cliente_id);
+      const itens = db.prepare('SELECT * FROM venda_itens WHERE venda_id = ?').all(m.id);
+      const config = getConfigFiscal();
+      const { nfe, erros, creds } = buildNfePayload(venda, itens, cliente, config);
+      if (erros.length) {
+        setFlash(session.sessionId, 'error', 'Não dá pra emitir ainda: ' + erros.join(' '));
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const ref = `gm-venda-${venda.id}-${Date.now()}`;
+      try {
+        const resp = await focus.emitirNfe(creds, ref, nfe);
+        db.prepare("UPDATE vendas SET nfe_ref = ?, nfe_ambiente = ?, nfe_emitida_em = datetime('now') WHERE id = ?").run(ref, creds.ambiente, m.id);
+        if (resp.status === 201 || resp.status === 202) {
+          applyNfeResponse(m.id, creds.ambiente, resp.data || { status: resp.status === 201 ? 'autorizado' : 'processando_autorizacao' });
+          setFlash(session.sessionId, 'success', resp.status === 201
+            ? 'NF-e autorizada!'
+            : 'NF-e enviada e em processamento na SEFAZ. Use "Consultar status" em alguns segundos.');
+        } else {
+          applyNfeResponse(m.id, creds.ambiente, resp.data || {});
+          const detalhe = resp.data && (resp.data.mensagem || (Array.isArray(resp.data.erros) ? resp.data.erros.map((e) => e.mensagem || JSON.stringify(e)).join(' | ') : '')) || `HTTP ${resp.status}`;
+          db.prepare('UPDATE vendas SET nfe_status = ? WHERE id = ? AND (nfe_status IS NULL OR nfe_status = ?)').run('erro', m.id, null);
+          setFlash(session.sessionId, 'error', 'A Focus recusou a emissão: ' + detalhe);
+        }
+      } catch (err) {
+        console.error('[nfe] Falha ao emitir NF-e:', err);
+        db.prepare("UPDATE vendas SET nfe_status = 'erro', nfe_mensagem = ? WHERE id = ?").run(err && err.message ? err.message : 'erro desconhecido', m.id);
+        setFlash(session.sessionId, 'error', 'Falha ao falar com a Focus: ' + (err && err.message ? err.message : 'erro desconhecido.'));
+      }
+      return redirect(res, `/vendas/${m.id}`);
+    }
+
+    if ((m = matchRoute('/vendas/:id/nfe/consultar', pathname)) && method === 'POST') {
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canSeeLoja(user, venda.loja_id)) return forbidden(res);
+      if (!venda.nfe_ref) {
+        setFlash(session.sessionId, 'error', 'Esta venda ainda não teve NF-e enviada.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const config = getConfigFiscal();
+      const creds = { ambiente: venda.nfe_ambiente || focusCreds(config).ambiente, token: null };
+      creds.token = creds.ambiente === 'producao' ? config.focus_token_producao : config.focus_token_homologacao;
+      try {
+        const resp = await focus.consultarNfe(creds, venda.nfe_ref, true);
+        if (resp.data) {
+          applyNfeResponse(m.id, creds.ambiente, resp.data);
+          setFlash(session.sessionId, 'success', `Status atualizado: ${resp.data.status || 'desconhecido'}.`);
+        } else {
+          setFlash(session.sessionId, 'error', `Não foi possível consultar (HTTP ${resp.status}).`);
+        }
+      } catch (err) {
+        console.error('[nfe] Falha ao consultar NF-e:', err);
+        setFlash(session.sessionId, 'error', 'Falha ao consultar: ' + (err && err.message ? err.message : 'erro desconhecido.'));
+      }
+      return redirect(res, `/vendas/${m.id}`);
+    }
+
+    if ((m = matchRoute('/vendas/:id/nfe/cancelar', pathname)) && method === 'POST') {
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
+      if (venda.nfe_status !== 'autorizado') {
+        setFlash(session.sessionId, 'error', 'Só é possível cancelar uma NF-e que esteja autorizada.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const justificativa = (body.justificativa || '').trim();
+      if (justificativa.length < 15) {
+        setFlash(session.sessionId, 'error', 'A justificativa do cancelamento precisa ter pelo menos 15 caracteres.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const config = getConfigFiscal();
+      const creds = { ambiente: venda.nfe_ambiente || focusCreds(config).ambiente, token: null };
+      creds.token = creds.ambiente === 'producao' ? config.focus_token_producao : config.focus_token_homologacao;
+      try {
+        const resp = await focus.cancelarNfe(creds, venda.nfe_ref, justificativa);
+        if (resp.status === 200 && resp.data) {
+          applyNfeResponse(m.id, creds.ambiente, resp.data);
+          setFlash(session.sessionId, 'success', 'NF-e cancelada.');
+        } else {
+          const detalhe = resp.data && (resp.data.mensagem || resp.data.mensagem_sefaz) || `HTTP ${resp.status}`;
+          setFlash(session.sessionId, 'error', 'Não foi possível cancelar: ' + detalhe);
+        }
+      } catch (err) {
+        console.error('[nfe] Falha ao cancelar NF-e:', err);
+        setFlash(session.sessionId, 'error', 'Falha ao cancelar: ' + (err && err.message ? err.message : 'erro desconhecido.'));
+      }
+      return redirect(res, `/vendas/${m.id}`);
+    }
+
+    if ((m = matchRoute('/vendas/:id/nfe/danfe', pathname)) && method === 'GET') {
+      return await servirArquivoNfe(res, m.id, 'danfe', user);
+    }
+    if ((m = matchRoute('/vendas/:id/nfe/xml', pathname)) && method === 'GET') {
+      return await servirArquivoNfe(res, m.id, 'xml', user);
     }
 
     return notFound(res);

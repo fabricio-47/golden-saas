@@ -291,7 +291,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
       </div>`;
 }
 
-function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken }) {
+function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal }) {
   return layout({
     title: venda.numero,
     activeNav: 'vendas',
@@ -329,6 +329,8 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
 
       ${vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis || [], csrfToken)}
 
+      ${nfeVendaSection(venda, configFiscal || {}, csrfToken)}
+
       ${
         venda.observacoes
           ? `<div class="card"><h2>Observações</h2><p>${escapeHtml(venda.observacoes).replace(/\n/g, '<br>')}</p></div>`
@@ -336,6 +338,79 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
       }
     `,
   });
+}
+
+const NFE_STATUS_INFO = {
+  autorizado: { label: 'Autorizada', cls: 'badge-ok' },
+  cancelado: { label: 'Cancelada', cls: 'badge-desativada' },
+  processando_autorizacao: { label: 'Processando na SEFAZ', cls: 'badge-orcamento' },
+  processando: { label: 'Processando na SEFAZ', cls: 'badge-orcamento' },
+  erro_autorizacao: { label: 'Recusada pela SEFAZ', cls: 'badge-desativada' },
+  denegado: { label: 'Denegada', cls: 'badge-desativada' },
+  erro: { label: 'Erro na emissão', cls: 'badge-desativada' },
+};
+
+function nfeVendaSection(venda, config, csrfToken) {
+  const ambiente = config.ambiente === 'producao' ? 'producao' : 'homologacao';
+  const temToken = ambiente === 'producao' ? !!config.focus_token_producao : !!config.focus_token_homologacao;
+  const ambienteBadge = ambiente === 'producao'
+    ? '<span class="badge badge-ok">Produção</span>'
+    : '<span class="badge badge-orcamento">Homologação (teste)</span>';
+
+  const status = venda.nfe_status;
+  const info = status ? NFE_STATUS_INFO[status] || { label: status, cls: 'badge-orcamento' } : null;
+
+  // Cabeçalho da seção
+  let corpo = '';
+
+  if (!temToken) {
+    corpo = `<p class="muted">A emissão de NF-e ainda não está configurada. Vá em <a class="link-btn" href="/configuracoes/fiscal">Configurações → Fiscal</a> e informe o token da Focus NFe para o ambiente <strong>${ambiente}</strong>.</p>`;
+  } else if (!status || status === 'erro' || status === 'erro_autorizacao' || status === 'denegado') {
+    const erroMsg = status && venda.nfe_mensagem
+      ? `<div class="flash flash-error" style="margin-bottom:12px;">Última tentativa: ${escapeHtml(venda.nfe_mensagem)}</div>`
+      : '';
+    corpo = `
+      ${erroMsg}
+      <p class="muted">Emitir a NF-e desta venda no ambiente de ${ambienteBadge}. Só entram os itens de mercadoria (peças e veículos); serviços não entram na NF-e.</p>
+      <form method="POST" action="/vendas/${venda.id}/nfe/emitir" onsubmit="return confirm('Emitir NF-e desta venda no ambiente ${ambiente}?');">
+        <input type="hidden" name="csrf" value="${csrfToken}">
+        <button class="btn" type="submit">📄 ${status ? 'Tentar emitir de novo' : 'Emitir NF-e'}</button>
+      </form>`;
+  } else if (status === 'processando' || status === 'processando_autorizacao') {
+    corpo = `
+      <p>A nota foi enviada e está sendo processada pela SEFAZ. Consulte o status em alguns segundos.</p>
+      <form method="POST" action="/vendas/${venda.id}/nfe/consultar">
+        <input type="hidden" name="csrf" value="${csrfToken}">
+        <button class="btn btn-secondary" type="submit">🔄 Consultar status</button>
+      </form>`;
+  } else if (status === 'autorizado') {
+    const linhas = [];
+    if (venda.nfe_numero) linhas.push(`<strong>Número:</strong> ${escapeHtml(venda.nfe_numero)}${venda.nfe_serie ? ' / série ' + escapeHtml(venda.nfe_serie) : ''}`);
+    if (venda.nfe_chave) linhas.push(`<strong>Chave:</strong> <span style="font-family:monospace;font-size:12px;">${escapeHtml(venda.nfe_chave)}</span>`);
+    const botoes = [];
+    if (venda.nfe_danfe_url) botoes.push(`<a class="btn btn-secondary" href="/vendas/${venda.id}/nfe/danfe" target="_blank" rel="noopener">🖨 DANFE (PDF)</a>`);
+    if (venda.nfe_xml_url) botoes.push(`<a class="btn btn-secondary" href="/vendas/${venda.id}/nfe/xml" target="_blank" rel="noopener">⬇ XML</a>`);
+    corpo = `
+      <div style="margin-bottom:12px;">${linhas.join('<br>')}</div>
+      <div class="actions-row" style="margin-top:0;">${botoes.join('')}</div>
+      <details style="margin-top:16px;">
+        <summary class="muted" style="cursor:pointer;">Cancelar esta NF-e</summary>
+        <form method="POST" action="/vendas/${venda.id}/nfe/cancelar" onsubmit="return confirm('Cancelar a NF-e autorizada? Isso é definitivo.');" style="margin-top:10px;">
+          <input type="hidden" name="csrf" value="${csrfToken}">
+          <div class="field full">
+            <label for="justificativa">Justificativa (mín. 15 caracteres)</label>
+            <input type="text" id="justificativa" name="justificativa" minlength="15" required placeholder="Ex.: Venda cancelada a pedido do cliente.">
+          </div>
+          <button class="btn btn-danger btn-sm" type="submit" style="margin-top:8px;">Cancelar NF-e</button>
+        </form>
+      </details>`;
+  }
+
+  return `
+    <div class="card">
+      <h2 style="display:flex;align-items:center;gap:10px;">Nota Fiscal (NF-e) ${info ? `<span class="badge ${info.cls}">${info.label}</span>` : ''} ${temToken ? ambienteBadge : ''}</h2>
+      ${corpo}
+    </div>`;
 }
 
 module.exports = {

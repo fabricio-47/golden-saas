@@ -76,12 +76,57 @@ function clienteFormPage({ user, flash, cliente, csrfToken }) {
               <input type="email" id="email" name="email" value="${escapeHtml(cliente ? cliente.email : '')}">
             </div>
             <div class="field full">
-              <label for="endereco">Endereço</label>
+              <label for="endereco">Endereço (resumido, para exibição)</label>
               <input type="text" id="endereco" name="endereco" value="${escapeHtml(cliente ? cliente.endereco : '')}">
             </div>
             <div class="field full">
               <label for="observacoes">Observações</label>
               <textarea id="observacoes" name="observacoes">${escapeHtml(cliente ? cliente.observacoes : '')}</textarea>
+            </div>
+          </div>
+
+          <h2 style="margin-top:24px;">Dados fiscais (para emitir NF-e)</h2>
+          <p class="muted" style="margin-top:-6px;">Opcional no cadastro, mas <strong>obrigatório para emitir nota fiscal</strong> para este cliente. Para pessoa física basta CPF; o endereço estruturado é exigido pela SEFAZ.</p>
+          <div class="form-grid">
+            <div class="field">
+              <label for="cpf_cnpj">CPF / CNPJ</label>
+              <input type="text" id="cpf_cnpj" name="cpf_cnpj" value="${escapeHtml(cliente ? cliente.cpf_cnpj || '' : '')}" placeholder="Só números ou com pontuação">
+            </div>
+            <div class="field">
+              <label for="ie">Inscrição Estadual (se CNPJ contribuinte)</label>
+              <input type="text" id="ie" name="ie" value="${escapeHtml(cliente ? cliente.ie || '' : '')}" placeholder="Deixe em branco se não tiver">
+            </div>
+            <div class="field">
+              <label for="cep">CEP</label>
+              <input type="text" id="cep" name="cep" value="${escapeHtml(cliente ? cliente.cep || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="logradouro">Logradouro (rua/av.)</label>
+              <input type="text" id="logradouro" name="logradouro" value="${escapeHtml(cliente ? cliente.logradouro || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="numero">Número</label>
+              <input type="text" id="numero" name="numero" value="${escapeHtml(cliente ? cliente.numero || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="complemento">Complemento</label>
+              <input type="text" id="complemento" name="complemento" value="${escapeHtml(cliente ? cliente.complemento || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="bairro">Bairro</label>
+              <input type="text" id="bairro" name="bairro" value="${escapeHtml(cliente ? cliente.bairro || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="municipio">Município</label>
+              <input type="text" id="municipio" name="municipio" value="${escapeHtml(cliente ? cliente.municipio || '' : '')}" placeholder="Ex.: Rio de Janeiro">
+            </div>
+            <div class="field">
+              <label for="codigo_municipio">Código IBGE do município</label>
+              <input type="text" id="codigo_municipio" name="codigo_municipio" value="${escapeHtml(cliente ? cliente.codigo_municipio || '' : '')}" placeholder="7 dígitos (ex.: 3304557 = Rio)">
+            </div>
+            <div class="field">
+              <label for="uf">UF</label>
+              <input type="text" id="uf" name="uf" maxlength="2" value="${escapeHtml(cliente ? cliente.uf || '' : '')}" placeholder="RJ">
             </div>
           </div>
           <div class="actions-row">

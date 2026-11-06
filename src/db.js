@@ -419,6 +419,63 @@ ensureColumn('ordens_servico', 'termos_garantia', 'TEXT');
 ensureColumn('ordens_servico', 'acessorios', 'TEXT');
 ensureColumn('ordens_servico', 'tecnico_id', 'INTEGER');
 ensureColumn('ordens_servico', 'desconto', 'REAL');
+
+// ---------------- Integração fiscal (NF-e via Focus NFe) ----------------
+// Configuração fiscal: linha única (id = 1). Guarda os tokens da Focus, o
+// ambiente ativo (homologação por padrão, para nunca emitir nota com valor
+// jurídico sem a troca ser explícita) e os padrões fiscais usados quando um
+// produto não tem os seus próprios. Os padrões são preenchidos COM o contador.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS config_fiscal (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    focus_token_homologacao TEXT,
+    focus_token_producao TEXT,
+    ambiente TEXT NOT NULL DEFAULT 'homologacao',
+    regime_tributario INTEGER NOT NULL DEFAULT 1,
+    natureza_operacao TEXT NOT NULL DEFAULT 'Venda de mercadoria',
+    serie_nfe TEXT,
+    ncm_padrao TEXT,
+    cfop_padrao TEXT,
+    cfop_interestadual_padrao TEXT,
+    csosn_padrao TEXT,
+    origem_padrao INTEGER NOT NULL DEFAULT 0,
+    unidade_padrao TEXT NOT NULL DEFAULT 'UN',
+    atualizado_em TEXT
+  );
+`);
+db.exec("INSERT OR IGNORE INTO config_fiscal (id, ambiente) VALUES (1, 'homologacao')");
+
+// Campos fiscais dos produtos (peças). Nulos por padrão; o contador preenche.
+ensureColumn('pecas', 'ncm', 'TEXT');
+ensureColumn('pecas', 'cfop', 'TEXT');
+ensureColumn('pecas', 'csosn', 'TEXT');
+ensureColumn('pecas', 'origem_mercadoria', 'INTEGER');
+ensureColumn('pecas', 'unidade_comercial', 'TEXT');
+
+// Dados fiscais / endereço estruturado do cliente (destinatário da NF-e).
+ensureColumn('clientes', 'cpf_cnpj', 'TEXT');
+ensureColumn('clientes', 'ie', 'TEXT');
+ensureColumn('clientes', 'cep', 'TEXT');
+ensureColumn('clientes', 'logradouro', 'TEXT');
+ensureColumn('clientes', 'numero', 'TEXT');
+ensureColumn('clientes', 'complemento', 'TEXT');
+ensureColumn('clientes', 'bairro', 'TEXT');
+ensureColumn('clientes', 'municipio', 'TEXT');
+ensureColumn('clientes', 'codigo_municipio', 'TEXT');
+ensureColumn('clientes', 'uf', 'TEXT');
+
+// Rastreamento da NF-e emitida a partir da Venda.
+ensureColumn('vendas', 'nfe_ref', 'TEXT');
+ensureColumn('vendas', 'nfe_status', 'TEXT');
+ensureColumn('vendas', 'nfe_chave', 'TEXT');
+ensureColumn('vendas', 'nfe_numero', 'TEXT');
+ensureColumn('vendas', 'nfe_serie', 'TEXT');
+ensureColumn('vendas', 'nfe_danfe_url', 'TEXT');
+ensureColumn('vendas', 'nfe_xml_url', 'TEXT');
+ensureColumn('vendas', 'nfe_mensagem', 'TEXT');
+ensureColumn('vendas', 'nfe_ambiente', 'TEXT');
+ensureColumn('vendas', 'nfe_emitida_em', 'TEXT');
+
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");

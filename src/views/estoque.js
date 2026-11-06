@@ -327,6 +327,37 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
               <textarea id="observacoes" name="observacoes">${escapeHtml(peca ? peca.observacoes : '')}</textarea>
             </div>
           </div>
+
+          <h2 style="margin-top:24px;">Dados fiscais (para NF-e)</h2>
+          <p class="muted" style="margin-top:-6px;">Preencha <strong>com o contador</strong>. Se deixar em branco, a emissão usa os padrões de Configurações → Fiscal.</p>
+          <div class="form-grid">
+            <div class="field">
+              <label for="ncm">NCM</label>
+              <input type="text" id="ncm" name="ncm" value="${escapeHtml(peca ? peca.ncm || '' : '')}" placeholder="Ex.: 8714.99.00">
+            </div>
+            <div class="field">
+              <label for="cfop">CFOP</label>
+              <input type="text" id="cfop" name="cfop" value="${escapeHtml(peca ? peca.cfop || '' : '')}" placeholder="Ex.: 5102">
+            </div>
+            <div class="field">
+              <label for="csosn">CSOSN / CST</label>
+              <input type="text" id="csosn" name="csosn" value="${escapeHtml(peca ? peca.csosn || '' : '')}" placeholder="Ex.: 102">
+            </div>
+            <div class="field">
+              <label for="origem_mercadoria">Origem</label>
+              <select id="origem_mercadoria" name="origem_mercadoria">
+                <option value="">(usar padrão)</option>
+                <option value="0" ${peca && Number(peca.origem_mercadoria) === 0 ? 'selected' : ''}>0 — Nacional</option>
+                <option value="1" ${peca && Number(peca.origem_mercadoria) === 1 ? 'selected' : ''}>1 — Estrangeira (importação direta)</option>
+                <option value="2" ${peca && Number(peca.origem_mercadoria) === 2 ? 'selected' : ''}>2 — Estrangeira (mercado interno)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="unidade_comercial">Unidade comercial</label>
+              <input type="text" id="unidade_comercial" name="unidade_comercial" value="${escapeHtml(peca ? peca.unidade_comercial || '' : '')}" placeholder="UN, PC, PAR...">
+            </div>
+          </div>
+
           <div class="actions-row">
             <button class="btn" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar produto'}</button>
             <a class="btn btn-secondary" href="/estoque">Cancelar</a>

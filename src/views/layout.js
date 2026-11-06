@@ -310,6 +310,7 @@ function layout({ title, activeNav, user, flash, children }) {
       key: 'config-group',
       label: 'Configurações',
       items: [
+        { key: 'config-fiscal', href: '/configuracoes/fiscal', label: 'Fiscal / Nota Fiscal' },
         { key: 'lojas', href: '/lojas', label: 'Lojas' },
         { key: 'usuarios', href: '/usuarios', label: 'Usuários' },
         { key: 'niveis', href: '/niveis', label: 'Níveis de permissão' },
