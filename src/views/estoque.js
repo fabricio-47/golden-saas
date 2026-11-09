@@ -269,7 +269,7 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
       </div>
       ${semLojaAtivaHtml}
       <div class="card">
-        <form method="POST" action="${isEdit ? `/estoque/${peca.id}` : '/estoque'}">
+        <form method="POST" action="${isEdit ? `/estoque/${peca.id}` : '/estoque'}" enctype="multipart/form-data">
           <input type="hidden" name="csrf" value="${csrfToken}">
           <div class="form-grid">
             <div class="field full">
@@ -325,6 +325,23 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             <div class="field full">
               <label for="observacoes">Observações</label>
               <textarea id="observacoes" name="observacoes">${escapeHtml(peca ? peca.observacoes : '')}</textarea>
+            </div>
+          </div>
+
+          <h2 style="margin-top:24px;">Foto do produto</h2>
+          <p class="muted" style="margin-top:-6px;">Aparece na Consulta de preço e na lista de produtos. Opcional — JPG, PNG ou WEBP.</p>
+          ${
+            peca && peca.foto_caminho
+              ? `<div style="margin-bottom:10px;">
+                   <img src="/uploads/${escapeHtml(peca.foto_caminho)}" alt="Foto do produto" style="max-width:160px;max-height:160px;border-radius:8px;border:1px solid var(--border);object-fit:cover;">
+                   <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;color:var(--text-muted);"><input type="checkbox" name="remover_foto" value="1" style="width:auto;"> Remover a foto atual</label>
+                 </div>`
+              : ''
+          }
+          <div class="form-grid">
+            <div class="field full">
+              <label for="foto">${peca && peca.foto_caminho ? 'Trocar foto (envie uma nova)' : 'Enviar foto'}</label>
+              <input type="file" id="foto" name="foto" accept="image/*">
             </div>
           </div>
 

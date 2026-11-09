@@ -7,7 +7,12 @@ const { escapeHtml } = require('../utils');
 // Não salva nada, não baixa estoque, não precisa de cliente. Só soma e mostra.
 function consultaPrecoPage({ user, flash, pecas }) {
   const produtosJson = JSON.stringify(
-    (pecas || []).map((p) => ({ id: p.id, nome: p.nome, preco: Number(p.preco_venda) || 0 }))
+    (pecas || []).map((p) => ({
+      id: p.id,
+      nome: p.nome,
+      preco: Number(p.preco_venda) || 0,
+      foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
+    }))
   );
   const options = (pecas || [])
     .map((p) => `<option value="${p.id}">${escapeHtml(p.nome)} — R$ ${(Number(p.preco_venda) || 0).toFixed(2).replace('.', ',')}</option>`)
@@ -31,7 +36,7 @@ function consultaPrecoPage({ user, flash, pecas }) {
         <div class="form-grid">
           <div class="field" style="grid-column: span 2;">
             <label for="cp_produto">Produto</label>
-            <select id="cp_produto">
+            <select id="cp_produto" onchange="cpPreview()">
               <option value="">Selecione...</option>
               ${options}
             </select>
@@ -40,6 +45,10 @@ function consultaPrecoPage({ user, flash, pecas }) {
             <label for="cp_qtd">Quantidade</label>
             <input type="number" id="cp_qtd" min="1" step="1" value="1">
           </div>
+        </div>
+        <div id="cp_preview_box" style="display:none;align-items:center;gap:12px;margin:4px 0 12px;">
+          <img id="cp_preview_img" src="" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+          <span id="cp_preview_nome" class="muted"></span>
         </div>
         <button type="button" class="btn" onclick="cpAddEstoque()">+ Adicionar do estoque</button>
 
@@ -107,10 +116,23 @@ function consultaPrecoPage({ user, flash, pecas }) {
           var qtd = parseInt(document.getElementById('cp_qtd').value, 10) || 1;
           var prod = CP_PRODUTOS.find(function (p) { return String(p.id) === String(id); });
           if (!prod) return;
-          cpItens.push({ nome: prod.nome, preco: prod.preco, qtd: qtd });
+          cpItens.push({ nome: prod.nome, preco: prod.preco, qtd: qtd, foto: prod.foto || null });
           sel.value = '';
           document.getElementById('cp_qtd').value = 1;
+          cpPreview();
           cpRender();
+        }
+        function cpPreview() {
+          var id = document.getElementById('cp_produto').value;
+          var box = document.getElementById('cp_preview_box');
+          var prod = id ? CP_PRODUTOS.find(function (p) { return String(p.id) === String(id); }) : null;
+          if (prod && prod.foto) {
+            document.getElementById('cp_preview_img').src = prod.foto;
+            document.getElementById('cp_preview_nome').textContent = prod.nome;
+            box.style.display = 'flex';
+          } else {
+            box.style.display = 'none';
+          }
         }
         function cpAddManual() {
           var desc = document.getElementById('cp_desc').value.trim();
@@ -135,8 +157,11 @@ function consultaPrecoPage({ user, flash, pecas }) {
           } else {
             corpo.innerHTML = cpItens.map(function (it, i) {
               var sub = it.preco * it.qtd;
+              var thumb = it.foto
+                ? '<img src="' + it.foto + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);vertical-align:middle;margin-right:8px;">'
+                : '';
               return '<tr>' +
-                '<td>' + cpEsc(it.nome) + '</td>' +
+                '<td>' + thumb + cpEsc(it.nome) + '</td>' +
                 '<td style="text-align:center;">' + it.qtd + '</td>' +
                 '<td style="text-align:right;">' + cpMoney(it.preco) + '</td>' +
                 '<td style="text-align:right;font-weight:600;">' + cpMoney(sub) + '</td>' +

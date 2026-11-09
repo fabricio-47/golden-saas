@@ -479,6 +479,24 @@ function replaceBicicletaMedia(bicicletaId, tipo, file) {
   ).run(bicicletaId, tipo, saved.tipo_arquivo, saved.nome_arquivo, saved.caminho_arquivo);
 }
 
+// Salva/troca/remove a foto de um produto (peça). Uma foto por produto.
+function salvarFotoPeca(pecaId, files, body) {
+  const peca = db.prepare('SELECT foto_caminho FROM pecas WHERE id = ?').get(pecaId);
+  const fotoAtual = peca ? peca.foto_caminho : null;
+  if (body && body.remover_foto === '1' && fotoAtual) {
+    deleteUploadedFile(fotoAtual);
+    db.prepare('UPDATE pecas SET foto_caminho = NULL WHERE id = ?').run(pecaId);
+  }
+  const fotoFile = (files || []).find((f) => f.fieldName === 'foto' && f.data && f.data.length > 0);
+  if (fotoFile) {
+    const saved = saveUploadedFile('peca', pecaId, fotoFile);
+    if (saved) {
+      if (fotoAtual) deleteUploadedFile(fotoAtual);
+      db.prepare('UPDATE pecas SET foto_caminho = ? WHERE id = ?').run(saved.caminho_arquivo, pecaId);
+    }
+  }
+}
+
 function buildOsEmailContent(os, clienteNome, tipo) {
   const checklist = os.checklist_json ? JSON.parse(os.checklist_json) : [];
   const checklistHtml = checklist
@@ -969,6 +987,7 @@ async function handler(req, res) {
           origemPeca, (body.unidade_comercial || '').trim() || null
         );
       salvarCoresPeca(info.lastInsertRowid, cores);
+      salvarFotoPeca(info.lastInsertRowid, files, body);
       setFlash(session.sessionId, 'success', 'Produto cadastrado no estoque.');
       return redirect(res, `/estoque/${info.lastInsertRowid}/editar`);
     }
@@ -1134,6 +1153,7 @@ async function handler(req, res) {
         origemPecaUp, (body.unidade_comercial || '').trim() || null, m.id
       );
       salvarCoresPeca(m.id, cores);
+      salvarFotoPeca(m.id, files, body);
       setFlash(session.sessionId, 'success', 'Produto atualizado.');
       return redirect(res, `/estoque/${m.id}/editar`);
     }
@@ -2571,8 +2591,8 @@ async function handler(req, res) {
     // ---------------- VENDA DIRETO ----------------
     if (pathname === '/consulta-preco' && method === 'GET') {
       const pecas = canSeeAllLojas(user)
-        ? db.prepare('SELECT id, nome, preco_venda FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT id, nome, preco_venda FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        ? db.prepare('SELECT id, nome, preco_venda, foto_caminho FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda, foto_caminho FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       return send(res, 200, consultaPrecoPage({ user, flash: takeFlash(session.sessionId), pecas }));
     }
 

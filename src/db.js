@@ -451,6 +451,8 @@ ensureColumn('pecas', 'cfop', 'TEXT');
 ensureColumn('pecas', 'csosn', 'TEXT');
 ensureColumn('pecas', 'origem_mercadoria', 'INTEGER');
 ensureColumn('pecas', 'unidade_comercial', 'TEXT');
+// Foto do produto (uma por produto), caminho relativo em uploads (peca-<id>/...).
+ensureColumn('pecas', 'foto_caminho', 'TEXT');
 
 // Dados fiscais / endereço estruturado do cliente (destinatário da NF-e).
 ensureColumn('clientes', 'cpf_cnpj', 'TEXT');
