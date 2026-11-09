@@ -72,6 +72,7 @@ const { relatoriosPage } = require('./src/views/relatorios');
 const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasPagar');
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
+const { consultaPrecoPage } = require('./src/views/consultaPreco');
 const { tiposServicoListPage, tipoServicoFormPage } = require('./src/views/servicos');
 const {
   contratosListPage,
@@ -569,6 +570,7 @@ async function handler(req, res) {
       ['/os', 'os'],
       ['/servicos', 'os'],
       ['/orcamentos', 'vendas'],
+      ['/consulta-preco', 'vendas'],
       ['/vendas', 'vendas'],
       ['/transferencias', 'estoque'],
       ['/estoque', 'estoque'],
@@ -2567,6 +2569,13 @@ async function handler(req, res) {
     }
 
     // ---------------- VENDA DIRETO ----------------
+    if (pathname === '/consulta-preco' && method === 'GET') {
+      const pecas = canSeeAllLojas(user)
+        ? db.prepare('SELECT id, nome, preco_venda FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+      return send(res, 200, consultaPrecoPage({ user, flash: takeFlash(session.sessionId), pecas }));
+    }
+
     if (pathname === '/vendas' && method === 'GET') {
       const lojaFiltroId = url.searchParams.get('loja_id') || '';
       const todasLojas = db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all();

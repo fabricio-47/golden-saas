@@ -271,6 +271,7 @@ function layout({ title, activeNav, user, flash, children }) {
     },
     { type: 'link', key: 'orcamentos', href: '/orcamentos', label: 'Orçamentos', modulo: 'vendas' },
     { type: 'link', key: 'vendas', href: '/vendas', label: 'Vendas', modulo: 'vendas' },
+    { type: 'link', key: 'consulta-preco', href: '/consulta-preco', label: 'Consulta de preço', modulo: 'vendas' },
     {
       type: 'group',
       key: 'os-group',
