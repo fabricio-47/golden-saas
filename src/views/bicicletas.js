@@ -200,7 +200,7 @@ function bicicletaFormPage({ user, flash, bicicleta, clientes, defaultClienteId,
   });
 }
 
-function bicicletaShowPage({ user, flash, bicicleta, ordensServico, midias, csrfToken }) {
+function bicicletaShowPage({ user, flash, bicicleta, ordensServico, midias, csrfToken, podeAlterar = true }) {
   const fotoChassi = existingPhoto(midias, 'chassi');
   const fotoBateria = existingPhoto(midias, 'bateria_serial');
   const osRows = ordensServico
@@ -227,7 +227,7 @@ function bicicletaShowPage({ user, flash, bicicleta, ordensServico, midias, csrf
         </div>
         <div class="actions-row" style="margin-top:0;">
           <a class="btn btn-secondary" href="/bicicletas/${bicicleta.id}/editar">Editar</a>
-          <a class="btn" href="/os/novo?bicicleta_id=${bicicleta.id}">+ Nova O.S.</a>
+          ${podeAlterar ? `<a class="btn" href="/os/novo?bicicleta_id=${bicicleta.id}">+ Nova O.S.</a>` : ''}
         </div>
       </div>
 

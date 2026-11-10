@@ -770,7 +770,7 @@ async function handler(req, res) {
       const pecasBaixoEstoque = db
         .prepare('SELECT * FROM pecas WHERE quantidade <= estoque_minimo ORDER BY quantidade ASC LIMIT 10')
         .all();
-      return send(res, 200, dashboardPage({ user, flash: takeFlash(session.sessionId), counts, recentOS, lowBatteryBikes, pecasBaixoEstoque }));
+      return send(res, 200, dashboardPage({ user, flash: takeFlash(session.sessionId), counts, recentOS, lowBatteryBikes, pecasBaixoEstoque, podeAlterar: podeAlterarExcluir(user) }));
     }
 
     // ---------------- CLIENTES ----------------
@@ -961,7 +961,7 @@ async function handler(req, res) {
       if (!bicicleta) return notFound(res);
       const ordensServico = db.prepare('SELECT * FROM ordens_servico WHERE bicicleta_id = ? ORDER BY created_at DESC').all(m.id);
       const midias = db.prepare('SELECT * FROM bicicleta_midias WHERE bicicleta_id = ?').all(m.id);
-      return send(res, 200, bicicletaShowPage({ user, flash: takeFlash(session.sessionId), bicicleta, ordensServico, midias, csrfToken: session.csrfToken }));
+      return send(res, 200, bicicletaShowPage({ user, flash: takeFlash(session.sessionId), bicicleta, ordensServico, midias, csrfToken: session.csrfToken, podeAlterar: podeAlterarExcluir(user) }));
     }
 
     // ---------------- ESTOQUE ----------------
@@ -1002,10 +1002,12 @@ async function handler(req, res) {
         lojas: lojasVisiveis,
         lojaFiltroId,
         mostrarColunaLoja: lojasVisiveis.length > 1,
+        podeAlterar: podeAlt,
       }));
     }
 
     if (pathname === '/estoque/novo' && method === 'GET') {
+      if (bloqueiaAlterar(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
@@ -1022,6 +1024,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/estoque' && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
@@ -1056,6 +1059,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/estoque/entrada' && method === 'GET') {
+      if (bloqueiaAlterar(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
@@ -1078,6 +1082,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/estoque/entrada' && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
@@ -2302,7 +2307,7 @@ async function handler(req, res) {
       }
       query += ' ORDER BY os.created_at DESC';
       const ordens = db.prepare(query).all(...params);
-      return send(res, 200, ordensListPage({ user, flash: takeFlash(session.sessionId), ordens, statusFilter, mostrarDesativadas }));
+      return send(res, 200, ordensListPage({ user, flash: takeFlash(session.sessionId), ordens, statusFilter, mostrarDesativadas, podeAlterar: podeAlterarExcluir(user) }));
     }
 
     if (pathname === '/os/painel' && method === 'GET') {
@@ -2335,10 +2340,11 @@ async function handler(req, res) {
            WHERE os.ativo = 1 GROUP BY os.tecnico_id ORDER BY total DESC`
         )
         .all();
-      return send(res, 200, ordemPainelPage({ user, flash: takeFlash(session.sessionId), abertas, fatur, faturTecnico, hoje, amanha }));
+      return send(res, 200, ordemPainelPage({ user, flash: takeFlash(session.sessionId), abertas, fatur, faturTecnico, hoje, amanha, podeAlterar: podeAlterarExcluir(user) }));
     }
 
     if (pathname === '/os/novo' && method === 'GET') {
+      if (bloqueiaAlterar(res, user)) return;
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       if (!clientes.length || !bicicletas.length) {
@@ -2360,6 +2366,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/os' && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       if (!body.cliente_id || !body.bicicleta_id) {

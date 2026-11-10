@@ -9,7 +9,7 @@ const STATUS_LABELS = {
   concluida: 'Concluída',
 };
 
-function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBaixoEstoque }) {
+function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBaixoEstoque, podeAlterar = true }) {
   const rows = recentOS
     .map(
       (os) => `
@@ -58,7 +58,7 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBa
           <h1>Dashboard</h1>
           <p class="subtitle">Visão geral da sua oficina</p>
         </div>
-        <a class="btn" href="/os/novo">+ Nova Ordem de Serviço</a>
+        ${podeAlterar ? `<a class="btn" href="/os/novo">+ Nova Ordem de Serviço</a>` : ''}
       </div>
 
       <div class="stat-grid">
