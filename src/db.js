@@ -454,6 +454,19 @@ ensureColumn('pecas', 'unidade_comercial', 'TEXT');
 // Foto do produto (uma por produto), caminho relativo em uploads (peca-<id>/...).
 ensureColumn('pecas', 'foto_caminho', 'TEXT');
 
+// Pagamentos de uma venda (permite pagamento misto: várias formas na mesma
+// venda, cada uma com seu valor; crédito pode ter parcelas).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS venda_pagamentos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venda_id INTEGER NOT NULL REFERENCES vendas(id) ON DELETE CASCADE,
+    forma TEXT NOT NULL,
+    valor REAL NOT NULL DEFAULT 0,
+    parcelas INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Dados fiscais / endereço estruturado do cliente (destinatário da NF-e).
 ensureColumn('clientes', 'cpf_cnpj', 'TEXT');
 ensureColumn('clientes', 'ie', 'TEXT');

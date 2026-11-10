@@ -339,13 +339,11 @@ function recomputeValorMaoObra(osId) {
   ).run(soma, Math.max(0, soma + valorPecas - desconto), osId);
 }
 
-function gerarParcelasAReceber({ formaPagamento, parcelas, total, lojaId, clienteId, ordemServicoId, vendaId, origemLabel }) {
-  if (formaPagamento !== 'credito' || !parcelas || parcelas < 1) return;
-  if (!total || total <= 0) return;
-  const jaExiste = ordemServicoId
-    ? db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE ordem_servico_id = ?').get(ordemServicoId).c
-    : db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE venda_id = ?').get(vendaId).c;
-  if (jaExiste > 0) return;
+// Insere as parcelas de um crédito parcelado (sem checar duplicidade — quem
+// chama garante isso). Separa a lógica de divisão e vencimentos pra poder ser
+// reusada por vendas com pagamento misto (vários créditos na mesma venda).
+function inserirParcelasAReceber({ parcelas, total, lojaId, clienteId, ordemServicoId, vendaId, origemLabel }) {
+  if (!parcelas || parcelas < 1 || !total || total <= 0) return;
   const valorParcela = Math.round((total / parcelas) * 100) / 100;
   const somaParcelasAnteriores = Math.round(valorParcela * (parcelas - 1) * 100) / 100;
   const ultimaParcela = Math.round((total - somaParcelasAnteriores) * 100) / 100;
@@ -362,6 +360,16 @@ function gerarParcelasAReceber({ formaPagamento, parcelas, total, lojaId, client
   }
 }
 
+function gerarParcelasAReceber({ formaPagamento, parcelas, total, lojaId, clienteId, ordemServicoId, vendaId, origemLabel }) {
+  if (formaPagamento !== 'credito' || !parcelas || parcelas < 1) return;
+  if (!total || total <= 0) return;
+  const jaExiste = ordemServicoId
+    ? db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE ordem_servico_id = ?').get(ordemServicoId).c
+    : db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE venda_id = ?').get(vendaId).c;
+  if (jaExiste > 0) return;
+  inserirParcelasAReceber({ parcelas, total, lojaId, clienteId, ordemServicoId, vendaId, origemLabel });
+}
+
 function gerarContasReceberDaOS(os, user) {
   gerarParcelasAReceber({
     formaPagamento: os.forma_pagamento,
@@ -375,6 +383,27 @@ function gerarContasReceberDaOS(os, user) {
 }
 
 function gerarContasReceberDaVenda(venda, user) {
+  const pagamentos = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ?').all(venda.id);
+  if (pagamentos.length > 0) {
+    // Pagamento misto: só a parte no crédito parcelado gera contas a receber.
+    // O resto (dinheiro/pix/débito/crédito à vista) é recebido na hora.
+    const jaExiste = db.prepare('SELECT COUNT(*) c FROM contas_receber WHERE venda_id = ?').get(venda.id).c;
+    if (jaExiste > 0) return;
+    for (const p of pagamentos) {
+      if (p.forma === 'credito' && p.parcelas && p.parcelas > 1 && p.valor > 0) {
+        inserirParcelasAReceber({
+          parcelas: p.parcelas,
+          total: p.valor,
+          lojaId: venda.loja_id,
+          clienteId: venda.cliente_id,
+          vendaId: venda.id,
+          origemLabel: `Venda ${venda.numero}`,
+        });
+      }
+    }
+    return;
+  }
+  // Compat: vendas antigas sem linhas de pagamento usam a forma única.
   gerarParcelasAReceber({
     formaPagamento: venda.forma_pagamento,
     parcelas: venda.parcelas,
@@ -2677,8 +2706,30 @@ async function handler(req, res) {
       if (!body.cliente_id) {
         return send(res, 400, vendaFormPage({ user, flash: { type: 'error', message: 'Selecione um cliente.' }, clientes, csrfToken: session.csrfToken, lojas, lojaFixaNome, pecasDisponiveis: pecasNovaVenda }));
       }
-      const formaPagamento = body.forma_pagamento || null;
-      const parcelas = formaPagamento === 'credito' ? toIntOrNull(body.parcelas) : null;
+      // Pagamentos (misto) vindos da tela única. Deriva a forma/parcelas-resumo
+      // que fica na venda (compat + exibição) e guarda cada pagamento à parte.
+      const FORMAS_PGTO = ['dinheiro', 'pix', 'debito', 'credito'];
+      let pagamentos = [];
+      try {
+        pagamentos = JSON.parse(body.pagamentos_json || '[]');
+      } catch (_e) {
+        pagamentos = [];
+      }
+      pagamentos = (Array.isArray(pagamentos) ? pagamentos : [])
+        .filter((p) => p && FORMAS_PGTO.includes(p.forma) && Number(p.valor) > 0)
+        .map((p) => ({
+          forma: p.forma,
+          valor: Number(p.valor),
+          parcelas: p.forma === 'credito' ? Math.max(1, parseInt(p.parcelas, 10) || 1) : null,
+        }));
+      let formaPagamento = null;
+      let parcelas = null;
+      if (pagamentos.length === 1) {
+        formaPagamento = pagamentos[0].forma;
+        parcelas = pagamentos[0].parcelas;
+      } else if (pagamentos.length > 1) {
+        formaPagamento = 'misto';
+      }
       const numero = nextVendaNumber();
       const info = db
         .prepare(
@@ -2687,6 +2738,11 @@ async function handler(req, res) {
         )
         .run(numero, body.cliente_id, lojaIdEscolhida, formaPagamento, parcelas, body.observacoes || '', user.id);
       const vendaNovaId = info.lastInsertRowid;
+
+      if (pagamentos.length) {
+        const insPg = db.prepare('INSERT INTO venda_pagamentos (venda_id, forma, valor, parcelas) VALUES (?, ?, ?, ?)');
+        for (const p of pagamentos) insPg.run(vendaNovaId, p.forma, p.valor, p.parcelas);
+      }
 
       // Itens adicionados na própria tela (venda em tela única). Preço da peça
       // vem do servidor (não do cliente); item avulso usa o preço informado.
@@ -2742,7 +2798,8 @@ async function handler(req, res) {
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
-      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal() }));
+      const pagamentosVenda = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ? ORDER BY id ASC').all(m.id);
+      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda }));
     }
 
     if ((m = matchRoute('/vendas/:id/itens', pathname)) && method === 'POST') {

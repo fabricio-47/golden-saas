@@ -10,6 +10,7 @@ const FORMA_PAGAMENTO_LABELS = {
   dinheiro: 'Dinheiro',
   debito: 'Cartão de débito',
   credito: 'Cartão de crédito',
+  misto: 'Misto (várias formas)',
 };
 
 function formaPagamentoLabel(venda) {
@@ -19,6 +20,27 @@ function formaPagamentoLabel(venda) {
     return `${base} (${venda.parcelas}x)`;
   }
   return base;
+}
+
+function pagamentosVendaSection(pagamentos) {
+  if (!pagamentos || pagamentos.length <= 1) return '';
+  const linhas = pagamentos
+    .map((p) => {
+      let label = FORMA_PAGAMENTO_LABELS[p.forma] || p.forma;
+      if (p.forma === 'credito' && p.parcelas && p.parcelas > 1) label += ` (${p.parcelas}x)`;
+      return `<tr><td>${escapeHtml(label)}</td><td style="text-align:right;">${formatMoney(p.valor)}</td></tr>`;
+    })
+    .join('');
+  const soma = pagamentos.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  return `
+    <div class="card">
+      <h2>Formas de pagamento</h2>
+      <table>
+        <thead><tr><th>Forma</th><th style="text-align:right;">Valor</th></tr></thead>
+        <tbody>${linhas}</tbody>
+        <tfoot><tr><td style="font-weight:700;">Total pago</td><td style="text-align:right;font-weight:700;">${formatMoney(soma)}</td></tr></tfoot>
+      </table>
+    </div>`;
 }
 
 function vendaStatusBadge(venda) {
@@ -140,20 +162,6 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
               </select>
             </div>
             ${lojaFieldHtml}
-            <div class="field">
-              <label for="forma_pagamento">Forma de pagamento</label>
-              <select id="forma_pagamento" name="forma_pagamento" onchange="toggleParcelas()">
-                <option value="">Não definida</option>
-                <option value="pix">Pix</option>
-                <option value="dinheiro">Dinheiro</option>
-                <option value="debito">Cartão de débito</option>
-                <option value="credito">Cartão de crédito</option>
-              </select>
-            </div>
-            <div class="field" id="campo-parcelas">
-              <label for="parcelas">Parcelado em quantas vezes</label>
-              <input type="number" id="parcelas" name="parcelas" min="1" max="24" value="1">
-            </div>
             <div class="field full">
               <label for="observacoes">Observações</label>
               <textarea id="observacoes" name="observacoes"></textarea>
@@ -204,6 +212,35 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
 
           <input type="hidden" name="itens_json" id="nv_itens_json" value="[]">
 
+          <h2 style="margin-top:20px;">Pagamento</h2>
+          <p class="muted" style="margin-top:-6px;">Pode lançar <strong>mais de uma forma</strong> (ex.: parte no dinheiro, parte no cartão). Opcional.</p>
+          <div class="form-grid">
+            <div class="field">
+              <label for="pg_forma">Forma</label>
+              <select id="pg_forma" onchange="pgToggleParcelas()">
+                <option value="dinheiro">Dinheiro</option>
+                <option value="pix">Pix</option>
+                <option value="debito">Cartão de débito</option>
+                <option value="credito">Cartão de crédito</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="pg_valor">Valor (R$)</label>
+              <input type="number" id="pg_valor" min="0" step="0.01" placeholder="0,00">
+            </div>
+            <div class="field" id="pg_campo_parcelas" style="display:none;">
+              <label for="pg_parcelas">Parcelas (crédito)</label>
+              <input type="number" id="pg_parcelas" min="1" max="24" value="1">
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="pgAdd()">+ Adicionar pagamento</button>
+          <p class="muted" id="pg_resto" style="margin-top:8px;"></p>
+          <table style="margin-top:4px;">
+            <thead><tr><th>Forma</th><th style="text-align:right;">Valor</th><th></th></tr></thead>
+            <tbody id="pg_corpo"><tr id="pg_vazio"><td colspan="3" class="muted" style="padding:10px 0;">Nenhum pagamento lançado.</td></tr></tbody>
+          </table>
+          <input type="hidden" name="pagamentos_json" id="pg_json" value="[]">
+
           <div class="actions-row">
             <button class="btn" type="submit">Salvar venda</button>
             <a class="btn btn-secondary" href="/vendas">Cancelar</a>
@@ -211,12 +248,6 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
         </form>
       </div>
       <script>
-        function toggleParcelas() {
-          var forma = document.getElementById('forma_pagamento').value;
-          document.getElementById('campo-parcelas').style.display = forma === 'credito' ? '' : 'none';
-        }
-        toggleParcelas();
-
         var NV_PRODUTOS = ${produtosJson};
         var nvItens = [];
         function nvMoney(v) { return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ','); }
@@ -263,6 +294,54 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           document.getElementById('nv_itens_json').value = JSON.stringify(nvItens.map(function (it) {
             return { peca_id: it.peca_id, nome: it.nome, preco: it.preco, qtd: it.qtd };
           }));
+          pgAtualizaResto();
+        }
+
+        // ----- Pagamentos (misto) -----
+        var PG_LABELS = { dinheiro: 'Dinheiro', pix: 'Pix', debito: 'Cartão de débito', credito: 'Cartão de crédito' };
+        var pgItens = [];
+        function pgToggleParcelas() {
+          document.getElementById('pg_campo_parcelas').style.display = document.getElementById('pg_forma').value === 'credito' ? '' : 'none';
+        }
+        function pgAdd() {
+          var forma = document.getElementById('pg_forma').value;
+          var valor = parseFloat(document.getElementById('pg_valor').value);
+          if (isNaN(valor) || valor <= 0) { alert('Informe o valor desse pagamento.'); return; }
+          var parcelas = forma === 'credito' ? (parseInt(document.getElementById('pg_parcelas').value, 10) || 1) : null;
+          pgItens.push({ forma: forma, valor: valor, parcelas: parcelas });
+          document.getElementById('pg_valor').value = '';
+          pgRender();
+        }
+        function pgRemover(i) { pgItens.splice(i, 1); pgRender(); }
+        function pgRender() {
+          var corpo = document.getElementById('pg_corpo');
+          if (pgItens.length === 0) {
+            corpo.innerHTML = '<tr id="pg_vazio"><td colspan="3" class="muted" style="padding:10px 0;">Nenhum pagamento lançado.</td></tr>';
+          } else {
+            corpo.innerHTML = pgItens.map(function (it, i) {
+              var label = PG_LABELS[it.forma] || it.forma;
+              if (it.forma === 'credito' && it.parcelas > 1) label += ' (' + it.parcelas + 'x)';
+              return '<tr><td>' + label + '</td><td style="text-align:right;">' + nvMoney(it.valor) + '</td>' +
+                '<td style="text-align:right;"><button type="button" class="btn btn-sm btn-danger" onclick="pgRemover(' + i + ')">Remover</button></td></tr>';
+            }).join('');
+          }
+          document.getElementById('pg_json').value = JSON.stringify(pgItens);
+          pgAtualizaResto();
+        }
+        function pgAtualizaResto() {
+          var el = document.getElementById('pg_resto');
+          if (!el) return;
+          var totalVenda = nvItens.reduce(function (s, it) { return s + it.preco * it.qtd; }, 0);
+          var pago = pgItens.reduce(function (s, it) { return s + it.valor; }, 0);
+          var resto = Math.round((totalVenda - pago) * 100) / 100;
+          if (totalVenda === 0 && pago === 0) { el.textContent = ''; return; }
+          if (Math.abs(resto) < 0.005) {
+            el.innerHTML = '<span style="color:#1f6b3a;font-weight:600;">Pagamento bate com o total. 👍</span>';
+          } else if (resto > 0) {
+            el.innerHTML = 'Falta lançar <strong>' + nvMoney(resto) + '</strong> &nbsp;·&nbsp; total da venda: ' + nvMoney(totalVenda) + '.';
+          } else {
+            el.innerHTML = '<span style="color:#a1352a;">Pagamentos passam do total em <strong>' + nvMoney(-resto) + '</strong>.</span>';
+          }
         }
       </script>
     `,
@@ -397,7 +476,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
       </div>`;
 }
 
-function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal }) {
+function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal, pagamentos }) {
   return layout({
     title: venda.numero,
     activeNav: 'vendas',
@@ -434,6 +513,8 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
       </div>
 
       ${vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis || [], csrfToken)}
+
+      ${pagamentosVendaSection(pagamentos)}
 
       ${nfeVendaSection(venda, configFiscal || {}, csrfToken)}
 
