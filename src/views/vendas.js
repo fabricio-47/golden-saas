@@ -162,10 +162,6 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
               </select>
             </div>
             ${lojaFieldHtml}
-            <div class="field full">
-              <label for="observacoes">Observações</label>
-              <textarea id="observacoes" name="observacoes"></textarea>
-            </div>
           </div>
 
           <h2 style="margin-top:20px;">Produtos da venda</h2>
@@ -207,7 +203,11 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
             </tbody>
           </table>
           <div style="display:flex;justify-content:flex-end;margin-top:8px;">
-            <div style="font-size:18px;font-weight:700;">Total: <span id="nv_total" style="color:#1f6b3a;">R$ 0,00</span></div>
+            <div style="min-width:300px;">
+              <div style="display:flex;justify-content:space-between;padding:4px 0;"><span class="muted">Subtotal dos produtos</span><strong id="nv_subtotal">R$ 0,00</strong></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;gap:12px;"><span class="muted">Desconto (R$)</span><input type="number" name="desconto" id="nv_desconto" min="0" step="0.01" value="" placeholder="0,00" style="width:130px;text-align:right;" oninput="nvRecalc()"></div>
+              <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid var(--border);"><span style="font-size:18px;font-weight:700;">Total</span><span id="nv_total" style="font-size:18px;font-weight:700;color:#1f6b3a;">R$ 0,00</span></div>
+            </div>
           </div>
 
           <input type="hidden" name="itens_json" id="nv_itens_json" value="[]">
@@ -289,11 +289,17 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
                 '<td style="text-align:right;"><button type="button" class="btn btn-sm btn-danger" onclick="nvRemover(' + i + ')">Remover</button></td></tr>';
             }).join('');
           }
-          var total = nvItens.reduce(function (s, it) { return s + it.preco * it.qtd; }, 0);
-          document.getElementById('nv_total').textContent = nvMoney(total);
           document.getElementById('nv_itens_json').value = JSON.stringify(nvItens.map(function (it) {
             return { peca_id: it.peca_id, nome: it.nome, preco: it.preco, qtd: it.qtd };
           }));
+          nvRecalc();
+        }
+        function nvSubtotal() { return nvItens.reduce(function (s, it) { return s + it.preco * it.qtd; }, 0); }
+        function nvDesconto() { var d = parseFloat(document.getElementById('nv_desconto').value); return (isNaN(d) || d < 0) ? 0 : d; }
+        function nvTotal() { return Math.max(0, nvSubtotal() - nvDesconto()); }
+        function nvRecalc() {
+          document.getElementById('nv_subtotal').textContent = nvMoney(nvSubtotal());
+          document.getElementById('nv_total').textContent = nvMoney(nvTotal());
           pgAtualizaResto();
         }
 
@@ -331,7 +337,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
         function pgAtualizaResto() {
           var el = document.getElementById('pg_resto');
           if (!el) return;
-          var totalVenda = nvItens.reduce(function (s, it) { return s + it.preco * it.qtd; }, 0);
+          var totalVenda = nvTotal();
           var pago = pgItens.reduce(function (s, it) { return s + it.valor; }, 0);
           var resto = Math.round((totalVenda - pago) * 100) / 100;
           if (totalVenda === 0 && pago === 0) { el.textContent = ''; return; }
@@ -507,7 +513,7 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
       ${venda.status === 'concluida' ? `<div class="flash flash-success">Venda finalizada em ${formatDate(venda.finalizada_at)}.</div>` : ''}
 
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${formatMoney(venda.valor_total)}</div><div class="label">Valor total da venda</div></div>
+        <div class="stat-card"><div class="num">${formatMoney(venda.valor_total)}</div><div class="label">Valor total da venda${Number(venda.desconto) > 0 ? ` (desconto de ${formatMoney(venda.desconto)})` : ''}</div></div>
         <div class="stat-card"><div class="num">${itens.length}</div><div class="label">Itens vendidos</div></div>
         <div class="stat-card"><div class="num">${formatDate(venda.created_at).split(' ')[0]}</div><div class="label">Data da venda</div></div>
       </div>

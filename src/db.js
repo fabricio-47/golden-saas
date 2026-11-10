@@ -454,6 +454,9 @@ ensureColumn('pecas', 'unidade_comercial', 'TEXT');
 // Foto do produto (uma por produto), caminho relativo em uploads (peca-<id>/...).
 ensureColumn('pecas', 'foto_caminho', 'TEXT');
 
+// Desconto (R$) aplicado na venda. valor_total já fica com o desconto abatido.
+ensureColumn('vendas', 'desconto', 'REAL');
+
 // Pagamentos de uma venda (permite pagamento misto: várias formas na mesma
 // venda, cada uma com seu valor; crédito pode ter parcelas).
 db.exec(`

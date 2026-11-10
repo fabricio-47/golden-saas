@@ -2769,8 +2769,10 @@ async function handler(req, res) {
             .run(vendaNovaId, String(it.nome).trim(), qtd, preco);
         }
       }
-      const totalNovo = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(vendaNovaId).total;
-      db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(totalNovo, vendaNovaId);
+      const subtotalItens = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(vendaNovaId).total;
+      const descontoVenda = Math.max(0, toFloatOrNull(body.desconto) || 0);
+      const totalNovo = Math.max(0, subtotalItens - descontoVenda);
+      db.prepare('UPDATE vendas SET valor_total = ?, desconto = ? WHERE id = ?').run(totalNovo, descontoVenda || null, vendaNovaId);
 
       setFlash(
         session.sessionId,
