@@ -81,8 +81,21 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
   });
 }
 
-function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }) {
+function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, pecasDisponiveis = [] }) {
   const clienteOptions = clientes.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+  const temMultiLoja = (lojas || []).length > 1;
+  const produtosJson = JSON.stringify(
+    (pecasDisponiveis || []).map((p) => ({
+      id: p.id,
+      nome: p.nome,
+      preco: Number(p.preco_venda) || 0,
+      estoque: p.quantidade,
+      foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
+    }))
+  );
+  const pecaOptionsNovo = (pecasDisponiveis || [])
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — R$ ${(Number(p.preco_venda) || 0).toFixed(2).replace('.', ',')}</option>`)
+    .join('');
 
   const lojaFieldHtml = lojaFixaNome
     ? `<div class="field">
@@ -111,7 +124,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }
       <div class="page-header">
         <div>
           <h1>Nova Venda Direto</h1>
-          <p class="subtitle">Depois de salvar, você adiciona os produtos vendidos na tela seguinte</p>
+          <p class="subtitle">Escolha o cliente e adicione os produtos — tudo numa tela só</p>
         </div>
       </div>
       ${semLojaAtivaHtml}
@@ -146,8 +159,53 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }
               <textarea id="observacoes" name="observacoes"></textarea>
             </div>
           </div>
+
+          <h2 style="margin-top:20px;">Produtos da venda</h2>
+          <div class="form-grid">
+            <div class="field" style="grid-column: span 2;">
+              <label for="nv_produto">Produto do estoque</label>
+              <select id="nv_produto">
+                <option value="">Selecione...</option>
+                ${pecaOptionsNovo}
+              </select>
+            </div>
+            <div class="field">
+              <label for="nv_qtd">Quantidade</label>
+              <input type="number" id="nv_qtd" min="1" step="1" value="1">
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="nvAddEstoque()">+ Adicionar produto</button>
+
+          <div class="form-grid" style="margin-top:16px;">
+            <div class="field" style="grid-column: span 2;">
+              <label for="nv_desc">Item avulso (fora do estoque)</label>
+              <input type="text" id="nv_desc" placeholder="Ex.: Serviço de instalação">
+            </div>
+            <div class="field">
+              <label for="nv_preco">Preço unit. (R$)</label>
+              <input type="number" id="nv_preco" min="0" step="0.01" placeholder="0,00">
+            </div>
+            <div class="field">
+              <label for="nv_qtd2">Quantidade</label>
+              <input type="number" id="nv_qtd2" min="1" step="1" value="1">
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="nvAddManual()">+ Adicionar item avulso</button>
+
+          <table style="margin-top:16px;">
+            <thead><tr><th>Item</th><th style="text-align:center;">Qtd.</th><th style="text-align:right;">Preço unit.</th><th style="text-align:right;">Subtotal</th><th></th></tr></thead>
+            <tbody id="nv_corpo">
+              <tr id="nv_vazio"><td colspan="5" class="muted" style="padding:14px 0;">Nenhum produto ainda. Adicione acima.</td></tr>
+            </tbody>
+          </table>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+            <div style="font-size:18px;font-weight:700;">Total: <span id="nv_total" style="color:#1f6b3a;">R$ 0,00</span></div>
+          </div>
+
+          <input type="hidden" name="itens_json" id="nv_itens_json" value="[]">
+
           <div class="actions-row">
-            <button class="btn" type="submit">Continuar</button>
+            <button class="btn" type="submit">Salvar venda</button>
             <a class="btn btn-secondary" href="/vendas">Cancelar</a>
           </div>
         </form>
@@ -158,6 +216,54 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken }
           document.getElementById('campo-parcelas').style.display = forma === 'credito' ? '' : 'none';
         }
         toggleParcelas();
+
+        var NV_PRODUTOS = ${produtosJson};
+        var nvItens = [];
+        function nvMoney(v) { return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ','); }
+        function nvEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function nvAddEstoque() {
+          var sel = document.getElementById('nv_produto');
+          var id = sel.value;
+          if (!id) { alert('Selecione um produto.'); return; }
+          var qtd = parseInt(document.getElementById('nv_qtd').value, 10) || 1;
+          var prod = NV_PRODUTOS.find(function (p) { return String(p.id) === String(id); });
+          if (!prod) return;
+          nvItens.push({ peca_id: prod.id, nome: prod.nome, preco: prod.preco, qtd: qtd, foto: prod.foto || null });
+          sel.value = ''; document.getElementById('nv_qtd').value = 1;
+          nvRender();
+        }
+        function nvAddManual() {
+          var desc = document.getElementById('nv_desc').value.trim();
+          var preco = parseFloat(document.getElementById('nv_preco').value);
+          var qtd = parseInt(document.getElementById('nv_qtd2').value, 10) || 1;
+          if (!desc) { alert('Digite a descrição do item avulso.'); return; }
+          if (isNaN(preco) || preco < 0) { alert('Digite um preço válido.'); return; }
+          nvItens.push({ peca_id: null, nome: desc, preco: preco, qtd: qtd, foto: null });
+          document.getElementById('nv_desc').value = ''; document.getElementById('nv_preco').value = ''; document.getElementById('nv_qtd2').value = 1;
+          nvRender();
+        }
+        function nvRemover(i) { nvItens.splice(i, 1); nvRender(); }
+        function nvRender() {
+          var corpo = document.getElementById('nv_corpo');
+          if (nvItens.length === 0) {
+            corpo.innerHTML = '<tr id="nv_vazio"><td colspan="5" class="muted" style="padding:14px 0;">Nenhum produto ainda. Adicione acima.</td></tr>';
+          } else {
+            corpo.innerHTML = nvItens.map(function (it, i) {
+              var sub = it.preco * it.qtd;
+              var thumb = it.foto ? '<img src="' + it.foto + '" alt="" style="width:30px;height:30px;object-fit:cover;border-radius:5px;border:1px solid var(--border);vertical-align:middle;margin-right:8px;">' : '';
+              return '<tr><td>' + thumb + nvEsc(it.nome) + '</td>' +
+                '<td style="text-align:center;">' + it.qtd + '</td>' +
+                '<td style="text-align:right;">' + nvMoney(it.preco) + '</td>' +
+                '<td style="text-align:right;font-weight:600;">' + nvMoney(sub) + '</td>' +
+                '<td style="text-align:right;"><button type="button" class="btn btn-sm btn-danger" onclick="nvRemover(' + i + ')">Remover</button></td></tr>';
+            }).join('');
+          }
+          var total = nvItens.reduce(function (s, it) { return s + it.preco * it.qtd; }, 0);
+          document.getElementById('nv_total').textContent = nvMoney(total);
+          document.getElementById('nv_itens_json').value = JSON.stringify(nvItens.map(function (it) {
+            return { peca_id: it.peca_id, nome: it.nome, preco: it.preco, qtd: it.qtd };
+          }));
+        }
       </script>
     `,
   });
