@@ -3,6 +3,19 @@
 const { layout } = require('./layout');
 const { escapeHtml } = require('../utils');
 
+// Cargos que aparecem na lista do cadastro. Para incluir um novo, é só acrescentar aqui.
+const CARGOS = [
+  'Técnico',
+  'Mecânico',
+  'Vendedor',
+  'Atendente',
+  'Caixa',
+  'Gerente',
+  'Auxiliar administrativo',
+  'Financeiro',
+  'Entregador',
+];
+
 function funcionariosListPage({ user, flash, funcionarios }) {
   const rows = funcionarios
     .map(
@@ -44,6 +57,11 @@ function funcionarioFormPage({ user, flash, funcionario, csrfToken, niveis, loja
   const isEdit = !!(funcionario && funcionario.id);
   const nivelOptions = (niveis || []).map((n) => `<option value="${n.id}">${escapeHtml(n.nome)}</option>`).join('');
   const lojaOptions = (lojas || []).map((l) => `<option value="${l.id}">${escapeHtml(l.nome)}</option>`).join('');
+  const funcaoAtual = funcionario ? funcionario.funcao || '' : '';
+  const funcaoOutro = !!funcaoAtual && !CARGOS.includes(funcaoAtual);
+  const cargoOptions = CARGOS.map(
+    (c) => `<option value="${escapeHtml(c)}" ${c === funcaoAtual ? 'selected' : ''}>${escapeHtml(c)}</option>`
+  ).join('');
 
   let acessoHtml = '';
   if (isEdit && podeDarAcesso) {
@@ -109,8 +127,13 @@ function funcionarioFormPage({ user, flash, funcionario, csrfToken, niveis, loja
               <input type="text" id="nome" name="nome" required value="${escapeHtml(funcionario ? funcionario.nome : '')}">
             </div>
             <div class="field">
-              <label for="funcao">Função / Cargo</label>
-              <input type="text" id="funcao" name="funcao" value="${escapeHtml(funcionario ? funcionario.funcao || '' : '')}" placeholder="Ex: Técnico, Vendedor, Mecânico...">
+              <label for="funcao_sel">Função / Cargo</label>
+              <select id="funcao_sel">
+                <option value="" ${!funcaoAtual ? 'selected' : ''}>Selecione...</option>
+                ${cargoOptions}
+                <option value="__outro" ${funcaoOutro ? 'selected' : ''}>Outro (digitar)</option>
+              </select>
+              <input type="text" id="funcao" name="funcao" value="${escapeHtml(funcaoAtual)}" placeholder="Digite o cargo" style="margin-top:8px;${funcaoOutro ? '' : 'display:none;'}">
             </div>
             <div class="field">
               <label for="telefone">Telefone</label>
@@ -143,6 +166,23 @@ function funcionarioFormPage({ user, flash, funcionario, csrfToken, niveis, loja
         </form>
       </div>
       ${acessoHtml}
+      <script>
+        (function () {
+          var sel = document.getElementById('funcao_sel');
+          var inp = document.getElementById('funcao');
+          if (!sel || !inp) return;
+          sel.addEventListener('change', function () {
+            if (sel.value === '__outro') {
+              inp.style.display = '';
+              inp.value = '';
+              inp.focus();
+            } else {
+              inp.style.display = 'none';
+              inp.value = sel.value;
+            }
+          });
+        })();
+      </script>
     `,
   });
 }
