@@ -31,6 +31,7 @@ const { gerarPdfAssinado } = require('./src/contratosPdf');
 const {
   MODULOS,
   listNiveis,
+  getNivel,
   getNivelPermissoesMap,
   createNivel,
   renameNivel,
@@ -68,6 +69,7 @@ const { lojasListPage, lojaFormPage } = require('./src/views/lojas');
 const { transferenciasListPage, transferenciaFormPage } = require('./src/views/transferencias');
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
+const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
 const { orcamentosListPage, orcamentoFormPage, orcamentoShowPage } = require('./src/views/orcamentos');
 const { relatoriosPage } = require('./src/views/relatorios');
@@ -644,7 +646,8 @@ async function handler(req, res) {
     // /contratos/assinar/... é a página pública que o CLIENTE abre pelo link
     // (e-mail/WhatsApp), sem estar logado no sistema.
     const isContratoPublico = pathname.startsWith('/contratos/assinar/');
-    if (!PUBLIC_PATHS.has(pathname) && !isContratoPublico && !user) {
+    const isConvitePublico = pathname.startsWith('/convite/');
+    if (!PUBLIC_PATHS.has(pathname) && !isContratoPublico && !isConvitePublico && !user) {
       return redirect(res, '/login');
     }
 
@@ -766,6 +769,44 @@ async function handler(req, res) {
 
     // ---------------- ARQUIVOS ENVIADOS ----------------
     let m;
+    // ---------------- CONVITE DE ACESSO (público, funcionário cria a senha) ----------------
+    if ((m = matchRoute('/convite/:token', pathname)) && method === 'GET') {
+      const convite = db.prepare('SELECT * FROM convites_acesso WHERE token = ?').get(m.token);
+      if (!convite || convite.usado_em || convite.expira_em <= new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+        return send(res, 410, convitePage({ nome: '', email: '', token: m.token, erro: 'Este convite não é válido ou já expirou. Peça um novo para a empresa.' }));
+      }
+      const func = convite.funcionario_id ? db.prepare('SELECT nome FROM funcionarios WHERE id = ?').get(convite.funcionario_id) : null;
+      return send(res, 200, convitePage({ nome: func ? func.nome : '', email: convite.email, token: m.token }));
+    }
+
+    if ((m = matchRoute('/convite/:token', pathname)) && method === 'POST') {
+      const convite = db.prepare('SELECT * FROM convites_acesso WHERE token = ?').get(m.token);
+      const func = convite && convite.funcionario_id ? db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(convite.funcionario_id) : null;
+      const nome = func ? func.nome : '';
+      const render = (erro) => send(res, 400, convitePage({ nome, email: (body.email || convite && convite.email) || '', token: m.token, erro }));
+      if (!convite || convite.usado_em || convite.expira_em <= new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+        return send(res, 410, convitePage({ nome, email: '', token: m.token, erro: 'Este convite não é válido ou já expirou.' }));
+      }
+      const email = (body.email || '').trim().toLowerCase();
+      const senha = body.senha || '';
+      const senha2 = body.senha2 || '';
+      if (email !== (convite.email || '').trim().toLowerCase()) return render('Confirme o mesmo e-mail que recebeu o convite.');
+      if (senha.length < 6) return render('A senha precisa ter pelo menos 6 caracteres.');
+      if (senha !== senha2) return render('As senhas não conferem.');
+      if (db.prepare('SELECT id FROM users WHERE lower(email) = ?').get(email)) {
+        return render('Já existe um usuário com este e-mail. Fale com a empresa.');
+      }
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = hashPassword(senha, salt);
+      const nomeUser = func ? func.nome : email;
+      const infoUser = db.prepare(
+        'INSERT INTO users (name, email, password_hash, password_salt, nivel_id, loja_id, pode_ver_outras_lojas, ativo) VALUES (?, ?, ?, ?, ?, ?, 0, 1)'
+      ).run(nomeUser, email, hash, salt, convite.nivel_id || null, convite.loja_id || null);
+      if (func) db.prepare('UPDATE funcionarios SET user_id = ? WHERE id = ?').run(infoUser.lastInsertRowid, func.id);
+      db.prepare("UPDATE convites_acesso SET usado_em = datetime('now') WHERE id = ?").run(convite.id);
+      return send(res, 200, loginPage({ sucesso: 'Acesso criado com sucesso! Agora é só entrar com seu e-mail e a senha que você escolheu.', email }));
+    }
+
     if ((m = matchRoute('/uploads/:folder/:filename', pathname)) && method === 'GET') {
       const fullPath = resolveUploadPath(`${m.folder}/${m.filename}`);
       if (!fullPath || !fs.existsSync(fullPath)) return notFound(res);
@@ -1480,17 +1521,25 @@ async function handler(req, res) {
       if (!body.nome || !body.nome.trim()) {
         return send(res, 400, funcionarioFormPage({ user, flash: { type: 'error', message: 'Nome do funcionário é obrigatório.' }, funcionario: body, csrfToken: session.csrfToken }));
       }
-      db.prepare('INSERT INTO funcionarios (nome, funcao, telefone, observacoes) VALUES (?, ?, ?, ?)').run(
-        body.nome.trim(), body.funcao || '', body.telefone || '', body.observacoes || ''
+      const infoFunc = db.prepare('INSERT INTO funcionarios (nome, funcao, telefone, observacoes, email) VALUES (?, ?, ?, ?, ?)').run(
+        body.nome.trim(), body.funcao || '', body.telefone || '', body.observacoes || '', (body.email || '').trim() || null
       );
-      setFlash(session.sessionId, 'success', 'Funcionário cadastrado.');
-      return redirect(res, '/funcionarios');
+      setFlash(session.sessionId, 'success', 'Funcionário cadastrado.' + ((body.email || '').trim() ? ' Abra o cadastro dele para enviar o convite de acesso.' : ''));
+      return redirect(res, `/funcionarios/${infoFunc.lastInsertRowid}/editar`);
     }
 
     if ((m = matchRoute('/funcionarios/:id/editar', pathname)) && method === 'GET') {
       const funcionario = db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(m.id);
       if (!funcionario) return notFound(res);
-      return send(res, 200, funcionarioFormPage({ user, flash: takeFlash(session.sessionId), funcionario, csrfToken: session.csrfToken }));
+      const convitePendente = db.prepare("SELECT 1 FROM convites_acesso WHERE funcionario_id = ? AND usado_em IS NULL AND expira_em > datetime('now') LIMIT 1").get(m.id);
+      return send(res, 200, funcionarioFormPage({
+        user, flash: takeFlash(session.sessionId), funcionario, csrfToken: session.csrfToken,
+        niveis: listNiveis(),
+        lojas: canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [],
+        jaTemAcesso: !!funcionario.user_id,
+        convitePendente: !!convitePendente,
+        podeDarAcesso: hasManagementAccess(user),
+      }));
     }
 
     if ((m = matchRoute('/funcionarios/:id', pathname)) && method === 'POST') {
@@ -1500,11 +1549,68 @@ async function handler(req, res) {
         return send(res, 400, funcionarioFormPage({ user, flash: { type: 'error', message: 'Nome do funcionário é obrigatório.' }, funcionario: { ...funcionario, ...body }, csrfToken: session.csrfToken }));
       }
       const ativo = body.ativo === '0' ? 0 : 1;
-      db.prepare('UPDATE funcionarios SET nome=?, funcao=?, telefone=?, observacoes=?, ativo=? WHERE id=?').run(
-        body.nome.trim(), body.funcao || '', body.telefone || '', body.observacoes || '', ativo, m.id
+      db.prepare('UPDATE funcionarios SET nome=?, funcao=?, telefone=?, observacoes=?, ativo=?, email=? WHERE id=?').run(
+        body.nome.trim(), body.funcao || '', body.telefone || '', body.observacoes || '', ativo, (body.email || '').trim() || null, m.id
       );
       setFlash(session.sessionId, 'success', 'Funcionário atualizado.');
-      return redirect(res, '/funcionarios');
+      return redirect(res, `/funcionarios/${m.id}/editar`);
+    }
+
+    // ---- Enviar convite de acesso a um funcionário ----
+    if ((m = matchRoute('/funcionarios/:id/convite', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const funcionario = db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(m.id);
+      if (!funcionario) return notFound(res);
+      const email = (funcionario.email || '').trim().toLowerCase();
+      if (!email) {
+        setFlash(session.sessionId, 'error', 'Cadastre um e-mail para o funcionário antes de enviar o convite.');
+        return redirect(res, `/funcionarios/${m.id}/editar`);
+      }
+      if (funcionario.user_id) {
+        setFlash(session.sessionId, 'error', 'Este funcionário já tem acesso ao sistema.');
+        return redirect(res, `/funcionarios/${m.id}/editar`);
+      }
+      const jaUser = db.prepare('SELECT id FROM users WHERE lower(email) = ?').get(email);
+      if (jaUser) {
+        setFlash(session.sessionId, 'error', `Já existe um usuário com o e-mail ${email}. Use outro e-mail ou gerencie em Configurações → Usuários.`);
+        return redirect(res, `/funcionarios/${m.id}/editar`);
+      }
+      const nivelId = toIntOrNull(body.nivel_id);
+      if (!nivelId || !getNivel(nivelId)) {
+        setFlash(session.sessionId, 'error', 'Selecione o nível de acesso do login.');
+        return redirect(res, `/funcionarios/${m.id}/editar`);
+      }
+      const lojaId = canSeeAllLojas(user) ? toIntOrNull(body.loja_id) : user.loja_id;
+      // invalida convites antigos e cria um novo
+      db.prepare('DELETE FROM convites_acesso WHERE funcionario_id = ? AND usado_em IS NULL').run(m.id);
+      const token = crypto.randomBytes(24).toString('hex');
+      db.prepare(
+        "INSERT INTO convites_acesso (funcionario_id, token, email, nivel_id, loja_id, expira_em) VALUES (?, ?, ?, ?, ?, datetime('now','+7 days'))"
+      ).run(m.id, token, email, nivelId, lojaId || null);
+      const link = `${baseUrlFromReq(req)}/convite/${token}`;
+      let emailEnviado = false;
+      if (mailConfigured()) {
+        try {
+          await sendMail({
+            to: email,
+            toName: funcionario.nome,
+            subject: 'Seu acesso ao Golden SaaS',
+            html: `<div style="font-family:Arial,sans-serif;color:#222;max-width:560px;"><h2 style="color:#8a6d1f;">Golden SaaS</h2><p>Olá, ${escapeHtml(funcionario.nome)}!</p><p>Você foi convidado a acessar o sistema. Clique no botão abaixo para validar seu e-mail e criar sua senha:</p><p><a href="${link}" style="display:inline-block;background:#c9a227;color:#111;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">Criar meu acesso</a></p><p style="color:#666;font-size:13px;">Ou copie e cole este link no navegador:<br>${link}</p><p style="color:#999;font-size:12px;">O link vale por 7 dias. Se não foi você, ignore este e-mail.</p></div>`,
+            text: `Olá ${funcionario.nome}, crie seu acesso ao Golden SaaS: ${link}`,
+          });
+          emailEnviado = true;
+        } catch (err) {
+          console.error('[convite] Falha ao enviar e-mail:', err);
+        }
+      }
+      setFlash(
+        session.sessionId,
+        'success',
+        emailEnviado
+          ? `Convite enviado para ${email}. O funcionário vai receber o link para criar a senha.`
+          : `Convite gerado, mas o envio por e-mail não está disponível. Envie este link para o funcionário: ${link}`
+      );
+      return redirect(res, `/funcionarios/${m.id}/editar`);
     }
 
     // ---------------- ORÇAMENTOS ----------------

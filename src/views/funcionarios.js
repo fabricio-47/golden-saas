@@ -40,8 +40,59 @@ function funcionariosListPage({ user, flash, funcionarios }) {
   });
 }
 
-function funcionarioFormPage({ user, flash, funcionario, csrfToken }) {
+function funcionarioFormPage({ user, flash, funcionario, csrfToken, niveis, lojas, jaTemAcesso, convitePendente, podeDarAcesso }) {
   const isEdit = !!(funcionario && funcionario.id);
+  const nivelOptions = (niveis || []).map((n) => `<option value="${n.id}">${escapeHtml(n.nome)}</option>`).join('');
+  const lojaOptions = (lojas || []).map((l) => `<option value="${l.id}">${escapeHtml(l.nome)}</option>`).join('');
+
+  let acessoHtml = '';
+  if (isEdit && podeDarAcesso) {
+    if (jaTemAcesso) {
+      acessoHtml = `
+      <div class="card">
+        <h2 style="margin-top:0;">Acesso ao sistema</h2>
+        <p>Este funcionário já tem login <span class="badge badge-ok">Com acesso</span>${funcionario.email ? ` — <strong>${escapeHtml(funcionario.email)}</strong>` : ''}.</p>
+        <p class="muted">A senha é definida pelo próprio funcionário. Para gerenciar o usuário (nível, desativar), vá em Configurações → Usuários.</p>
+      </div>`;
+    } else if (!funcionario.email) {
+      acessoHtml = `
+      <div class="card">
+        <h2 style="margin-top:0;">Acesso ao sistema</h2>
+        <p class="muted">Cadastre um <strong>e-mail</strong> acima e salve para poder enviar o convite de acesso. O funcionário recebe um link, valida e cria a própria senha.</p>
+      </div>`;
+    } else {
+      acessoHtml = `
+      <div class="card">
+        <h2 style="margin-top:0;">Acesso ao sistema</h2>
+        <p class="muted">Enviar um convite para <strong>${escapeHtml(funcionario.email)}</strong>. O funcionário recebe um link, valida o e-mail e <strong>cria a própria senha</strong>.</p>
+        ${convitePendente ? '<p class="muted">Já existe um convite pendente — enviar de novo gera um link novo.</p>' : ''}
+        <form method="POST" action="/funcionarios/${funcionario.id}/convite">
+          <input type="hidden" name="csrf" value="${csrfToken}">
+          <div class="form-grid">
+            <div class="field">
+              <label for="nivel_id">Nível de acesso do login</label>
+              <select id="nivel_id" name="nivel_id" required>
+                <option value="">Selecione...</option>
+                ${nivelOptions}
+              </select>
+            </div>
+            ${
+              lojas && lojas.length
+                ? `<div class="field">
+              <label for="loja_id">Loja do funcionário</label>
+              <select id="loja_id" name="loja_id">
+                <option value="">Todas (direção/gerência)</option>
+                ${lojaOptions}
+              </select>
+            </div>`
+                : ''
+            }
+          </div>
+          <button class="btn" type="submit">✉ Enviar convite de acesso</button>
+        </form>
+      </div>`;
+    }
+  }
   return layout({
     title: isEdit ? `Editar ${funcionario.nome}` : 'Novo funcionário',
     activeNav: 'funcionarios',
@@ -66,6 +117,10 @@ function funcionarioFormPage({ user, flash, funcionario, csrfToken }) {
               <input type="text" id="telefone" name="telefone" value="${escapeHtml(funcionario ? funcionario.telefone || '' : '')}">
             </div>
             <div class="field full">
+              <label for="email">E-mail (para dar acesso ao sistema)</label>
+              <input type="email" id="email" name="email" value="${escapeHtml(funcionario ? funcionario.email || '' : '')}" placeholder="Ex: funcionario@email.com">
+            </div>
+            <div class="field full">
               <label for="observacoes">Observações</label>
               <textarea id="observacoes" name="observacoes">${escapeHtml(funcionario ? funcionario.observacoes || '' : '')}</textarea>
             </div>
@@ -87,6 +142,7 @@ function funcionarioFormPage({ user, flash, funcionario, csrfToken }) {
           </div>
         </form>
       </div>
+      ${acessoHtml}
     `,
   });
 }

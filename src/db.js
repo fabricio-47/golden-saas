@@ -478,6 +478,27 @@ db.exec('INSERT OR IGNORE INTO config_geral (id) VALUES (1)');
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
 ensureColumn('vendas', 'comprovante_nome', 'TEXT');
 
+// E-mail do funcionário e vínculo com o login (users) criado via convite.
+ensureColumn('funcionarios', 'email', 'TEXT');
+ensureColumn('funcionarios', 'user_id', 'INTEGER');
+
+// Convites de acesso: o funcionário recebe um link por e-mail, valida e cria
+// a própria senha, virando um usuário (login). Token de uso único e com prazo.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS convites_acesso (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    funcionario_id INTEGER REFERENCES funcionarios(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
+    nivel_id INTEGER,
+    loja_id INTEGER,
+    pode_ver_outras_lojas INTEGER NOT NULL DEFAULT 0,
+    expira_em TEXT NOT NULL,
+    usado_em TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Caixa em espécie: livro de movimentos do dinheiro físico. 'entrada' quando
 // uma venda em dinheiro recebe baixa; 'fechamento' quando o diretor confere e
 // zera o caixa. Saldo = soma(entradas) - soma(fechamentos).
