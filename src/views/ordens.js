@@ -487,7 +487,7 @@ function servicosOsSection(osId, osServicos, servicosDisponiveis, csrfToken) {
       </div>`;
 }
 
-function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, osServicos, servicosDisponiveis, csrfToken }) {
+function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, osServicos, servicosDisponiveis, csrfToken, podeAlterar = true }) {
   const checklist = os.checklist_json ? JSON.parse(os.checklist_json) : [];
   const checklistRows = checklist
     .map(
@@ -524,9 +524,9 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
             <input type="hidden" name="csrf" value="${csrfToken}">
             <button class="btn btn-secondary" type="submit">✉ Enviar por e-mail</button>
           </form>
-          <a class="btn btn-secondary" href="/os/${os.id}/editar">Editar</a>
+          ${podeAlterar ? `<a class="btn btn-secondary" href="/os/${os.id}/editar">Editar</a>` : ''}
           ${
-            os.status !== 'concluida' && os.ativo
+            podeAlterar && os.status !== 'concluida' && os.ativo
               ? `<form method="POST" action="/os/${os.id}/finalizar" onsubmit="return confirm('Finalizar esta O.S. e avisar o cliente por e-mail que o serviço está pronto?');">
             <input type="hidden" name="csrf" value="${csrfToken}">
             <button class="btn" type="submit">✔ Finalizar e avisar cliente</button>
@@ -619,7 +619,9 @@ function ordemShowPage({ user, flash, os, midiasChecklist, midiasServico, osPeca
       }
 
       ${
-        os.ativo
+        !podeAlterar
+          ? ''
+          : os.ativo
           ? `<form method="POST" action="/os/${os.id}/desativar" onsubmit="return confirm('Desativar esta ordem de serviço? Ela sai das listas e totais, mas o histórico continua salvo e pode ser reativado depois.');">
         <input type="hidden" name="csrf" value="${csrfToken}">
         <button class="btn btn-danger btn-sm" type="submit">Desativar O.S.</button>

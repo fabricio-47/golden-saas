@@ -482,7 +482,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
       </div>`;
 }
 
-function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal, pagamentos }) {
+function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal, pagamentos, podeAlterar = true }) {
   return layout({
     title: venda.numero,
     activeNav: 'vendas',
@@ -522,7 +522,7 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
 
       ${pagamentosVendaSection(pagamentos)}
 
-      ${nfeVendaSection(venda, configFiscal || {}, csrfToken)}
+      ${nfeVendaSection(venda, configFiscal || {}, csrfToken, podeAlterar)}
 
       ${
         venda.observacoes
@@ -543,7 +543,7 @@ const NFE_STATUS_INFO = {
   erro: { label: 'Erro na emissão', cls: 'badge-desativada' },
 };
 
-function nfeVendaSection(venda, config, csrfToken) {
+function nfeVendaSection(venda, config, csrfToken, podeAlterar = true) {
   const ambiente = config.ambiente === 'producao' ? 'producao' : 'homologacao';
   const temToken = ambiente === 'producao' ? !!config.focus_token_producao : !!config.focus_token_homologacao;
   const ambienteBadge = ambiente === 'producao'
@@ -586,7 +586,7 @@ function nfeVendaSection(venda, config, csrfToken) {
     corpo = `
       <div style="margin-bottom:12px;">${linhas.join('<br>')}</div>
       <div class="actions-row" style="margin-top:0;">${botoes.join('')}</div>
-      <details style="margin-top:16px;">
+      ${podeAlterar ? `<details style="margin-top:16px;">
         <summary class="muted" style="cursor:pointer;">Cancelar esta NF-e</summary>
         <form method="POST" action="/vendas/${venda.id}/nfe/cancelar" onsubmit="return confirm('Cancelar a NF-e autorizada? Isso é definitivo.');" style="margin-top:10px;">
           <input type="hidden" name="csrf" value="${csrfToken}">
@@ -596,7 +596,7 @@ function nfeVendaSection(venda, config, csrfToken) {
           </div>
           <button class="btn btn-danger btn-sm" type="submit" style="margin-top:8px;">Cancelar NF-e</button>
         </form>
-      </details>`;
+      </details>` : ''}`;
   }
 
   return `

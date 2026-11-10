@@ -457,6 +457,11 @@ ensureColumn('pecas', 'foto_caminho', 'TEXT');
 // Desconto (R$) aplicado na venda. valor_total já fica com o desconto abatido.
 ensureColumn('vendas', 'desconto', 'REAL');
 
+// Permissão de editar/excluir por nível. 1 (padrão) = pode; 0 = só criar/ver
+// (não edita nem exclui produto, O.S. nem cancela nota). Direção/Gerência
+// sempre podem, independente disso.
+ensureColumn('niveis_permissao', 'pode_alterar', 'INTEGER NOT NULL DEFAULT 1');
+
 // Pagamentos de uma venda (permite pagamento misto: várias formas na mesma
 // venda, cada uma com seu valor; crédito pode ter parcelas).
 db.exec(`

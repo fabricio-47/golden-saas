@@ -38,6 +38,8 @@ const {
   setPermissoesMatrix,
   userCanAccessModulo,
   hasManagementAccess,
+  podeAlterarExcluir,
+  setPodeAlterar,
   countUsuariosAtivosComAcesso,
   canSeeAllLojas,
   canSeeLoja,
@@ -189,6 +191,14 @@ function notFound(res) {
 
 function forbidden(res) {
   send(res, 403, '<h1>403 - Você não tem permissão para acessar esta página.</h1><a href="/">Voltar</a>');
+}
+
+// Bloqueia uma ação de editar/excluir quando o nível não pode. Retorna true
+// (e já responde) se bloqueou; o chamador faz `if (bloqueado) return;`.
+function bloqueiaAlterar(res, user) {
+  if (podeAlterarExcluir(user)) return false;
+  send(res, 403, '<h1>Sem permissão</h1><p>Seu nível pode criar e visualizar, mas não editar nem excluir produtos, ordens de serviço ou cancelar notas. Fale com a gerência.</p><p><a href="javascript:history.back()">Voltar</a></p>');
+  return true;
 }
 
 function getBackupRecipients() {
@@ -978,8 +988,9 @@ async function handler(req, res) {
         }
       }
       const getCoresPeca = db.prepare('SELECT id, cor, quantidade FROM peca_cores WHERE peca_id = ? ORDER BY cor ASC');
+      const podeAlt = podeAlterarExcluir(user);
       pecas.forEach((p) => {
-        p.__podeEditar = canEditLoja(user, p.loja_id);
+        p.__podeEditar = canEditLoja(user, p.loja_id) && podeAlt;
         p.cores = getCoresPeca.all(p.id);
       });
 
@@ -1168,6 +1179,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/estoque/:id/excluir', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(m.id);
       if (!peca) return notFound(res);
       if (!canEditLoja(user, peca.loja_id)) return forbidden(res);
@@ -1177,6 +1189,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/estoque/:id', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(m.id);
       if (!peca) return notFound(res);
       if (!canEditLoja(user, peca.loja_id)) return forbidden(res);
@@ -2391,6 +2404,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/desativar', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       db.prepare("UPDATE ordens_servico SET ativo = 0, updated_at = datetime('now') WHERE id = ?").run(m.id);
@@ -2399,6 +2413,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/reativar', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       db.prepare("UPDATE ordens_servico SET ativo = 1, updated_at = datetime('now') WHERE id = ?").run(m.id);
@@ -2407,6 +2422,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/midias', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       const categoria = body.categoria === 'servico' ? 'servico' : 'checklist';
@@ -2430,6 +2446,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/midias/:midiaId/excluir', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const midia = db.prepare('SELECT * FROM os_midias WHERE id = ? AND ordem_servico_id = ?').get(m.midiaId, m.id);
       if (midia) {
         deleteUploadedFile(midia.caminho_arquivo);
@@ -2440,6 +2457,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/pecas', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(body.peca_id);
@@ -2469,6 +2487,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/pecas/:itemId/excluir', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const item = db.prepare('SELECT * FROM os_pecas WHERE id = ? AND ordem_servico_id = ?').get(m.itemId, m.id);
       if (item) {
         if (item.peca_id) {
@@ -2482,6 +2501,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/servicos', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       const nomeServico = (body.nome_servico || '').trim();
@@ -2504,6 +2524,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/servicos/:itemId/excluir', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const item = db.prepare('SELECT * FROM os_servicos WHERE id = ? AND ordem_servico_id = ?').get(m.itemId, m.id);
       if (item) {
         db.prepare('DELETE FROM os_servicos WHERE id = ?').run(item.id);
@@ -2538,6 +2559,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/finalizar', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const os = db
         .prepare(
           `SELECT os.*, c.nome as cliente_nome, c.email as cliente_email, b.marca, b.modelo
@@ -2577,6 +2599,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       const checklist = parseChecklistFromBody(body);
@@ -2637,7 +2660,7 @@ async function handler(req, res) {
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       const osServicos = db.prepare('SELECT * FROM os_servicos WHERE ordem_servico_id = ? ORDER BY created_at DESC').all(m.id);
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
-      return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, osServicos, servicosDisponiveis, csrfToken: session.csrfToken }));
+      return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, osServicos, servicosDisponiveis, csrfToken: session.csrfToken, podeAlterar: podeAlterarExcluir(user) }));
     }
 
     // ---------------- VENDA DIRETO ----------------
@@ -2801,7 +2824,7 @@ async function handler(req, res) {
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       const pagamentosVenda = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ? ORDER BY id ASC').all(m.id);
-      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda }));
+      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda, podeAlterar: podeAlterarExcluir(user) }));
     }
 
     if ((m = matchRoute('/vendas/:id/itens', pathname)) && method === 'POST') {
@@ -3121,6 +3144,10 @@ async function handler(req, res) {
         return redirect(res, '/niveis');
       }
       setPermissoesMatrix(matriz);
+      // Flag "pode editar/excluir" por nível.
+      for (const n of niveis) {
+        setPodeAlterar(n.id, body[`pode_alterar_${n.id}`] ? 1 : 0);
+      }
       setFlash(session.sessionId, 'success', 'Permissões salvas.');
       return redirect(res, '/niveis');
     }
@@ -3324,6 +3351,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/vendas/:id/nfe/cancelar', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
       const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
       if (!venda) return notFound(res);
       if (!canEditLoja(user, venda.loja_id)) return forbidden(res);

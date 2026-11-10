@@ -22,7 +22,8 @@ function niveisPage({ user, flash, niveis, permissoesPorNivel, csrfToken }) {
     )
     .join('');
 
-  const theadModulos = MODULOS.map((m) => `<th style="text-align:center;">${escapeHtml(m.label)}</th>`).join('');
+  const theadModulos = MODULOS.map((m) => `<th style="text-align:center;">${escapeHtml(m.label)}</th>`).join('') +
+    '<th style="text-align:center;border-left:2px solid var(--border);">Editar / Excluir</th>';
 
   const matrizRows = niveis
     .map((n) => {
@@ -32,7 +33,11 @@ function niveisPage({ user, flash, niveis, permissoesPorNivel, csrfToken }) {
           <input type="checkbox" name="perm_${n.id}_${m.key}" value="1" ${perms[m.key] ? 'checked' : ''} style="width:auto;">
         </td>`
       ).join('');
-      return `<tr><td>${escapeHtml(n.nome)}</td>${cells}</tr>`;
+      const podeAlterar = n.pode_alterar === undefined || n.pode_alterar === null ? 1 : n.pode_alterar;
+      const cellAlterar = `<td style="text-align:center;border-left:2px solid var(--border);">
+          <input type="checkbox" name="pode_alterar_${n.id}" value="1" ${podeAlterar ? 'checked' : ''} style="width:auto;">
+        </td>`;
+      return `<tr><td>${escapeHtml(n.nome)}</td>${cells}${cellAlterar}</tr>`;
     })
     .join('');
 
@@ -77,7 +82,8 @@ function niveisPage({ user, flash, niveis, permissoesPorNivel, csrfToken }) {
                     <tbody>${matrizRows}</tbody>
                   </table>
                 </div>
-                <p class="muted" style="margin-top:12px;">Quem tem acesso a "Configurações" também consegue criar/editar usuários e mudar estas permissões — libere com cuidado.</p>
+                <p class="muted" style="margin-top:12px;">A coluna <strong>Editar / Excluir</strong> controla se o nível pode <strong>alterar ou apagar</strong> produtos e ordens de serviço e <strong>cancelar notas</strong>. Desmarcada, o nível só <strong>cria e visualiza</strong> (ex.: Vendedor). Direção/Gerência sempre podem.</p>
+                <p class="muted" style="margin-top:4px;">Quem tem acesso a "Configurações" também consegue criar/editar usuários e mudar estas permissões — libere com cuidado.</p>
                 <div class="actions-row">
                   <button class="btn" type="submit">Salvar permissões</button>
                 </div>

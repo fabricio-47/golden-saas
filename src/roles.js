@@ -97,6 +97,22 @@ function hasManagementAccess(user) {
   return userCanAccessModulo(user, 'configuracoes');
 }
 
+// Pode editar/excluir registros (produtos, O.S.) e cancelar notas?
+// Direção/Gerência (acesso a Configurações) sempre podem. Os demais dependem
+// do flag pode_alterar do seu nível (padrão: pode).
+function podeAlterarExcluir(user) {
+  if (!user) return false;
+  if (hasManagementAccess(user)) return true;
+  if (!user.nivel_id) return false;
+  const row = db.prepare('SELECT pode_alterar FROM niveis_permissao WHERE id = ?').get(user.nivel_id);
+  return row ? !!row.pode_alterar : true;
+}
+
+// Define o flag pode_alterar de um nível (usado na tela de Níveis).
+function setPodeAlterar(nivelId, pode) {
+  db.prepare('UPDATE niveis_permissao SET pode_alterar = ? WHERE id = ?').run(pode ? 1 : 0, nivelId);
+}
+
 function nivelNome(user) {
   if (!user || !user.nivel_id) return '(sem nível)';
   const row = db.prepare('SELECT nome FROM niveis_permissao WHERE id = ?').get(user.nivel_id);
@@ -151,6 +167,8 @@ module.exports = {
   setPermissoesMatrix,
   userCanAccessModulo,
   hasManagementAccess,
+  podeAlterarExcluir,
+  setPodeAlterar,
   nivelNome,
   countUsuariosAtivosComAcesso,
   canSeeAllLojas,
