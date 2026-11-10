@@ -367,12 +367,14 @@ function layout({ title, activeNav, user, flash, children }) {
     <div class="mobile-topbar">
       <label for="nav-toggle" class="hamburger-btn" aria-label="Abrir menu">&#9776;</label>
       <div class="mobile-topbar-brand">Golden<span>SaaS</span></div>
+      <button type="button" onclick="location.reload()" aria-label="Atualizar" title="Atualizar" style="margin-left:auto;background:none;border:none;color:inherit;font-size:22px;cursor:pointer;line-height:1;">&#128260;</button>
     </div>
     <label for="nav-toggle" class="nav-overlay" aria-hidden="true"></label>
     <aside class="sidebar">
       <div class="brand">Golden<span>SaaS</span></div>
       <nav>${navHtml}</nav>
       <div class="sidebar-footer">
+        <button type="button" onclick="location.reload()" title="Recarregar a tela e pegar os dados mais novos" style="width:100%;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">&#128260; Atualizar</button>
         <div class="sidebar-user">${escapeHtml(user ? user.name : '')}</div>
         ${roleLabelHtml}
         <form method="POST" action="/logout"><button class="btn-logout" style="background:none;border:none;cursor:pointer;padding:0;">Sair</button></form>
