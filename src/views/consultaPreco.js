@@ -47,7 +47,7 @@ function consultaPrecoPage({ user, flash, pecas }) {
           </div>
         </div>
         <div id="cp_preview_box" style="display:none;align-items:center;gap:12px;margin:4px 0 12px;">
-          <img id="cp_preview_img" src="" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+          <img id="cp_preview_img" src="" alt="" title="Clique para ampliar" onclick="cpZoom(this.src)" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in;">
           <span id="cp_preview_nome" class="muted"></span>
         </div>
         <button type="button" class="btn" onclick="cpAddEstoque()">+ Adicionar do estoque</button>
@@ -102,9 +102,25 @@ function consultaPrecoPage({ user, flash, pecas }) {
         </div>
       </div>
 
+      <div id="cp_lightbox" onclick="cpCloseZoom()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;cursor:zoom-out;">
+        <img id="cp_lightbox_img" src="" alt="" style="max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,0.6);">
+      </div>
+
       <script>
         var CP_PRODUTOS = ${produtosJson};
         var cpItens = [];
+
+        function cpZoom(src) {
+          if (!src) return;
+          document.getElementById('cp_lightbox_img').src = src;
+          document.getElementById('cp_lightbox').style.display = 'flex';
+        }
+        function cpCloseZoom() {
+          document.getElementById('cp_lightbox').style.display = 'none';
+        }
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') cpCloseZoom();
+        });
 
         function cpMoney(v) {
           return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ',');
@@ -158,7 +174,7 @@ function consultaPrecoPage({ user, flash, pecas }) {
             corpo.innerHTML = cpItens.map(function (it, i) {
               var sub = it.preco * it.qtd;
               var thumb = it.foto
-                ? '<img src="' + it.foto + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);vertical-align:middle;margin-right:8px;">'
+                ? '<img src="' + it.foto + '" alt="" title="Clique para ampliar" onclick="cpZoom(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);vertical-align:middle;margin-right:8px;cursor:zoom-in;">'
                 : '';
               return '<tr>' +
                 '<td>' + thumb + cpEsc(it.nome) + '</td>' +
