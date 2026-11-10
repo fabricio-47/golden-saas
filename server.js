@@ -545,7 +545,8 @@ function buildOsEmailContent(os, clienteNome, tipo) {
 
 // ---------- request handler ----------
 
-const PUBLIC_PATHS = new Set(['/login']);
+const PUBLIC_PATHS = new Set(['/login', '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png']);
+const pwa = require('./src/assets/pwa');
 
 async function handler(req, res) {
   try {
@@ -639,6 +640,28 @@ async function handler(req, res) {
       if (!body.csrf || body.csrf !== session.csrfToken) {
         return send(res, 403, '<h1>403 - Token de segurança inválido. Volte e tente novamente.</h1><a href="/">Voltar</a>');
       }
+    }
+
+    // ---------------- PWA (app instalável) ----------------
+    if (pathname === '/manifest.webmanifest' && method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
+      res.end(pwa.MANIFEST);
+      return;
+    }
+    if (pathname === '/sw.js' && method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end(pwa.SERVICE_WORKER);
+      return;
+    }
+    if (pathname === '/icon-192.png' && method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' });
+      res.end(pwa.ICON_192);
+      return;
+    }
+    if (pathname === '/icon-512.png' && method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' });
+      res.end(pwa.ICON_512);
+      return;
     }
 
     // ---------------- PUBLIC ROUTES ----------------
