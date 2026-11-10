@@ -85,6 +85,12 @@ function buildNfePayload(venda, itens, cliente, config) {
 
   const valorTotal = items.reduce((s, i) => s + (i.valor_bruto || 0), 0);
 
+  // Em HOMOLOGAÇÃO a SEFAZ exige este nome exato no destinatário (senão
+  // rejeita com erro 598). Em produção usa o nome real do cliente.
+  const nomeDestinatario = creds.ambiente === 'homologacao'
+    ? 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
+    : cliente && cliente.nome;
+
   const nfe = {
     natureza_operacao: config.natureza_operacao || 'Venda de mercadoria',
     data_emissao: dataEmissaoISO(),
@@ -94,7 +100,7 @@ function buildNfePayload(venda, itens, cliente, config) {
     presenca_comprador: 1, // operação presencial
     regime_tributario_emitente: Number(config.regime_tributario) || 1,
     modalidade_frete: 9, // sem frete
-    nome_destinatario: cliente && cliente.nome,
+    nome_destinatario: nomeDestinatario,
     [isCnpj ? 'cnpj_destinatario' : 'cpf_destinatario']: docDest || undefined,
     indicador_inscricao_estadual_destinatario: isCnpj && cliente && cliente.ie ? 1 : 9,
     inscricao_estadual_destinatario: isCnpj && cliente && cliente.ie ? soDigitos(cliente.ie) : undefined,
