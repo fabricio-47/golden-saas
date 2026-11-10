@@ -462,6 +462,18 @@ ensureColumn('vendas', 'desconto', 'REAL');
 // sempre podem, independente disso.
 ensureColumn('niveis_permissao', 'pode_alterar', 'INTEGER NOT NULL DEFAULT 1');
 
+// Configuração geral (linha única, id = 1). Guarda a senha do caixa (hash),
+// usada para o caixa "dar baixa" (confirmar o pagamento) de uma venda.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS config_geral (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    senha_caixa_hash TEXT,
+    senha_caixa_salt TEXT,
+    atualizado_em TEXT
+  );
+`);
+db.exec('INSERT OR IGNORE INTO config_geral (id) VALUES (1)');
+
 // Pagamentos de uma venda (permite pagamento misto: várias formas na mesma
 // venda, cada uma com seu valor; crédito pode ter parcelas).
 db.exec(`

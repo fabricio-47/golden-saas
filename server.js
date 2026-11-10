@@ -87,6 +87,7 @@ const {
 const { backupPage } = require('./src/views/backup');
 const { runAutoBackup, buildFullBackupZip, readState: readBackupState } = require('./src/backup');
 const { configFiscalPage } = require('./src/views/configuracoesFiscais');
+const { configCaixaPage } = require('./src/views/configuracoesCaixa');
 const focus = require('./src/focus');
 
 const PORT = process.env.PORT || 3000;
@@ -107,6 +108,25 @@ function takeFlash(sessionId) {
 }
 
 // ---------------- Integração fiscal (NF-e / Focus NFe) ----------------
+// ---------------- Caixa (senha para dar baixa) ----------------
+function getConfigGeral() {
+  return db.prepare('SELECT * FROM config_geral WHERE id = 1').get() || {};
+}
+function senhaCaixaConfigurada() {
+  const c = getConfigGeral();
+  return !!(c.senha_caixa_hash && c.senha_caixa_salt);
+}
+function validarSenhaCaixa(senha) {
+  const c = getConfigGeral();
+  if (!c.senha_caixa_hash || !c.senha_caixa_salt) return false;
+  return hashPassword(senha || '', c.senha_caixa_salt) === c.senha_caixa_hash;
+}
+function setSenhaCaixa(senha) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = hashPassword(senha, salt);
+  db.prepare("UPDATE config_geral SET senha_caixa_hash = ?, senha_caixa_salt = ?, atualizado_em = datetime('now') WHERE id = 1").run(hash, salt);
+}
+
 function getConfigFiscal() {
   return (
     db.prepare('SELECT * FROM config_fiscal WHERE id = 1').get() || {
@@ -2831,7 +2851,7 @@ async function handler(req, res) {
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       const pagamentosVenda = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ? ORDER BY id ASC').all(m.id);
-      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda, podeAlterar: podeAlterarExcluir(user) }));
+      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda, podeAlterar: podeAlterarExcluir(user), senhaCaixaConfig: senhaCaixaConfigurada() }));
     }
 
     if ((m = matchRoute('/vendas/:id/itens', pathname)) && method === 'POST') {
@@ -2964,7 +2984,12 @@ async function handler(req, res) {
       }
       const itemCount = db.prepare('SELECT COUNT(*) c FROM venda_itens WHERE venda_id = ?').get(m.id).c;
       if (itemCount === 0) {
-        setFlash(session.sessionId, 'error', 'Adicione pelo menos um item antes de finalizar a venda.');
+        setFlash(session.sessionId, 'error', 'Adicione pelo menos um item antes de dar baixa na venda.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      // Dar baixa (confirmar pagamento) exige a senha do caixa, quando houver uma.
+      if (senhaCaixaConfigurada() && !validarSenhaCaixa(body.senha_caixa)) {
+        setFlash(session.sessionId, 'error', 'Senha do caixa incorreta. A baixa não foi feita.');
         return redirect(res, `/vendas/${m.id}`);
       }
       db.prepare("UPDATE vendas SET status='concluida', finalizada_at=datetime('now') WHERE id = ?").run(m.id);
@@ -2974,7 +2999,7 @@ async function handler(req, res) {
       } catch (err) {
         console.error('[contas-receber] Falha ao gerar parcelas a partir da Venda:', err);
       }
-      setFlash(session.sessionId, 'success', 'Venda finalizada com sucesso.');
+      setFlash(session.sessionId, 'success', 'Baixa confirmada — pagamento registrado.');
       return redirect(res, `/vendas/${m.id}`);
     }
 
@@ -3229,6 +3254,34 @@ async function handler(req, res) {
         setFlash(session.sessionId, 'error', 'Falha ao gerar o backup completo: ' + (err && err.message ? err.message : 'erro desconhecido, veja os Logs do servidor.'));
         return redirect(res, '/backup');
       }
+    }
+
+    // ---------------- CONFIGURAÇÕES DO CAIXA ----------------
+    if (pathname === '/configuracoes/caixa' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, configCaixaPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        senhaConfigurada: senhaCaixaConfigurada(),
+        csrfToken: session.csrfToken,
+      }));
+    }
+
+    if (pathname === '/configuracoes/caixa' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const senha = (body.senha || '').trim();
+      const senha2 = (body.senha2 || '').trim();
+      if (senha.length < 4) {
+        setFlash(session.sessionId, 'error', 'A senha do caixa precisa ter pelo menos 4 caracteres.');
+        return redirect(res, '/configuracoes/caixa');
+      }
+      if (senha !== senha2) {
+        setFlash(session.sessionId, 'error', 'As senhas não conferem.');
+        return redirect(res, '/configuracoes/caixa');
+      }
+      setSenhaCaixa(senha);
+      setFlash(session.sessionId, 'success', 'Senha do caixa salva.');
+      return redirect(res, '/configuracoes/caixa');
     }
 
     // ---------------- CONFIGURAÇÕES FISCAIS (NF-e) ----------------

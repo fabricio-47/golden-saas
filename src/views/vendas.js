@@ -3,7 +3,7 @@
 const { layout } = require('./layout');
 const { escapeHtml, formatMoney, formatDate } = require('../utils');
 
-const STATUS_LABELS = { aberta: 'Em aberto', concluida: 'Concluída' };
+const STATUS_LABELS = { aberta: 'Aguardando pagamento', concluida: 'Pago' };
 
 const FORMA_PAGAMENTO_LABELS = {
   pix: 'Pix',
@@ -45,8 +45,8 @@ function pagamentosVendaSection(pagamentos) {
 
 function vendaStatusBadge(venda) {
   return venda.status === 'concluida'
-    ? '<span class="badge badge-concluida">Concluída</span>'
-    : '<span class="badge badge-execucao">Em aberto</span>';
+    ? '<span class="badge badge-concluida">Pago</span>'
+    : '<span class="badge badge-execucao">Aguardando pagamento</span>';
 }
 
 function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja }) {
@@ -482,7 +482,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
       </div>`;
 }
 
-function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal, pagamentos, podeAlterar = true }) {
+function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal, pagamentos, podeAlterar = true, senhaCaixaConfig = false }) {
   return layout({
     title: venda.numero,
     activeNav: 'vendas',
@@ -501,16 +501,18 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
         <div class="actions-row" style="margin-top:0;">
           ${
             venda.status === 'aberta' && itens.length
-              ? `<form method="POST" action="/vendas/${venda.id}/finalizar" onsubmit="return confirm('Finalizar esta venda? Depois de finalizada não é mais possível adicionar ou remover itens.');">
+              ? `<form method="POST" action="/vendas/${venda.id}/finalizar" onsubmit="return confirm('Dar baixa nesta venda? Isso confirma que o pagamento foi recebido. Depois não dá pra alterar os itens.');" style="display:flex;gap:8px;align-items:flex-end;margin:0;">
             <input type="hidden" name="csrf" value="${csrfToken}">
-            <button class="btn" type="submit">✔ Finalizar venda</button>
+            ${senhaCaixaConfig ? `<div class="field" style="margin:0;"><label for="senha_caixa" style="font-size:12px;">Senha do caixa</label><input type="password" id="senha_caixa" name="senha_caixa" required autocomplete="off" style="width:170px;"></div>` : ''}
+            <button class="btn" type="submit">✔ Dar baixa</button>
           </form>`
               : ''
           }
         </div>
       </div>
 
-      ${venda.status === 'concluida' ? `<div class="flash flash-success">Venda finalizada em ${formatDate(venda.finalizada_at)}.</div>` : ''}
+      ${venda.status === 'aberta' && !senhaCaixaConfig ? '<div class="flash flash-error">Dica: defina a <a class="link-btn" href="/configuracoes/caixa">senha do caixa</a> em Configurações para exigir confirmação na baixa. Por enquanto a baixa é feita sem senha.</div>' : ''}
+      ${venda.status === 'concluida' ? `<div class="flash flash-success">Pagamento confirmado (baixa) em ${formatDate(venda.finalizada_at)}.</div>` : ''}
 
       <div class="stat-grid">
         <div class="stat-card"><div class="num">${formatMoney(venda.valor_total)}</div><div class="label">Valor total da venda${Number(venda.desconto) > 0 ? ` (desconto de ${formatMoney(venda.desconto)})` : ''}</div></div>
