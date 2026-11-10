@@ -88,6 +88,7 @@ const { backupPage } = require('./src/views/backup');
 const { runAutoBackup, buildFullBackupZip, readState: readBackupState } = require('./src/backup');
 const { configFiscalPage } = require('./src/views/configuracoesFiscais');
 const { configCaixaPage } = require('./src/views/configuracoesCaixa');
+const { caixaEspeciePage } = require('./src/views/caixaEspecie');
 const focus = require('./src/focus');
 
 const PORT = process.env.PORT || 3000;
@@ -125,6 +126,19 @@ function setSenhaCaixa(senha) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = hashPassword(senha, salt);
   db.prepare("UPDATE config_geral SET senha_caixa_hash = ?, senha_caixa_salt = ?, atualizado_em = datetime('now') WHERE id = 1").run(hash, salt);
+}
+
+// Caixa em espécie (dinheiro físico): saldo = entradas - fechamentos.
+function saldoCaixaEspecie() {
+  const r = db
+    .prepare("SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor WHEN tipo='fechamento' THEN -valor ELSE 0 END), 0) s FROM caixa_movimentos")
+    .get();
+  return r.s || 0;
+}
+function registrarEntradaCaixa(valor, vendaId, descricao, usuarioId) {
+  if (!valor || valor <= 0) return;
+  db.prepare("INSERT INTO caixa_movimentos (tipo, valor, venda_id, descricao, usuario_id) VALUES ('entrada', ?, ?, ?, ?)")
+    .run(valor, vendaId || null, descricao || null, usuarioId || null);
 }
 
 function getConfigFiscal() {
@@ -1946,6 +1960,32 @@ async function handler(req, res) {
 
     // ---------------- CONTAS A PAGAR ----------------
     // ---------------- FINANCEIRO (resumo consolidado) ----------------
+    if (pathname === '/financeiro/caixa-especie' && method === 'GET') {
+      const movimentos = db.prepare('SELECT * FROM caixa_movimentos ORDER BY id DESC LIMIT 200').all();
+      return send(res, 200, caixaEspeciePage({
+        user,
+        flash: takeFlash(session.sessionId),
+        saldo: saldoCaixaEspecie(),
+        movimentos,
+        csrfToken: session.csrfToken,
+        podeFechar: hasManagementAccess(user),
+      }));
+    }
+
+    if (pathname === '/financeiro/caixa-especie/fechar' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const valor = Math.max(0, toFloatOrNull(body.valor) || 0);
+      if (valor <= 0) {
+        setFlash(session.sessionId, 'error', 'Informe um valor maior que zero para fechar o caixa.');
+        return redirect(res, '/financeiro/caixa-especie');
+      }
+      const obs = (body.obs || '').trim();
+      db.prepare("INSERT INTO caixa_movimentos (tipo, valor, descricao, usuario_id) VALUES ('fechamento', ?, ?, ?)")
+        .run(valor, obs ? `Fechamento: ${obs}` : `Fechamento do caixa (${user.name})`, user.id);
+      setFlash(session.sessionId, 'success', `Caixa fechado: ${formatMoney(valor)} retirado. Saldo restante: ${formatMoney(saldoCaixaEspecie())}.`);
+      return redirect(res, '/financeiro/caixa-especie');
+    }
+
     if (pathname === '/financeiro' && method === 'GET') {
       const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
       const mesAtual = hoje.slice(0, 7);
@@ -2992,7 +3032,30 @@ async function handler(req, res) {
         setFlash(session.sessionId, 'error', 'Senha do caixa incorreta. A baixa não foi feita.');
         return redirect(res, `/vendas/${m.id}`);
       }
+      // Comprovante obrigatório quando há pagamento digital (pix/cartão).
+      const pagamentosBaixa = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ?').all(m.id);
+      const temDigital = pagamentosBaixa.some((p) => ['pix', 'debito', 'credito'].includes(p.forma));
+      let compSaved = null;
+      if (temDigital) {
+        const compFile = (files || []).find((f) => f.fieldName === 'comprovante' && f.data && f.data.length > 0);
+        if (!compFile) {
+          setFlash(session.sessionId, 'error', 'Esta venda tem pagamento digital (pix/cartão). Anexe o comprovante do pagamento na conta da empresa para dar baixa.');
+          return redirect(res, `/vendas/${m.id}`);
+        }
+        compSaved = saveReceiptFile('venda', m.id, compFile);
+        if (!compSaved) {
+          setFlash(session.sessionId, 'error', 'Comprovante inválido. Envie um PDF, JPG ou PNG.');
+          return redirect(res, `/vendas/${m.id}`);
+        }
+      }
       db.prepare("UPDATE vendas SET status='concluida', finalizada_at=datetime('now') WHERE id = ?").run(m.id);
+      if (compSaved) {
+        db.prepare('UPDATE vendas SET comprovante_caminho = ?, comprovante_nome = ? WHERE id = ?').run(compSaved.caminho_arquivo, compSaved.nome_arquivo, m.id);
+      }
+      // Pagamentos em dinheiro entram no "Caixa em espécie".
+      for (const p of pagamentosBaixa) {
+        if (p.forma === 'dinheiro') registrarEntradaCaixa(p.valor, m.id, `Venda ${venda.numero}`, user.id);
+      }
       const vendaAtualizada = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
       try {
         gerarContasReceberDaVenda(vendaAtualizada, user);

@@ -296,6 +296,7 @@ function layout({ title, activeNav, user, flash, children }) {
       label: 'Financeiro',
       items: [
         { key: 'financeiro-resumo', href: '/financeiro', label: 'Visão geral', modulo: 'financeiro' },
+        { key: 'caixa-especie', href: '/financeiro/caixa-especie', label: 'Caixa em espécie', modulo: 'financeiro' },
         { key: 'contas-pagar', href: '/contas-pagar', label: 'Contas a Pagar', modulo: 'financeiro' },
         { key: 'contas-receber', href: '/contas-receber', label: 'Contas a Receber', modulo: 'financeiro' },
       ].filter((item) => podeVer(item.modulo)),

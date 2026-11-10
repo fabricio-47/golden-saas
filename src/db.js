@@ -474,6 +474,25 @@ db.exec(`
 `);
 db.exec('INSERT OR IGNORE INTO config_geral (id) VALUES (1)');
 
+// Comprovante do pagamento anexado na baixa (obrigatório quando digital).
+ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
+ensureColumn('vendas', 'comprovante_nome', 'TEXT');
+
+// Caixa em espécie: livro de movimentos do dinheiro físico. 'entrada' quando
+// uma venda em dinheiro recebe baixa; 'fechamento' quando o diretor confere e
+// zera o caixa. Saldo = soma(entradas) - soma(fechamentos).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS caixa_movimentos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL,
+    valor REAL NOT NULL DEFAULT 0,
+    venda_id INTEGER REFERENCES vendas(id) ON DELETE SET NULL,
+    descricao TEXT,
+    usuario_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Pagamentos de uma venda (permite pagamento misto: várias formas na mesma
 // venda, cada uma com seu valor; crédito pode ter parcelas).
 db.exec(`

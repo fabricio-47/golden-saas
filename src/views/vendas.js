@@ -498,21 +498,33 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
             &nbsp;·&nbsp; Pagamento: ${formaPagamentoLabel(venda)}
           </p>
         </div>
-        <div class="actions-row" style="margin-top:0;">
-          ${
-            venda.status === 'aberta' && itens.length
-              ? `<form method="POST" action="/vendas/${venda.id}/finalizar" onsubmit="return confirm('Dar baixa nesta venda? Isso confirma que o pagamento foi recebido. Depois não dá pra alterar os itens.');" style="display:flex;gap:8px;align-items:flex-end;margin:0;">
-            <input type="hidden" name="csrf" value="${csrfToken}">
-            ${senhaCaixaConfig ? `<div class="field" style="margin:0;"><label for="senha_caixa" style="font-size:12px;">Senha do caixa</label><input type="password" id="senha_caixa" name="senha_caixa" required autocomplete="off" style="width:170px;"></div>` : ''}
-            <button class="btn" type="submit">✔ Dar baixa</button>
-          </form>`
-              : ''
-          }
-        </div>
+        <div class="actions-row" style="margin-top:0;"></div>
       </div>
 
-      ${venda.status === 'aberta' && !senhaCaixaConfig ? '<div class="flash flash-error">Dica: defina a <a class="link-btn" href="/configuracoes/caixa">senha do caixa</a> em Configurações para exigir confirmação na baixa. Por enquanto a baixa é feita sem senha.</div>' : ''}
-      ${venda.status === 'concluida' ? `<div class="flash flash-success">Pagamento confirmado (baixa) em ${formatDate(venda.finalizada_at)}.</div>` : ''}
+      ${(() => {
+        if (venda.status === 'concluida') {
+          const compLink = venda.comprovante_caminho
+            ? ` · <a class="link-btn" href="/uploads/${escapeHtml(venda.comprovante_caminho)}" target="_blank" rel="noopener">ver comprovante</a>`
+            : '';
+          return `<div class="flash flash-success">Pagamento confirmado (baixa) em ${formatDate(venda.finalizada_at)}.${compLink}</div>`;
+        }
+        if (venda.status !== 'aberta' || !itens.length) return '';
+        const temDigital = (pagamentos || []).some((p) => ['pix', 'debito', 'credito'].includes(p.forma));
+        return `
+        <div class="card" style="border-left:4px solid #8a6d1f;">
+          <h2 style="margin-top:0;">Dar baixa (confirmar pagamento)</h2>
+          <p class="muted" style="margin-top:-4px;">Só o caixa confirma, depois que o dinheiro entrou na conta da empresa${temDigital ? ' — anexando o comprovante' : ''}.</p>
+          <form method="POST" action="/vendas/${venda.id}/finalizar" enctype="multipart/form-data" onsubmit="return confirm('Dar baixa nesta venda? Isso confirma que o pagamento foi recebido. Depois não dá pra alterar os itens.');">
+            <input type="hidden" name="csrf" value="${csrfToken}">
+            <div class="form-grid">
+              ${senhaCaixaConfig ? `<div class="field"><label for="senha_caixa">Senha do caixa</label><input type="password" id="senha_caixa" name="senha_caixa" required autocomplete="off"></div>` : ''}
+              ${temDigital ? `<div class="field"><label for="comprovante">Comprovante do pagamento (obrigatório — PDF/foto)</label><input type="file" id="comprovante" name="comprovante" accept="image/*,application/pdf" required></div>` : ''}
+            </div>
+            <button class="btn" type="submit">✔ Dar baixa</button>
+          </form>
+          ${!senhaCaixaConfig ? '<p class="muted" style="margin-top:8px;">Dica: defina a <a class="link-btn" href="/configuracoes/caixa">senha do caixa</a> em Configurações para exigir senha na baixa.</p>' : ''}
+        </div>`;
+      })()}
 
       <div class="stat-grid">
         <div class="stat-card"><div class="num">${formatMoney(venda.valor_total)}</div><div class="label">Valor total da venda${Number(venda.desconto) > 0 ? ` (desconto de ${formatMoney(venda.desconto)})` : ''}</div></div>
