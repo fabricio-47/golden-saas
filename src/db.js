@@ -494,6 +494,16 @@ db.exec(`
 `);
 db.exec('INSERT OR IGNORE INTO config_geral (id) VALUES (1)');
 
+// Configuração padrão das etiquetas de código de barras (vale para todos os PCs).
+ensureColumn('config_geral', 'etq_largura_mm', 'REAL NOT NULL DEFAULT 50');
+ensureColumn('config_geral', 'etq_altura_mm', 'REAL NOT NULL DEFAULT 30');
+ensureColumn('config_geral', 'etq_mostrar_nome', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('config_geral', 'etq_mostrar_preco', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('config_geral', 'etq_mostrar_codigo', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('config_geral', 'etq_mostrar_loja', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('config_geral', 'etq_fonte_px', 'INTEGER NOT NULL DEFAULT 13');
+ensureColumn('config_geral', 'etq_colunas', 'INTEGER NOT NULL DEFAULT 0');
+
 // Comprovante do pagamento anexado na baixa (obrigatório quando digital).
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
 ensureColumn('vendas', 'comprovante_nome', 'TEXT');

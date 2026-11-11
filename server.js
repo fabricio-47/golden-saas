@@ -131,6 +131,45 @@ function setSenhaCaixa(senha) {
   db.prepare("UPDATE config_geral SET senha_caixa_hash = ?, senha_caixa_salt = ?, atualizado_em = datetime('now') WHERE id = 1").run(hash, salt);
 }
 
+// Configuração das etiquetas de código de barras (padrão da loja, vale em todos os PCs).
+function getEtiquetaConfig() {
+  const c = getConfigGeral();
+  return {
+    larguraMm: Number(c.etq_largura_mm) || 50,
+    alturaMm: Number(c.etq_altura_mm) || 30,
+    mostrarNome: c.etq_mostrar_nome == null ? 1 : Number(c.etq_mostrar_nome),
+    mostrarPreco: c.etq_mostrar_preco == null ? 1 : Number(c.etq_mostrar_preco),
+    mostrarCodigo: c.etq_mostrar_codigo == null ? 1 : Number(c.etq_mostrar_codigo),
+    mostrarLoja: c.etq_mostrar_loja == null ? 0 : Number(c.etq_mostrar_loja),
+    fontePx: Number(c.etq_fonte_px) || 13,
+    colunas: Number(c.etq_colunas) || 0,
+  };
+}
+function setEtiquetaConfig(body) {
+  const clamp = (v, min, max, def) => {
+    const n = Number(String(v).replace(',', '.'));
+    if (!isFinite(n)) return def;
+    return Math.max(min, Math.min(max, n));
+  };
+  const larguraMm = clamp(body.etq_largura_mm, 10, 200, 50);
+  const alturaMm = clamp(body.etq_altura_mm, 8, 200, 30);
+  const fontePx = Math.round(clamp(body.etq_fonte_px, 6, 40, 13));
+  const colunas = Math.round(clamp(body.etq_colunas, 0, 10, 0));
+  const flag = (v) => (v === '1' || v === 'on' || v === 'true' ? 1 : 0);
+  db.prepare(
+    `UPDATE config_geral SET etq_largura_mm = ?, etq_altura_mm = ?, etq_mostrar_nome = ?, etq_mostrar_preco = ?, etq_mostrar_codigo = ?, etq_mostrar_loja = ?, etq_fonte_px = ?, etq_colunas = ?, atualizado_em = datetime('now') WHERE id = 1`
+  ).run(
+    larguraMm,
+    alturaMm,
+    flag(body.etq_mostrar_nome),
+    flag(body.etq_mostrar_preco),
+    flag(body.etq_mostrar_codigo),
+    flag(body.etq_mostrar_loja),
+    fontePx,
+    colunas
+  );
+}
+
 // Caixa em espécie (dinheiro físico): saldo = entradas - fechamentos.
 function saldoCaixaEspecie() {
   const r = db
@@ -2885,7 +2924,26 @@ async function handler(req, res) {
       const pecas = canSeeAllLojas(user)
         ? db.prepare('SELECT id, nome, preco_venda, codigo_barras FROM pecas ORDER BY nome ASC').all()
         : db.prepare('SELECT id, nome, preco_venda, codigo_barras FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
-      return send(res, 200, etiquetasPage({ user, flash: takeFlash(session.sessionId), pecas, selectedId: url.searchParams.get('produto') || '' }));
+      const lojaEtq = user.loja_id ? db.prepare('SELECT nome FROM lojas WHERE id = ?').get(user.loja_id) : null;
+      return send(res, 200, etiquetasPage({
+        user,
+        flash: takeFlash(session.sessionId),
+        pecas,
+        selectedId: url.searchParams.get('produto') || '',
+        config: getEtiquetaConfig(),
+        lojaNome: lojaEtq ? lojaEtq.nome : 'Golden Motors',
+        podeConfigurar: hasManagementAccess(user),
+        csrfToken: session.csrfToken,
+      }));
+    }
+
+    if (pathname === '/etiquetas/config' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      if (body.csrf !== session.csrfToken) return send(res, 403, 'CSRF inválido');
+      setEtiquetaConfig(body);
+      setFlash(session.sessionId, 'success', 'Configuração das etiquetas salva — vale em todos os computadores.');
+      res.writeHead(302, { Location: '/etiquetas' + (body.produto ? '?produto=' + encodeURIComponent(body.produto) : '') });
+      return res.end();
     }
 
     if (pathname === '/vendas' && method === 'GET') {
