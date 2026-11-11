@@ -925,6 +925,15 @@ async function handler(req, res) {
       return send(res, 200, clienteFormPage({ user, flash: takeFlash(session.sessionId), cliente: null, csrfToken: session.csrfToken }));
     }
 
+    if (pathname === '/clientes/criar-rapido' && method === 'POST') {
+      const nomeRapido = (body.nome || '').trim();
+      if (!nomeRapido) {
+        return send(res, 400, JSON.stringify({ ok: false, error: 'Nome é obrigatório.' }), { 'Content-Type': 'application/json; charset=utf-8' });
+      }
+      const infoRapido = db.prepare('INSERT INTO clientes (nome, telefone) VALUES (?, ?)').run(nomeRapido, (body.telefone || '').trim() || null);
+      return send(res, 200, JSON.stringify({ ok: true, id: infoRapido.lastInsertRowid, nome: nomeRapido }), { 'Content-Type': 'application/json; charset=utf-8' });
+    }
+
     if (pathname === '/clientes' && method === 'POST') {
       if (!body.nome || !body.nome.trim()) {
         return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: body, csrfToken: session.csrfToken }));
@@ -1710,8 +1719,8 @@ async function handler(req, res) {
       }
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       const pecasDisponiveis = canSeeAllLojas(user)
-        ? db.prepare('SELECT id, nome, preco_venda FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT id, nome, preco_venda FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        ? db.prepare('SELECT id, nome, preco_venda, codigo_barras, foto_caminho FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda, codigo_barras, foto_caminho FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       const servicosDisponiveis = db.prepare('SELECT id, nome, valor FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       return send(res, 200, orcamentoFormPage({ user, flash: takeFlash(session.sessionId), clientes, bicicletas, csrfToken: session.csrfToken, defaultClienteId: url.searchParams.get('cliente_id'), pecasDisponiveis, servicosDisponiveis }));
     }
@@ -1721,8 +1730,8 @@ async function handler(req, res) {
         const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
         const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
         const pecasDisponiveis = canSeeAllLojas(user)
-          ? db.prepare('SELECT id, nome, preco_venda FROM pecas ORDER BY nome ASC').all()
-          : db.prepare('SELECT id, nome, preco_venda FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+          ? db.prepare('SELECT id, nome, preco_venda, codigo_barras, foto_caminho FROM pecas ORDER BY nome ASC').all()
+          : db.prepare('SELECT id, nome, preco_venda, codigo_barras, foto_caminho FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
         const servicosDisponiveis = db.prepare('SELECT id, nome, valor FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
         return send(res, 400, orcamentoFormPage({ user, flash: { type: 'error', message: 'Selecione o cliente.' }, clientes, bicicletas, csrfToken: session.csrfToken, pecasDisponiveis, servicosDisponiveis }));
       }

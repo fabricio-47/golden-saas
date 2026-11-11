@@ -86,11 +86,22 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
   const pecas = pecasDisponiveis || [];
   const servicos = servicosDisponiveis || [];
   const produtoOptions = pecas
-    .map((p) => `<option value="prod:${p.id}" data-nome="${escapeHtml(p.nome)}" data-preco="${Number(p.preco_venda) || 0}" data-tipo="produto">${escapeHtml(p.nome)} — ${formatMoney(p.preco_venda)}</option>`)
+    .map((p) => {
+      const foto = p.foto_caminho ? '/uploads/' + p.foto_caminho : '';
+      return `<option value="prod:${p.id}" data-nome="${escapeHtml(p.nome)}" data-preco="${Number(p.preco_venda) || 0}" data-tipo="produto" data-foto="${escapeHtml(foto)}">${escapeHtml(p.nome)} — ${formatMoney(p.preco_venda)}</option>`;
+    })
     .join('');
   const servicoOptions = servicos
-    .map((s) => `<option value="serv:${s.id}" data-nome="${escapeHtml(s.nome)}" data-preco="${Number(s.valor) || 0}" data-tipo="servico">${escapeHtml(s.nome)} — ${formatMoney(s.valor)}</option>`)
+    .map((s) => `<option value="serv:${s.id}" data-nome="${escapeHtml(s.nome)}" data-preco="${Number(s.valor) || 0}" data-tipo="servico" data-foto="">${escapeHtml(s.nome)} — ${formatMoney(s.valor)}</option>`)
     .join('');
+  const produtosBarcodeJson = JSON.stringify(
+    pecas.map((p) => ({
+      nome: p.nome,
+      preco: Number(p.preco_venda) || 0,
+      codigo: p.codigo_barras || null,
+      foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
+    }))
+  );
 
   return layout({
     title: 'Novo Orçamento',
@@ -110,6 +121,16 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
                 <option value="">Selecione...</option>
                 ${clienteOptions}
               </select>
+              <button type="button" class="link-btn" style="margin-top:6px;background:none;border:none;padding:0;cursor:pointer;" onclick="orcToggleNovoCliente()">+ Cadastrar novo cliente</button>
+              <div id="orc_novo_cliente" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+                <input type="text" id="nc_nome" placeholder="Nome do cliente *" autocomplete="off" style="margin-bottom:6px;">
+                <input type="text" id="nc_telefone" placeholder="Telefone (opcional)" autocomplete="off" style="margin-bottom:6px;">
+                <div style="display:flex;gap:8px;">
+                  <button type="button" class="btn btn-sm" onclick="orcCriarCliente()">Salvar cliente</button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="orcToggleNovoCliente()">Cancelar</button>
+                </div>
+                <p class="muted" id="nc_msg" style="margin:6px 0 0;min-height:14px;"></p>
+              </div>
             </div>
             <div class="field">
               <label for="bicicleta_id">Veículo (opcional)</label>
@@ -135,7 +156,17 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
           <p class="muted" id="orc_vazio">Nenhum item adicionado ainda. Monte a lista abaixo.</p>
           <p id="orc_total" style="margin-top:12px;display:none;"><strong>Total do orçamento: <span id="orc_total_val">R$ 0,00</span></strong></p>
 
-          <div class="form-grid" style="margin-top:16px;">
+          <div class="field" style="margin-top:16px;max-width:460px;">
+            <label for="orc_barcode">📷 Código de barras (bipe ou digite e aperte Enter)</label>
+            <input type="text" id="orc_barcode" placeholder="Bipe o produto aqui..." autocomplete="off" onkeydown="orcBarcodeKey(event)">
+            <p class="muted" id="orc_barcode_msg" style="margin-top:4px;min-height:16px;"></p>
+          </div>
+          <div id="orc_preview_box" style="display:none;align-items:center;gap:10px;margin-bottom:10px;">
+            <img id="orc_preview_img" src="" alt="" title="Clique para ampliar" onclick="orcZoom(this.src)" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in;">
+            <span id="orc_preview_nome" class="muted"></span>
+          </div>
+
+          <div class="form-grid" style="margin-top:4px;">
             ${
               produtoOptions || servicoOptions
                 ? `<div class="field">
@@ -176,7 +207,15 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
           <a class="btn btn-secondary" href="/orcamentos">Cancelar</a>
         </div>
       </form>
+
+      <div id="orc_lightbox" onclick="orcCloseZoom()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out;">
+        <img id="orc_lightbox_img" src="" alt="" style="max-width:90vw;max-height:90vh;border-radius:8px;">
+      </div>
+
       <script>
+        var ORC_PRODUTOS = ${produtosBarcodeJson};
+        var orcFotoSelecionada = null;
+
         var allBikes = Array.prototype.slice.call(document.querySelectorAll('#bicicleta_id option[data-cliente]'))
           .map(function(o){ return { value:o.value, cliente:o.getAttribute('data-cliente'), text:o.textContent }; });
         function filterBikes(){
@@ -189,6 +228,51 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
           });
         }
 
+        // ---- Cadastro rápido de cliente, sem sair da tela ----
+        function orcToggleNovoCliente(){
+          var box = document.getElementById('orc_novo_cliente');
+          var abrir = box.style.display === 'none';
+          box.style.display = abrir ? 'block' : 'none';
+          if (abrir) document.getElementById('nc_nome').focus();
+          document.getElementById('nc_msg').textContent = '';
+        }
+        function orcCriarCliente(){
+          var nome = (document.getElementById('nc_nome').value||'').trim();
+          var tel = (document.getElementById('nc_telefone').value||'').trim();
+          var msg = document.getElementById('nc_msg');
+          if (!nome){ msg.innerHTML = '<span style="color:#a1352a;">Informe o nome.</span>'; return; }
+          msg.textContent = 'Salvando...';
+          var csrf = document.querySelector('input[name=csrf]').value;
+          var dados = 'csrf=' + encodeURIComponent(csrf) + '&nome=' + encodeURIComponent(nome) + '&telefone=' + encodeURIComponent(tel);
+          fetch('/clientes/criar-rapido', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: dados })
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if (!d.ok){ msg.innerHTML = '<span style="color:#a1352a;">' + (d.error||'Erro ao salvar.') + '</span>'; return; }
+              var sel = document.getElementById('cliente_id');
+              var op = document.createElement('option');
+              op.value = d.id; op.textContent = d.nome; sel.appendChild(op);
+              sel.value = d.id;
+              filterBikes();
+              document.getElementById('nc_nome').value = '';
+              document.getElementById('nc_telefone').value = '';
+              document.getElementById('orc_novo_cliente').style.display = 'none';
+            })
+            .catch(function(){ msg.innerHTML = '<span style="color:#a1352a;">Falha de conexão. Tente de novo.</span>'; });
+        }
+
+        // ---- Foto / zoom ----
+        function orcZoom(src){ if(!src) return; document.getElementById('orc_lightbox_img').src = src; document.getElementById('orc_lightbox').style.display='flex'; }
+        function orcCloseZoom(){ document.getElementById('orc_lightbox').style.display='none'; }
+        document.addEventListener('keydown', function(e){ if(e.key==='Escape') orcCloseZoom(); });
+        function orcMostrarPreview(foto, nome){
+          var box = document.getElementById('orc_preview_box');
+          if (foto){
+            document.getElementById('orc_preview_img').src = foto;
+            document.getElementById('orc_preview_nome').textContent = nome || '';
+            box.style.display = 'flex';
+          } else { box.style.display = 'none'; }
+        }
+
         // ---- Builder de itens do orçamento (uma tela só) ----
         var ORC_ITENS = [];
         function orcMoney(v){ return 'R$ ' + (Number(v)||0).toFixed(2).replace('.', ','); }
@@ -198,7 +282,33 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
             document.getElementById('orc_nome').value = o.getAttribute('data-nome');
             document.getElementById('orc_preco').value = o.getAttribute('data-preco');
             document.getElementById('orc_tipo').value = o.getAttribute('data-tipo');
+            orcFotoSelecionada = o.getAttribute('data-foto') || null;
+            orcMostrarPreview(orcFotoSelecionada, o.getAttribute('data-nome'));
+          } else {
+            orcFotoSelecionada = null;
+            orcMostrarPreview(null);
           }
+        }
+        function orcBarcodeKey(e){
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          var inp = document.getElementById('orc_barcode');
+          var cod = (inp.value||'').trim();
+          var msg = document.getElementById('orc_barcode_msg');
+          if (!cod) return;
+          var prod = ORC_PRODUTOS.find(function(p){ return p.codigo && String(p.codigo) === cod; });
+          if (!prod){
+            msg.innerHTML = '<span style="color:#a1352a;">Nenhum produto com o código ' + cod + '.</span>';
+            inp.select();
+            return;
+          }
+          var existente = ORC_ITENS.find(function(it){ return it.tipo==='produto' && it.nome===prod.nome && it.preco===prod.preco; });
+          if (existente) existente.qtd += 1;
+          else ORC_ITENS.push({ tipo:'produto', nome:prod.nome, qtd:1, preco:prod.preco, foto:prod.foto||null });
+          msg.innerHTML = '<span style="color:#1f6b3a;">+ ' + String(prod.nome).replace(/</g,'&lt;') + '</span>';
+          orcMostrarPreview(prod.foto, prod.nome);
+          inp.value = '';
+          orcRender();
         }
         function orcRender(){
           var tb = document.getElementById('orc_tbody');
@@ -212,14 +322,17 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
             var html=''; var total=0;
             ORC_ITENS.forEach(function(it, idx){
               var sub=(Number(it.preco)||0)*it.qtd; total+=sub;
-              html += '<tr><td>' + String(it.nome).replace(/</g,'&lt;') + ' <span class="muted">(' + (it.tipo==='produto'?'produto':'serviço') + ')</span></td>' +
+              var thumb = it.foto
+                ? '<img src="' + it.foto + '" alt="" title="Clique para ampliar" onclick="orcZoom(this.src)" style="width:34px;height:34px;object-fit:cover;border-radius:6px;border:1px solid var(--border);vertical-align:middle;margin-right:8px;cursor:zoom-in;">'
+                : '';
+              html += '<tr><td>' + thumb + String(it.nome).replace(/</g,'&lt;') + ' <span class="muted">(' + (it.tipo==='produto'?'produto':'serviço') + ')</span></td>' +
                 '<td>'+it.qtd+'</td><td>'+orcMoney(it.preco)+'</td><td>'+orcMoney(sub)+'</td>' +
                 '<td><button type="button" class="btn btn-sm btn-danger" onclick="orcRemove('+idx+')">Remover</button></td></tr>';
             });
             tb.innerHTML=html;
             document.getElementById('orc_total_val').textContent = orcMoney(total);
           }
-          document.getElementById('itens_json').value = JSON.stringify(ORC_ITENS);
+          document.getElementById('itens_json').value = JSON.stringify(ORC_ITENS.map(function(it){ return { tipo:it.tipo, nome:it.nome, qtd:it.qtd, preco:it.preco }; }));
         }
         function orcAddItem(){
           var nome = (document.getElementById('orc_nome').value||'').trim();
@@ -228,11 +341,13 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
           var tipo = document.getElementById('orc_tipo').value==='produto'?'produto':'servico';
           if (!nome){ alert('Informe a descrição do item.'); return; }
           if (!isFinite(preco) || preco<0){ alert('Informe um valor unitário válido.'); return; }
-          ORC_ITENS.push({ tipo:tipo, nome:nome, qtd:qtd, preco:preco });
+          ORC_ITENS.push({ tipo:tipo, nome:nome, qtd:qtd, preco:preco, foto: orcFotoSelecionada || null });
           document.getElementById('orc_nome').value='';
           document.getElementById('orc_preco').value='';
           document.getElementById('orc_qtd').value=1;
           var cat=document.getElementById('orc_catalogo'); if(cat) cat.value='';
+          orcFotoSelecionada = null;
+          orcMostrarPreview(null);
           orcRender();
         }
         function orcRemove(idx){ ORC_ITENS.splice(idx,1); orcRender(); }
