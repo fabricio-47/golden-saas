@@ -136,9 +136,17 @@ function checklistFormFields(checklist) {
   }).join('');
 }
 
-function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas, temServicosVinculados, funcionarios }) {
+function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken, temPecasVinculadas, temServicosVinculados, funcionarios, pecasDisponiveis }) {
   const isEdit = !!os;
   const checklist = os && os.checklist_json ? JSON.parse(os.checklist_json) : [];
+
+  const pecasDisp = pecasDisponiveis || [];
+  const pecaOptionsNova = pecasDisp
+    .map(
+      (p) =>
+        `<option value="${p.id}" data-nome="${escapeHtml(p.nome)}" data-preco="${Number(p.preco_venda) || 0}" data-estoque="${Number(p.quantidade) || 0}">${escapeHtml(p.nome)} — ${formatMoney(p.preco_venda)} (estoque: ${Number(p.quantidade) || 0})</option>`
+    )
+    .join('');
 
   const clienteOptions = clientes
     .map(
@@ -260,11 +268,41 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
 
           <h2 style="margin-top:24px;">Valores</h2>
           <div class="form-grid">
-            <div class="field">
+            ${
+              isEdit
+                ? `<div class="field">
               <label for="valor_pecas">Valor de produtos (R$)</label>
               <input type="number" id="valor_pecas" name="valor_pecas" min="0" step="0.01" value="${os && os.valor_pecas !== null ? os.valor_pecas : ''}">
               ${temPecasVinculadas ? '<p class="muted" style="margin-top:4px;">Esta O.S. tem produtos do Estoque vinculados — esse valor é recalculado automaticamente ao adicionar/remover produtos na tela da O.S. Editar aqui só sobrescreve manualmente.</p>' : ''}
+            </div>`
+                : `<div class="field full">
+              <label>Produtos do estoque</label>
+              ${
+                pecasDisp.length
+                  ? `<div class="form-grid" style="margin-bottom:8px;">
+                <div class="field">
+                  <select id="os_peca_sel">
+                    <option value="">Selecione um produto...</option>
+                    ${pecaOptionsNova}
+                  </select>
+                </div>
+                <div class="field" style="display:flex;gap:8px;align-items:flex-end;">
+                  <input type="number" id="os_peca_qtd" min="1" step="1" value="1" style="max-width:100px;">
+                  <button type="button" class="btn btn-sm" onclick="osAddPeca()">+ Adicionar produto</button>
+                </div>
+              </div>
+              <table id="os_pecas_tabela" style="display:none;"><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço un.</th><th>Subtotal</th><th></th></tr></thead><tbody id="os_pecas_tbody"></tbody></table>
+              <p class="muted" id="os_pecas_vazio" style="margin-top:4px;">Escolha a peça do estoque — o valor entra sozinho e a peça baixa do estoque ao abrir a O.S. Sem produtos, digite o valor na mão abaixo.</p>
+              <input type="hidden" name="os_pecas_json" id="os_pecas_json" value="[]">`
+                  : `<p class="muted">Nenhum produto cadastrado no <a class="link-btn" href="/estoque/novo">Estoque</a> ainda. Digite o valor manualmente abaixo.</p>`
+              }
             </div>
+            <div class="field">
+              <label for="valor_pecas">Valor de produtos (R$)</label>
+              <input type="number" id="valor_pecas" name="valor_pecas" min="0" step="0.01" value="${os && os.valor_pecas !== null ? os.valor_pecas : ''}">
+              <p class="muted" id="os_valor_pecas_nota" style="margin-top:4px;">Preenche sozinho ao escolher produtos acima. Sem produtos, digite o valor na mão.</p>
+            </div>`
+            }
             <div class="field">
               <label for="valor_mao_obra">Valor de mão de obra (R$)</label>
               <input type="number" id="valor_mao_obra" name="valor_mao_obra" min="0" step="0.01" value="${os && os.valor_mao_obra !== null ? os.valor_mao_obra : ''}">
@@ -341,6 +379,58 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
           document.getElementById('campo-parcelas').style.display = forma === 'credito' ? '' : 'none';
         }
         toggleParcelas();
+
+        // ---- Seletor de produtos do estoque na tela de criação da O.S. ----
+        var OS_PECAS = [];
+        function osMoney(v){ return 'R$ ' + (Number(v)||0).toFixed(2).replace('.', ','); }
+        function osRenderPecas(){
+          var tb = document.getElementById('os_pecas_tbody');
+          if (!tb) return;
+          var tabela = document.getElementById('os_pecas_tabela');
+          var vazio = document.getElementById('os_pecas_vazio');
+          var vp = document.getElementById('valor_pecas');
+          var nota = document.getElementById('os_valor_pecas_nota');
+          if (!OS_PECAS.length){
+            tb.innerHTML = '';
+            if (tabela) tabela.style.display = 'none';
+            if (vazio) vazio.style.display = 'block';
+            if (vp){ vp.readOnly = false; vp.style.background = ''; }
+            if (nota) nota.textContent = 'Preenche sozinho ao escolher produtos acima. Sem produtos, digite o valor na mão.';
+          } else {
+            if (tabela) tabela.style.display = '';
+            if (vazio) vazio.style.display = 'none';
+            var html = ''; var total = 0;
+            OS_PECAS.forEach(function(it, idx){
+              var sub = (Number(it.preco)||0) * it.qtd; total += sub;
+              html += '<tr><td>' + String(it.nome).replace(/</g,'&lt;') + '</td><td>' + it.qtd + '</td><td>' + osMoney(it.preco) + '</td><td>' + osMoney(sub) + '</td>' +
+                '<td><button type="button" class="btn btn-sm btn-danger" onclick="osRemovePeca(' + idx + ')">Remover</button></td></tr>';
+            });
+            tb.innerHTML = html;
+            if (vp){ vp.value = total.toFixed(2); vp.readOnly = true; vp.style.background = '#f0f0f0'; }
+            if (nota) nota.textContent = 'Calculado pelos produtos escolhidos (' + osMoney(total) + '). Remova todos para digitar manualmente.';
+          }
+          var hid = document.getElementById('os_pecas_json');
+          if (hid) hid.value = JSON.stringify(OS_PECAS.map(function(it){ return { peca_id: it.peca_id, qtd: it.qtd }; }));
+        }
+        function osAddPeca(){
+          var sel = document.getElementById('os_peca_sel');
+          if (!sel || !sel.value) return;
+          var opt = sel.options[sel.selectedIndex];
+          var qtd = Math.max(1, parseInt(document.getElementById('os_peca_qtd').value, 10) || 1);
+          var nome = opt.getAttribute('data-nome') || opt.textContent;
+          var preco = parseFloat(opt.getAttribute('data-preco')) || 0;
+          var estoque = parseInt(opt.getAttribute('data-estoque'), 10);
+          var achou = OS_PECAS.find(function(p){ return String(p.peca_id) === String(sel.value); });
+          if (achou){ achou.qtd += qtd; } else { OS_PECAS.push({ peca_id: sel.value, nome: nome, preco: preco, qtd: qtd }); }
+          var totalItem = OS_PECAS.find(function(p){ return String(p.peca_id) === String(sel.value); }).qtd;
+          if (isFinite(estoque) && totalItem > estoque){
+            alert('Atenção: você colocou ' + totalItem + ' de "' + nome + '", mas só há ' + estoque + ' em estoque. Ao abrir a O.S. o estoque vai ficar negativo.');
+          }
+          sel.value = '';
+          document.getElementById('os_peca_qtd').value = 1;
+          osRenderPecas();
+        }
+        function osRemovePeca(idx){ OS_PECAS.splice(idx, 1); osRenderPecas(); }
       </script>
     `,
   });

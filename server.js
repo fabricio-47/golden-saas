@@ -2600,10 +2600,13 @@ async function handler(req, res) {
         if (b) defaultClienteId = b.cliente_id;
       }
       const funcionarios = db.prepare('SELECT * FROM funcionarios WHERE ativo = 1 ORDER BY nome ASC').all();
+      const pecasDisponiveis = canSeeAllLojas(user)
+        ? db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       return send(
         res,
         200,
-        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken, funcionarios })
+        ordemFormPage({ user, flash: takeFlash(session.sessionId), os: null, clientes, bicicletas, defaultClienteId, defaultBicicletaId, csrfToken: session.csrfToken, funcionarios, pecasDisponiveis })
       );
     }
 
@@ -2613,7 +2616,10 @@ async function handler(req, res) {
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       if (!body.cliente_id || !body.bicicleta_id) {
         const funcionarios = db.prepare('SELECT * FROM funcionarios WHERE ativo = 1 ORDER BY nome ASC').all();
-        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken, funcionarios }));
+        const pecasDisponiveis = canSeeAllLojas(user)
+          ? db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas ORDER BY nome ASC').all()
+          : db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken, funcionarios, pecasDisponiveis }));
       }
       const checklist = parseChecklistFromBody(body);
       const numero = nextOSNumber();
@@ -2637,8 +2643,40 @@ async function handler(req, res) {
           valorPecas, valorMaoObra, desconto, totalEstimado, formaPagamento, parcelas,
           prioridade, previsaoEntrega, body.acessorios || '', body.termos_garantia || '', tecnicoId
         );
+      const osId = info.lastInsertRowid;
+      // Produtos do estoque escolhidos já na tela de criação: insere em os_pecas,
+      // baixa do estoque e recalcula o "Valor de produtos" (mesma mecânica da tela da O.S.).
+      let pecasEscolhidas = [];
+      try {
+        const parsed = JSON.parse(body.os_pecas_json || '[]');
+        if (Array.isArray(parsed)) pecasEscolhidas = parsed;
+      } catch (e) {
+        pecasEscolhidas = [];
+      }
+      if (pecasEscolhidas.length) {
+        const insOsPeca = db.prepare('INSERT INTO os_pecas (ordem_servico_id, peca_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)');
+        const updStock = db.prepare("UPDATE pecas SET quantidade = quantidade - ?, updated_at = datetime('now') WHERE id = ?");
+        let algumZerou = false;
+        for (const it of pecasEscolhidas) {
+          const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(it.peca_id);
+          if (!peca) continue;
+          const q = Math.max(1, parseInt(it.qtd, 10) || 1);
+          insOsPeca.run(osId, peca.id, peca.nome, q, peca.preco_venda);
+          updStock.run(q, peca.id);
+          if (peca.quantidade - q <= 0) algumZerou = true;
+        }
+        recomputeValorPecas(osId);
+        setFlash(
+          session.sessionId,
+          algumZerou ? 'error' : 'success',
+          algumZerou
+            ? `Ordem de Serviço ${numero} criada. Atenção: o estoque de algum produto ficou zerado ou negativo — confira no Estoque.`
+            : `Ordem de Serviço ${numero} criada e produtos baixados do estoque.`
+        );
+        return redirect(res, `/os/${osId}`);
+      }
       setFlash(session.sessionId, 'success', `Ordem de Serviço ${numero} criada com sucesso.`);
-      return redirect(res, `/os/${info.lastInsertRowid}`);
+      return redirect(res, `/os/${osId}`);
     }
 
     if ((m = matchRoute('/os/:id/editar', pathname)) && method === 'GET') {
