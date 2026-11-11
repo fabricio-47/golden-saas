@@ -1709,22 +1709,59 @@ async function handler(req, res) {
         return redirect(res, '/clientes');
       }
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
-      return send(res, 200, orcamentoFormPage({ user, flash: takeFlash(session.sessionId), clientes, bicicletas, csrfToken: session.csrfToken, defaultClienteId: url.searchParams.get('cliente_id') }));
+      const pecasDisponiveis = canSeeAllLojas(user)
+        ? db.prepare('SELECT id, nome, preco_venda FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+      const servicosDisponiveis = db.prepare('SELECT id, nome, valor FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
+      return send(res, 200, orcamentoFormPage({ user, flash: takeFlash(session.sessionId), clientes, bicicletas, csrfToken: session.csrfToken, defaultClienteId: url.searchParams.get('cliente_id'), pecasDisponiveis, servicosDisponiveis }));
     }
 
     if (pathname === '/orcamentos' && method === 'POST') {
       if (!body.cliente_id) {
         const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
         const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
-        return send(res, 400, orcamentoFormPage({ user, flash: { type: 'error', message: 'Selecione o cliente.' }, clientes, bicicletas, csrfToken: session.csrfToken }));
+        const pecasDisponiveis = canSeeAllLojas(user)
+          ? db.prepare('SELECT id, nome, preco_venda FROM pecas ORDER BY nome ASC').all()
+          : db.prepare('SELECT id, nome, preco_venda FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        const servicosDisponiveis = db.prepare('SELECT id, nome, valor FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
+        return send(res, 400, orcamentoFormPage({ user, flash: { type: 'error', message: 'Selecione o cliente.' }, clientes, bicicletas, csrfToken: session.csrfToken, pecasDisponiveis, servicosDisponiveis }));
       }
       const numero = nextOrcamentoNumber();
       const bicicletaId = body.bicicleta_id ? toIntOrNull(body.bicicleta_id) : null;
       const info = db
         .prepare('INSERT INTO orcamentos (numero, cliente_id, bicicleta_id, validade, observacoes) VALUES (?, ?, ?, ?, ?)')
         .run(numero, body.cliente_id, bicicletaId, body.validade || null, body.observacoes || '');
-      setFlash(session.sessionId, 'success', `Orçamento ${numero} criado. Adicione os itens abaixo.`);
-      return redirect(res, `/orcamentos/${info.lastInsertRowid}`);
+      const orcId = info.lastInsertRowid;
+      // Itens adicionados já na tela de criação (uma tela só).
+      let itensNovos = [];
+      try {
+        const parsed = JSON.parse(body.itens_json || '[]');
+        if (Array.isArray(parsed)) itensNovos = parsed;
+      } catch (e) {
+        itensNovos = [];
+      }
+      let qtdItens = 0;
+      if (itensNovos.length) {
+        const insItem = db.prepare('INSERT INTO orcamento_itens (orcamento_id, tipo, nome, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)');
+        for (const it of itensNovos) {
+          const nome = String(it.nome || '').trim();
+          const preco = Number(it.preco);
+          const qtd = Math.max(1, parseInt(it.qtd, 10) || 1);
+          const tipo = it.tipo === 'produto' ? 'produto' : 'servico';
+          if (!nome || !isFinite(preco) || preco < 0) continue;
+          insItem.run(orcId, tipo, nome, qtd, preco);
+          qtdItens++;
+        }
+        if (qtdItens) recomputeOrcamentoTotal(orcId);
+      }
+      setFlash(
+        session.sessionId,
+        'success',
+        qtdItens
+          ? `Orçamento ${numero} criado com ${qtdItens} ${qtdItens === 1 ? 'item' : 'itens'}.`
+          : `Orçamento ${numero} criado. Adicione os itens abaixo.`
+      );
+      return redirect(res, `/orcamentos/${orcId}`);
     }
 
     if ((m = matchRoute('/orcamentos/:id/itens/:itemId/excluir', pathname)) && method === 'POST') {

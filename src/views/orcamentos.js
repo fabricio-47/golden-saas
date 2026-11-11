@@ -72,7 +72,7 @@ function orcamentosListPage({ user, flash, orcamentos, statusFilter }) {
   });
 }
 
-function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defaultClienteId }) {
+function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defaultClienteId, pecasDisponiveis, servicosDisponiveis }) {
   const clienteOptions = clientes
     .map((c) => `<option value="${c.id}" ${defaultClienteId == c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`)
     .join('');
@@ -83,16 +83,26 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
     )
     .join('');
 
+  const pecas = pecasDisponiveis || [];
+  const servicos = servicosDisponiveis || [];
+  const produtoOptions = pecas
+    .map((p) => `<option value="prod:${p.id}" data-nome="${escapeHtml(p.nome)}" data-preco="${Number(p.preco_venda) || 0}" data-tipo="produto">${escapeHtml(p.nome)} — ${formatMoney(p.preco_venda)}</option>`)
+    .join('');
+  const servicoOptions = servicos
+    .map((s) => `<option value="serv:${s.id}" data-nome="${escapeHtml(s.nome)}" data-preco="${Number(s.valor) || 0}" data-tipo="servico">${escapeHtml(s.nome)} — ${formatMoney(s.valor)}</option>`)
+    .join('');
+
   return layout({
     title: 'Novo Orçamento',
     activeNav: 'orcamentos',
     user,
     flash,
     children: `
-      <div class="page-header"><div><h1>Novo Orçamento</h1><p class="subtitle">Depois de salvar, você adiciona os itens (produtos e serviços).</p></div></div>
-      <div class="card">
-        <form method="POST" action="/orcamentos">
-          <input type="hidden" name="csrf" value="${csrfToken}">
+      <div class="page-header"><div><h1>Novo Orçamento</h1><p class="subtitle">Preencha os dados e já adicione os itens — tudo numa tela só.</p></div></div>
+      <form method="POST" action="/orcamentos">
+        <input type="hidden" name="csrf" value="${csrfToken}">
+        <input type="hidden" name="itens_json" id="itens_json" value="[]">
+        <div class="card">
           <div class="form-grid">
             <div class="field">
               <label for="cliente_id">Cliente *</label>
@@ -117,12 +127,55 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
               <textarea id="observacoes" name="observacoes" placeholder="Ex: diagnóstico, condições, prazo estimado..."></textarea>
             </div>
           </div>
-          <div class="actions-row">
-            <button class="btn" type="submit">Criar orçamento</button>
-            <a class="btn btn-secondary" href="/orcamentos">Cancelar</a>
+        </div>
+
+        <div class="card">
+          <h2 style="margin-top:0;">Itens do orçamento</h2>
+          <table id="orc_tabela" style="display:none;"><thead><tr><th>Descrição</th><th>Qtd.</th><th>Valor unit.</th><th>Subtotal</th><th></th></tr></thead><tbody id="orc_tbody"></tbody></table>
+          <p class="muted" id="orc_vazio">Nenhum item adicionado ainda. Monte a lista abaixo.</p>
+          <p id="orc_total" style="margin-top:12px;display:none;"><strong>Total do orçamento: <span id="orc_total_val">R$ 0,00</span></strong></p>
+
+          <div class="form-grid" style="margin-top:16px;">
+            ${
+              produtoOptions || servicoOptions
+                ? `<div class="field">
+              <label for="orc_catalogo">Do catálogo (opcional)</label>
+              <select id="orc_catalogo" onchange="orcDoCatalogo(this)">
+                <option value="">Digitar manualmente...</option>
+                ${produtoOptions ? `<optgroup label="Produtos">${produtoOptions}</optgroup>` : ''}
+                ${servicoOptions ? `<optgroup label="Serviços">${servicoOptions}</optgroup>` : ''}
+              </select>
+            </div>`
+                : ''
+            }
+            <div class="field">
+              <label for="orc_tipo">Tipo</label>
+              <select id="orc_tipo">
+                <option value="servico">Serviço</option>
+                <option value="produto">Produto</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="orc_nome">Descrição</label>
+              <input type="text" id="orc_nome" placeholder="Ex: Troca de pneu / Pneu aro 10">
+            </div>
+            <div class="field">
+              <label for="orc_qtd">Qtd.</label>
+              <input type="number" id="orc_qtd" min="1" step="1" value="1">
+            </div>
+            <div class="field">
+              <label for="orc_preco">Valor unitário (R$)</label>
+              <input type="number" id="orc_preco" min="0" step="0.01">
+            </div>
           </div>
-        </form>
-      </div>
+          <button type="button" class="btn btn-sm" onclick="orcAddItem()">+ Adicionar item</button>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn" type="submit">Criar orçamento</button>
+          <a class="btn btn-secondary" href="/orcamentos">Cancelar</a>
+        </div>
+      </form>
       <script>
         var allBikes = Array.prototype.slice.call(document.querySelectorAll('#bicicleta_id option[data-cliente]'))
           .map(function(o){ return { value:o.value, cliente:o.getAttribute('data-cliente'), text:o.textContent }; });
@@ -135,6 +188,54 @@ function orcamentoFormPage({ user, flash, clientes, bicicletas, csrfToken, defau
             var op=document.createElement('option'); op.value=o.value; op.textContent=o.text; sel.appendChild(op);
           });
         }
+
+        // ---- Builder de itens do orçamento (uma tela só) ----
+        var ORC_ITENS = [];
+        function orcMoney(v){ return 'R$ ' + (Number(v)||0).toFixed(2).replace('.', ','); }
+        function orcDoCatalogo(sel){
+          var o = sel.options[sel.selectedIndex];
+          if (o && o.getAttribute('data-nome')){
+            document.getElementById('orc_nome').value = o.getAttribute('data-nome');
+            document.getElementById('orc_preco').value = o.getAttribute('data-preco');
+            document.getElementById('orc_tipo').value = o.getAttribute('data-tipo');
+          }
+        }
+        function orcRender(){
+          var tb = document.getElementById('orc_tbody');
+          var tabela = document.getElementById('orc_tabela');
+          var vazio = document.getElementById('orc_vazio');
+          var totalBox = document.getElementById('orc_total');
+          if (!ORC_ITENS.length){
+            tb.innerHTML=''; tabela.style.display='none'; vazio.style.display='block'; totalBox.style.display='none';
+          } else {
+            tabela.style.display=''; vazio.style.display='none'; totalBox.style.display='block';
+            var html=''; var total=0;
+            ORC_ITENS.forEach(function(it, idx){
+              var sub=(Number(it.preco)||0)*it.qtd; total+=sub;
+              html += '<tr><td>' + String(it.nome).replace(/</g,'&lt;') + ' <span class="muted">(' + (it.tipo==='produto'?'produto':'serviço') + ')</span></td>' +
+                '<td>'+it.qtd+'</td><td>'+orcMoney(it.preco)+'</td><td>'+orcMoney(sub)+'</td>' +
+                '<td><button type="button" class="btn btn-sm btn-danger" onclick="orcRemove('+idx+')">Remover</button></td></tr>';
+            });
+            tb.innerHTML=html;
+            document.getElementById('orc_total_val').textContent = orcMoney(total);
+          }
+          document.getElementById('itens_json').value = JSON.stringify(ORC_ITENS);
+        }
+        function orcAddItem(){
+          var nome = (document.getElementById('orc_nome').value||'').trim();
+          var preco = parseFloat(document.getElementById('orc_preco').value);
+          var qtd = Math.max(1, parseInt(document.getElementById('orc_qtd').value,10)||1);
+          var tipo = document.getElementById('orc_tipo').value==='produto'?'produto':'servico';
+          if (!nome){ alert('Informe a descrição do item.'); return; }
+          if (!isFinite(preco) || preco<0){ alert('Informe um valor unitário válido.'); return; }
+          ORC_ITENS.push({ tipo:tipo, nome:nome, qtd:qtd, preco:preco });
+          document.getElementById('orc_nome').value='';
+          document.getElementById('orc_preco').value='';
+          document.getElementById('orc_qtd').value=1;
+          var cat=document.getElementById('orc_catalogo'); if(cat) cat.value='';
+          orcRender();
+        }
+        function orcRemove(idx){ ORC_ITENS.splice(idx,1); orcRender(); }
       </script>
     `,
   });
