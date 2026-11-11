@@ -25,7 +25,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
     .map(
       (p) => `
     <tr>
-      <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}${p.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(p.fornecedor_nome)}</div>` : ''}${p.cores && p.cores.length ? `<div class="muted">Cores: ${p.cores.map((c) => `${escapeHtml(c.cor)} (${c.quantidade})`).join(', ')}</div>` : ''}</td>
+      <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.codigo_barras ? `<div class="muted">Cód. barras: ${escapeHtml(p.codigo_barras)}</div>` : ''}${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}${p.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(p.fornecedor_nome)}</div>` : ''}${p.cores && p.cores.length ? `<div class="muted">Cores: ${p.cores.map((c) => `${escapeHtml(c.cor)} (${c.quantidade})`).join(', ')}</div>` : ''}</td>
       ${mostrarColunaLoja ? `<td>${escapeHtml(p.loja_nome || '-')}</td>` : ''}
       <td>${escapeHtml(p.categoria || '-')}</td>
       <td>${p.quantidade}</td>
@@ -285,6 +285,11 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             <div class="field">
               <label for="numero_serie">Número de série (opcional)</label>
               <input type="text" id="numero_serie" name="numero_serie" value="${escapeHtml(peca ? peca.numero_serie : '')}" placeholder="Para produtos rastreáveis, ex: baterias">
+            </div>
+            <div class="field">
+              <label for="codigo_barras">Código de barras</label>
+              <input type="text" id="codigo_barras" name="codigo_barras" value="${escapeHtml(peca ? peca.codigo_barras || '' : '')}" placeholder="${peca && peca.codigo_barras ? '' : 'Deixe em branco para gerar automático'}">
+              ${peca && peca.codigo_barras ? `<p class="muted" style="margin-top:4px;"><a class="link-btn" href="/etiquetas?produto=${peca.id}">Imprimir etiqueta</a></p>` : '<p class="muted" style="margin-top:4px;">Em branco = o sistema gera um EAN-13 automático.</p>'}
             </div>
             <div class="field">
               <label for="quantidade">Quantidade em estoque *</label>

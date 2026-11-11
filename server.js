@@ -77,6 +77,7 @@ const { contasPagarListPage, contaPagarFormPage } = require('./src/views/contasP
 const { contasReceberListPage, contaReceberFormPage } = require('./src/views/contasReceber');
 const { vendasListPage, vendaFormPage, vendaShowPage } = require('./src/views/vendas');
 const { consultaPrecoPage } = require('./src/views/consultaPreco');
+const { etiquetasPage } = require('./src/views/etiquetas');
 const { tiposServicoListPage, tipoServicoFormPage } = require('./src/views/servicos');
 const {
   contratosListPage,
@@ -141,6 +142,27 @@ function registrarEntradaCaixa(valor, vendaId, descricao, usuarioId) {
   if (!valor || valor <= 0) return;
   db.prepare("INSERT INTO caixa_movimentos (tipo, valor, venda_id, descricao, usuario_id) VALUES ('entrada', ?, ?, ?, ?)")
     .run(valor, vendaId || null, descricao || null, usuarioId || null);
+}
+
+// ---------------- Código de barras (EAN-13) ----------------
+function ean13CheckDigit(d12) {
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += parseInt(d12[i], 10) * (i % 2 === 0 ? 1 : 3);
+  return String((10 - (sum % 10)) % 10);
+}
+// Gera um EAN-13 interno único (prefixo 2 = uso interno da loja).
+function gerarCodigoBarrasUnico() {
+  for (let tent = 0; tent < 40; tent++) {
+    let base = '2';
+    for (let i = 0; i < 11; i++) base += Math.floor(Math.random() * 10);
+    const cod = base + ean13CheckDigit(base);
+    if (!db.prepare('SELECT 1 FROM pecas WHERE codigo_barras = ?').get(cod)) return cod;
+  }
+  return null;
+}
+function normalizaCodigoBarras(raw) {
+  const s = String(raw || '').trim();
+  return s || null;
 }
 
 function getConfigFiscal() {
@@ -668,6 +690,7 @@ async function handler(req, res) {
       ['/consulta-preco', 'vendas'],
       ['/vendas', 'vendas'],
       ['/transferencias', 'estoque'],
+      ['/etiquetas', 'estoque'],
       ['/estoque', 'estoque'],
       ['/fornecedores', 'estoque'],
       ['/contas-pagar', 'financeiro'],
@@ -1114,18 +1137,25 @@ async function handler(req, res) {
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
       const origemPeca = body.origem_mercadoria === '' || body.origem_mercadoria == null ? null : Number(body.origem_mercadoria);
+      // Código de barras: usa o informado (ex.: do fabricante) ou gera um EAN-13.
+      let codigoBarras = normalizaCodigoBarras(body.codigo_barras);
+      if (codigoBarras && db.prepare('SELECT 1 FROM pecas WHERE codigo_barras = ?').get(codigoBarras)) {
+        setFlash(session.sessionId, 'error', `Já existe um produto com o código de barras ${codigoBarras}.`);
+        return redirect(res, '/estoque/novo');
+      }
+      if (!codigoBarras) codigoBarras = gerarCodigoBarrasUnico();
       const info = db
         .prepare(
           `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes, loja_id, fornecedor_id,
-                              ncm, cfop, csosn, origem_mercadoria, unidade_comercial)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                              ncm, cfop, csosn, origem_mercadoria, unidade_comercial, codigo_barras)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
           quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
           toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId,
           (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
-          origemPeca, (body.unidade_comercial || '').trim() || null
+          origemPeca, (body.unidade_comercial || '').trim() || null, codigoBarras
         );
       salvarCoresPeca(info.lastInsertRowid, cores);
       salvarFotoPeca(info.lastInsertRowid, files, body);
@@ -1287,15 +1317,22 @@ async function handler(req, res) {
       const precoVenda = toFloatOrNull(body.preco_venda) || 0;
       const quantidadeTotal = cores.length ? cores.reduce((sum, c) => sum + c.quantidade, 0) : (toIntOrNull(body.quantidade) || 0);
       const origemPecaUp = body.origem_mercadoria === '' || body.origem_mercadoria == null ? null : Number(body.origem_mercadoria);
+      // Código de barras: mantém/edita; gera um EAN-13 se ficou vazio; valida duplicata.
+      let codigoBarrasUp = normalizaCodigoBarras(body.codigo_barras);
+      if (codigoBarrasUp && db.prepare('SELECT 1 FROM pecas WHERE codigo_barras = ? AND id != ?').get(codigoBarrasUp, m.id)) {
+        setFlash(session.sessionId, 'error', `Já existe outro produto com o código de barras ${codigoBarrasUp}.`);
+        return redirect(res, `/estoque/${m.id}/editar`);
+      }
+      if (!codigoBarrasUp) codigoBarrasUp = gerarCodigoBarrasUnico();
       db.prepare(
         `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, loja_id=?, fornecedor_id=?,
-           ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, updated_at=datetime('now') WHERE id=?`
+           ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, codigo_barras=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
         quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
         toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId,
         (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
-        origemPecaUp, (body.unidade_comercial || '').trim() || null, m.id
+        origemPecaUp, (body.unidade_comercial || '').trim() || null, codigoBarrasUp, m.id
       );
       salvarCoresPeca(m.id, cores);
       salvarFotoPeca(m.id, files, body);
@@ -2839,9 +2876,16 @@ async function handler(req, res) {
     // ---------------- VENDA DIRETO ----------------
     if (pathname === '/consulta-preco' && method === 'GET') {
       const pecas = canSeeAllLojas(user)
-        ? db.prepare('SELECT id, nome, preco_venda, foto_caminho FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT id, nome, preco_venda, foto_caminho FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        ? db.prepare('SELECT id, nome, preco_venda, foto_caminho, codigo_barras FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda, foto_caminho, codigo_barras FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       return send(res, 200, consultaPrecoPage({ user, flash: takeFlash(session.sessionId), pecas }));
+    }
+
+    if (pathname === '/etiquetas' && method === 'GET') {
+      const pecas = canSeeAllLojas(user)
+        ? db.prepare('SELECT id, nome, preco_venda, codigo_barras FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda, codigo_barras FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+      return send(res, 200, etiquetasPage({ user, flash: takeFlash(session.sessionId), pecas, selectedId: url.searchParams.get('produto') || '' }));
     }
 
     if (pathname === '/vendas' && method === 'GET') {

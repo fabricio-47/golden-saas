@@ -12,6 +12,7 @@ function consultaPrecoPage({ user, flash, pecas }) {
       nome: p.nome,
       preco: Number(p.preco_venda) || 0,
       foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
+      codigo: p.codigo_barras || null,
     }))
   );
   const options = (pecas || [])
@@ -33,6 +34,11 @@ function consultaPrecoPage({ user, flash, pecas }) {
 
       <div class="card">
         <h2 style="margin-top:0;">Adicionar do estoque</h2>
+        <div class="field full" style="background:rgba(201,162,39,0.08);padding:12px;border-radius:8px;border:1px solid var(--border);margin-bottom:12px;">
+          <label for="cp_barcode">📷 Código de barras (bipe ou digite e aperte Enter)</label>
+          <input type="text" id="cp_barcode" placeholder="Bipe o produto aqui..." autocomplete="off" onkeydown="cpBarcodeKey(event)">
+          <p class="muted" id="cp_barcode_msg" style="margin-top:4px;min-height:16px;"></p>
+        </div>
         <div class="form-grid">
           <div class="field" style="grid-column: span 2;">
             <label for="cp_produto">Produto</label>
@@ -136,6 +142,26 @@ function consultaPrecoPage({ user, flash, pecas }) {
           sel.value = '';
           document.getElementById('cp_qtd').value = 1;
           cpPreview();
+          cpRender();
+        }
+        function cpBarcodeKey(e) {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          var inp = document.getElementById('cp_barcode');
+          var cod = (inp.value || '').trim();
+          var msg = document.getElementById('cp_barcode_msg');
+          if (!cod) return;
+          var prod = CP_PRODUTOS.find(function (p) { return p.codigo && String(p.codigo) === cod; });
+          if (!prod) {
+            msg.innerHTML = '<span style="color:#a1352a;">Nenhum produto com o código ' + cod + '.</span>';
+            inp.select();
+            return;
+          }
+          var existente = cpItens.find(function (it) { return it.nome === prod.nome && it.preco === prod.preco; });
+          if (existente) existente.qtd += 1;
+          else cpItens.push({ nome: prod.nome, preco: prod.preco, qtd: 1, foto: prod.foto || null });
+          msg.innerHTML = '<span style="color:#1f6b3a;">+ ' + prod.nome + '</span>';
+          inp.value = '';
           cpRender();
         }
         function cpPreview() {

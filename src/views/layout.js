@@ -267,6 +267,7 @@ function layout({ title, activeNav, user, flash, children }) {
       items: [
         { key: 'estoque', href: '/estoque', label: 'Produtos', modulo: 'estoque' },
         { key: 'servicos', href: '/servicos', label: 'Serviços', modulo: 'os' },
+        { key: 'etiquetas', href: '/etiquetas', label: 'Etiquetas (cód. barras)', modulo: 'estoque' },
       ].filter((item) => podeVer(item.modulo)),
     },
     { type: 'link', key: 'orcamentos', href: '/orcamentos', label: 'Orçamentos', modulo: 'vendas' },

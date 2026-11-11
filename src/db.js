@@ -454,6 +454,26 @@ ensureColumn('pecas', 'unidade_comercial', 'TEXT');
 // Foto do produto (uma por produto), caminho relativo em uploads (peca-<id>/...).
 ensureColumn('pecas', 'foto_caminho', 'TEXT');
 
+// Código de barras do produto (EAN-13 gerado automaticamente ou o do fabricante).
+ensureColumn('pecas', 'codigo_barras', 'TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pecas_codigo_barras ON pecas(codigo_barras) WHERE codigo_barras IS NOT NULL');
+// Backfill: produtos antigos sem código ganham um EAN-13 interno (prefixo 2).
+(function backfillCodigoBarras() {
+  const semCodigo = db.prepare("SELECT id FROM pecas WHERE codigo_barras IS NULL OR codigo_barras = ''").all();
+  if (!semCodigo.length) return;
+  const check = (d12) => { let s = 0; for (let i = 0; i < 12; i++) s += parseInt(d12[i], 10) * (i % 2 === 0 ? 1 : 3); return String((10 - (s % 10)) % 10); };
+  const existe = db.prepare('SELECT 1 FROM pecas WHERE codigo_barras = ?');
+  const upd = db.prepare('UPDATE pecas SET codigo_barras = ? WHERE id = ?');
+  for (const p of semCodigo) {
+    for (let t = 0; t < 40; t++) {
+      let base = '2';
+      for (let i = 0; i < 11; i++) base += Math.floor(Math.random() * 10);
+      const cod = base + check(base);
+      if (!existe.get(cod)) { upd.run(cod, p.id); break; }
+    }
+  }
+})();
+
 // Desconto (R$) aplicado na venda. valor_total já fica com o desconto abatido.
 ensureColumn('vendas', 'desconto', 'REAL');
 

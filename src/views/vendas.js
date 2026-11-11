@@ -113,6 +113,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
       preco: Number(p.preco_venda) || 0,
       estoque: p.quantidade,
       foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
+      codigo: p.codigo_barras || null,
     }))
   );
   const pecaOptionsNovo = (pecasDisponiveis || [])
@@ -165,9 +166,14 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           </div>
 
           <h2 style="margin-top:20px;">Produtos da venda</h2>
+          <div class="field full" style="background:rgba(201,162,39,0.08);padding:12px;border-radius:8px;border:1px solid var(--border);">
+            <label for="nv_barcode">📷 Código de barras (bipe o leitor ou digite e aperte Enter)</label>
+            <input type="text" id="nv_barcode" placeholder="Bipe o produto aqui..." autocomplete="off" onkeydown="nvBarcodeKey(event)">
+            <p class="muted" id="nv_barcode_msg" style="margin-top:4px;min-height:16px;"></p>
+          </div>
           <div class="form-grid">
             <div class="field" style="grid-column: span 2;">
-              <label for="nv_produto">Produto do estoque</label>
+              <label for="nv_produto">Produto do estoque (ou escolha na lista)</label>
               <select id="nv_produto">
                 <option value="">Selecione...</option>
                 ${pecaOptionsNovo}
@@ -261,6 +267,27 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           if (!prod) return;
           nvItens.push({ peca_id: prod.id, nome: prod.nome, preco: prod.preco, qtd: qtd, foto: prod.foto || null });
           sel.value = ''; document.getElementById('nv_qtd').value = 1;
+          nvRender();
+        }
+        function nvBarcodeKey(e) {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          var inp = document.getElementById('nv_barcode');
+          var cod = (inp.value || '').trim();
+          var msg = document.getElementById('nv_barcode_msg');
+          if (!cod) return;
+          var prod = NV_PRODUTOS.find(function (p) { return p.codigo && String(p.codigo) === cod; });
+          if (!prod) {
+            msg.innerHTML = '<span style="color:#a1352a;">Nenhum produto com o código ' + cod + '.</span>';
+            inp.select();
+            return;
+          }
+          // se já está na lista, soma 1; senão adiciona
+          var existente = nvItens.find(function (it) { return it.peca_id === prod.id; });
+          if (existente) existente.qtd += 1;
+          else nvItens.push({ peca_id: prod.id, nome: prod.nome, preco: prod.preco, qtd: 1, foto: prod.foto || null });
+          msg.innerHTML = '<span style="color:#1f6b3a;">+ ' + prod.nome + '</span>';
+          inp.value = '';
           nvRender();
         }
         function nvAddManual() {
