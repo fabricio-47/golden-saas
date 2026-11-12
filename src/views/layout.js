@@ -349,6 +349,10 @@ function layout({ title, activeNav, user, flash, children }) {
 
   const roleLabelHtml = user ? `<div class="sidebar-role">${escapeHtml(nivelNome(user))}</div>` : '';
 
+  const licencaBanner = user && user.licencaAviso
+    ? `<div class="flash" style="background:${user.licencaAviso.critico ? '#fbe2d6' : '#fdf3d6'};color:#7a5200;border:1px solid ${user.licencaAviso.critico ? '#e0a090' : '#e6d49a'};">${escapeHtml(user.licencaAviso.texto)}</div>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -385,6 +389,7 @@ function layout({ title, activeNav, user, flash, children }) {
       </div>
     </aside>
     <main class="main">
+      ${licencaBanner}
       ${flashHtml}
       ${children}
     </main>

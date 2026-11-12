@@ -504,6 +504,17 @@ ensureColumn('config_geral', 'etq_mostrar_loja', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('config_geral', 'etq_fonte_px', 'INTEGER NOT NULL DEFAULT 13');
 ensureColumn('config_geral', 'etq_colunas', 'INTEGER NOT NULL DEFAULT 0');
 
+// Licença (usada só quando LICENSE_ENABLED=1): data até quando o uso está liberado.
+// Em instância nova, começa um teste de TRIAL_DAYS dias (padrão 15).
+ensureColumn('config_geral', 'licenca_ativa_ate', 'TEXT');
+ensureColumn('config_geral', 'licenca_plano', "TEXT NOT NULL DEFAULT 'trial'");
+(function initLicenca() {
+  const dias = parseInt(process.env.TRIAL_DAYS, 10) || 15;
+  db.prepare(
+    "UPDATE config_geral SET licenca_ativa_ate = date('now', ?) WHERE id = 1 AND (licenca_ativa_ate IS NULL OR licenca_ativa_ate = '')"
+  ).run('+' + dias + ' days');
+})();
+
 // Comprovante do pagamento anexado na baixa (obrigatório quando digital).
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
 ensureColumn('vendas', 'comprovante_nome', 'TEXT');

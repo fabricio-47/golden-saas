@@ -48,6 +48,7 @@ const {
 } = require('./src/roles');
 
 const { loginPage } = require('./src/views/login');
+const { licencaPage } = require('./src/views/licenca');
 const { dashboardPage } = require('./src/views/dashboard');
 const { clientesListPage, clienteFormPage, clienteShowPage } = require('./src/views/clientes');
 const { bicicletasListPage, bicicletaFormPage, bicicletaShowPage } = require('./src/views/bicicletas');
@@ -168,6 +169,58 @@ function setEtiquetaConfig(body) {
     fontePx,
     colunas
   );
+}
+
+// ---------------- Licença (trava por período, liberação por código) ----------------
+// Ativa só quando LICENSE_ENABLED=1 (na sua instância própria fica desligada).
+function licencaAtivada() {
+  return process.env.LICENSE_ENABLED === '1';
+}
+function licenseSecret() {
+  return process.env.LICENSE_SECRET || 'golden-saas-chave-padrao-troque-no-servidor';
+}
+function hojeISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+function getLicencaAte() {
+  const c = getConfigGeral();
+  return c.licenca_ativa_ate || null;
+}
+function licencaValida() {
+  const ate = getLicencaAte();
+  if (!ate) return false;
+  return hojeISO() <= ate;
+}
+function diasRestantesLicenca() {
+  const ate = getLicencaAte();
+  if (!ate) return 0;
+  const d1 = new Date(hojeISO() + 'T00:00:00');
+  const d2 = new Date(ate + 'T00:00:00');
+  return Math.round((d2 - d1) / 86400000);
+}
+function assinaDataLicenca(ymd) {
+  return crypto.createHmac('sha256', licenseSecret()).update(ymd).digest('hex').slice(0, 8).toUpperCase();
+}
+function gerarCodigoLicenca(dateIso) {
+  const ymd = String(dateIso).replace(/-/g, '');
+  return 'GS-' + ymd + '-' + assinaDataLicenca(ymd);
+}
+function validarCodigoLicenca(code) {
+  if (!code) return null;
+  const limpo = String(code).trim().toUpperCase().replace(/\s+/g, '').replace(/^GS-/, '');
+  const parts = limpo.split('-');
+  if (parts.length !== 2) return null;
+  const ymd = parts[0];
+  const sig = parts[1];
+  if (!/^\d{8}$/.test(ymd)) return null;
+  if (assinaDataLicenca(ymd) !== sig) return null;
+  const iso = ymd.slice(0, 4) + '-' + ymd.slice(4, 6) + '-' + ymd.slice(6, 8);
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  return iso;
+}
+function setLicencaAte(dateIso, plano) {
+  db.prepare("UPDATE config_geral SET licenca_ativa_ate = ?, licenca_plano = ?, atualizado_em = datetime('now') WHERE id = 1").run(dateIso, plano || 'ativo');
 }
 
 // Caixa em espécie (dinheiro físico): saldo = entradas - fechamentos.
@@ -681,7 +734,7 @@ function buildOsEmailContent(os, clienteNome, tipo) {
 
 // ---------- request handler ----------
 
-const PUBLIC_PATHS = new Set(['/login', '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png']);
+const PUBLIC_PATHS = new Set(['/login', '/licenca', '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png']);
 const pwa = require('./src/assets/pwa');
 
 async function handler(req, res) {
@@ -702,6 +755,26 @@ async function handler(req, res) {
           pode_ver_outras_lojas: session.pode_ver_outras_lojas,
         }
       : null;
+
+    // --- licença (trava por período, só quando LICENSE_ENABLED=1) ---
+    if (licencaAtivada()) {
+      const liberaSempre = pathname === '/licenca' || pathname === '/logout' || PUBLIC_PATHS.has(pathname);
+      if (!licencaValida() && !liberaSempre) {
+        return redirect(res, '/licenca');
+      }
+      if (user && licencaValida()) {
+        const dias = diasRestantesLicenca();
+        if (dias <= 7) {
+          user.licencaAviso = {
+            critico: dias <= 3,
+            texto:
+              dias <= 0
+                ? 'Seu período de uso vence hoje. Contate o fornecedor para renovar.'
+                : 'Seu período de uso vence em ' + dias + (dias === 1 ? ' dia' : ' dias') + '. Contate o fornecedor para renovar.',
+          };
+        }
+      }
+    }
 
     // --- auth gate ---
     // /contratos/assinar/... é a página pública que o CLIENTE abre pelo link
@@ -827,6 +900,21 @@ async function handler(req, res) {
       if (session) destroySession(session.sessionId);
       clearSessionCookie(res);
       return redirect(res, '/login');
+    }
+
+    if (pathname === '/licenca' && method === 'GET') {
+      const valida = licencaAtivada() ? licencaValida() : true;
+      return send(res, 200, licencaPage({ valida, dias: diasRestantesLicenca(), ate: getLicencaAte(), erro: null, logado: !!user, csrfToken: session ? session.csrfToken : '' }));
+    }
+
+    if (pathname === '/licenca' && method === 'POST') {
+      const iso = validarCodigoLicenca(body.codigo);
+      const render = (erro) =>
+        send(res, 200, licencaPage({ valida: licencaAtivada() ? licencaValida() : true, dias: diasRestantesLicenca(), ate: getLicencaAte(), erro, logado: !!user, csrfToken: session ? session.csrfToken : '' }));
+      if (!iso) return render('Código inválido. Confira o código com o fornecedor.');
+      if (iso < hojeISO()) return render('Esse código é de uma data que já passou. Peça um código novo ao fornecedor.');
+      setLicencaAte(iso, 'ativo');
+      return redirect(res, user ? '/' : '/login');
     }
 
     // ---------------- ARQUIVOS ENVIADOS ----------------
