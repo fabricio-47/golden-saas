@@ -11,6 +11,8 @@ function consultaPrecoPage({ user, flash, pecas }) {
       id: p.id,
       nome: p.nome,
       preco: Number(p.preco_venda) || 0,
+      pix: p.preco_pix != null ? Number(p.preco_pix) : null,
+      cartao: p.preco_cartao != null ? Number(p.preco_cartao) : null,
       foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
       codigo: p.codigo_barras || null,
     }))
@@ -54,7 +56,10 @@ function consultaPrecoPage({ user, flash, pecas }) {
         </div>
         <div id="cp_preview_box" style="display:none;align-items:center;gap:12px;margin:4px 0 12px;">
           <img id="cp_preview_img" src="" alt="" title="Clique para ampliar" onclick="cpZoom(this.src)" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in;">
-          <span id="cp_preview_nome" class="muted"></span>
+          <div>
+            <div id="cp_preview_nome" style="font-weight:600;margin-bottom:2px;"></div>
+            <div id="cp_preview_precos" style="font-size:13px;color:#444;line-height:1.5;"></div>
+          </div>
         </div>
         <button type="button" class="btn" onclick="cpAddEstoque()">+ Adicionar do estoque</button>
 
@@ -161,20 +166,29 @@ function consultaPrecoPage({ user, flash, pecas }) {
           if (existente) existente.qtd += 1;
           else cpItens.push({ nome: prod.nome, preco: prod.preco, qtd: 1, foto: prod.foto || null });
           msg.innerHTML = '<span style="color:#1f6b3a;">+ ' + prod.nome + '</span>';
+          cpMostrarPreview(prod);
           inp.value = '';
           cpRender();
         }
+        function cpPrecosHtml(prod) {
+          var linhas = '<b>À vista/dinheiro: ' + cpMoney(prod.preco) + '</b>';
+          if (prod.pix != null) linhas += '<br>PIX: ' + cpMoney(prod.pix);
+          if (prod.cartao != null) linhas += '<br>10x no cartão: ' + cpMoney(prod.cartao) + ' <span style="color:#777;">(' + cpMoney(prod.cartao / 10) + '/mês)</span>';
+          return linhas;
+        }
+        function cpMostrarPreview(prod) {
+          var box = document.getElementById('cp_preview_box');
+          var img = document.getElementById('cp_preview_img');
+          if (!prod) { box.style.display = 'none'; return; }
+          if (prod.foto) { img.src = prod.foto; img.style.display = ''; } else { img.style.display = 'none'; }
+          document.getElementById('cp_preview_nome').textContent = prod.nome;
+          document.getElementById('cp_preview_precos').innerHTML = cpPrecosHtml(prod);
+          box.style.display = 'flex';
+        }
         function cpPreview() {
           var id = document.getElementById('cp_produto').value;
-          var box = document.getElementById('cp_preview_box');
           var prod = id ? CP_PRODUTOS.find(function (p) { return String(p.id) === String(id); }) : null;
-          if (prod && prod.foto) {
-            document.getElementById('cp_preview_img').src = prod.foto;
-            document.getElementById('cp_preview_nome').textContent = prod.nome;
-            box.style.display = 'flex';
-          } else {
-            box.style.display = 'none';
-          }
+          cpMostrarPreview(prod);
         }
         function cpAddManual() {
           var desc = document.getElementById('cp_desc').value.trim();

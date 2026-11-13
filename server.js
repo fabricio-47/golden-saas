@@ -1282,14 +1282,14 @@ async function handler(req, res) {
       if (!codigoBarras) codigoBarras = gerarCodigoBarrasUnico();
       const info = db
         .prepare(
-          `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, observacoes, loja_id, fornecedor_id,
+          `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, preco_pix, preco_cartao, observacoes, loja_id, fornecedor_id,
                               ncm, cfop, csosn, origem_mercadoria, unidade_comercial, codigo_barras)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
           quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
-          toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId,
+          toFloatOrNull(body.custo_unitario), precoVenda, toFloatOrNull(body.preco_pix), toFloatOrNull(body.preco_cartao), body.observacoes || '', lojaIdEscolhida, fornecedorId,
           (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
           origemPeca, (body.unidade_comercial || '').trim() || null, codigoBarras
         );
@@ -1362,12 +1362,12 @@ async function handler(req, res) {
         const precoVenda = toFloatOrNull(body.preco_venda) || 0;
         const info = db
           .prepare(
-            `INSERT INTO pecas (nome, categoria, quantidade, estoque_minimo, custo_unitario, preco_venda, loja_id, fornecedor_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO pecas (nome, categoria, quantidade, estoque_minimo, custo_unitario, preco_venda, preco_pix, preco_cartao, loja_id, fornecedor_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             body.nome.trim(), body.categoria || '', quantidadeEntrada, toIntOrNull(body.estoque_minimo) || 0,
-            custoUnitario, precoVenda, lojaIdEscolhida, fornecedorId
+            custoUnitario, precoVenda, toFloatOrNull(body.preco_pix), toFloatOrNull(body.preco_cartao), lojaIdEscolhida, fornecedorId
           );
         peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(info.lastInsertRowid);
       }
@@ -1461,12 +1461,12 @@ async function handler(req, res) {
       }
       if (!codigoBarrasUp) codigoBarrasUp = gerarCodigoBarrasUnico();
       db.prepare(
-        `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, observacoes=?, loja_id=?, fornecedor_id=?,
+        `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, preco_pix=?, preco_cartao=?, observacoes=?, loja_id=?, fornecedor_id=?,
            ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, codigo_barras=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
         quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
-        toFloatOrNull(body.custo_unitario), precoVenda, body.observacoes || '', lojaIdEscolhida, fornecedorId,
+        toFloatOrNull(body.custo_unitario), precoVenda, toFloatOrNull(body.preco_pix), toFloatOrNull(body.preco_cartao), body.observacoes || '', lojaIdEscolhida, fornecedorId,
         (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
         origemPecaUp, (body.unidade_comercial || '').trim() || null, codigoBarrasUp, m.id
       );
@@ -3087,8 +3087,8 @@ async function handler(req, res) {
     // ---------------- VENDA DIRETO ----------------
     if (pathname === '/consulta-preco' && method === 'GET') {
       const pecas = canSeeAllLojas(user)
-        ? db.prepare('SELECT id, nome, preco_venda, foto_caminho, codigo_barras FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT id, nome, preco_venda, foto_caminho, codigo_barras FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        ? db.prepare('SELECT id, nome, preco_venda, preco_pix, preco_cartao, foto_caminho, codigo_barras FROM pecas ORDER BY nome ASC').all()
+        : db.prepare('SELECT id, nome, preco_venda, preco_pix, preco_cartao, foto_caminho, codigo_barras FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
       return send(res, 200, consultaPrecoPage({ user, flash: takeFlash(session.sessionId), pecas }));
     }
 

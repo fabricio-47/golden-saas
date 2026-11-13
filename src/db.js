@@ -454,6 +454,11 @@ ensureColumn('pecas', 'unidade_comercial', 'TEXT');
 // Foto do produto (uma por produto), caminho relativo em uploads (peca-<id>/...).
 ensureColumn('pecas', 'foto_caminho', 'TEXT');
 
+// Preços por forma de pagamento (opcionais). preco_venda continua sendo o preço
+// à vista/padrão usado nas vendas; estes dois são para mostrar na consulta.
+ensureColumn('pecas', 'preco_pix', 'REAL');
+ensureColumn('pecas', 'preco_cartao', 'REAL');
+
 // Código de barras do produto (EAN-13 gerado automaticamente ou o do fabricante).
 ensureColumn('pecas', 'codigo_barras', 'TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pecas_codigo_barras ON pecas(codigo_barras) WHERE codigo_barras IS NOT NULL');

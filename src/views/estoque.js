@@ -173,8 +173,16 @@ function entradaEstoqueFormPage({ user, flash, pecas, csrfToken, lojas, lojaFixa
                   <input type="number" id="estoque_minimo" name="estoque_minimo" min="0" step="1" value="1">
                 </div>
                 <div class="field">
-                  <label for="preco_venda">Preço de venda (R$) *</label>
+                  <label for="preco_venda">Preço à vista / dinheiro (R$) *</label>
                   <input type="number" id="preco_venda" name="preco_venda" min="0" step="0.01">
+                </div>
+                <div class="field">
+                  <label for="preco_pix">Preço no PIX (R$)</label>
+                  <input type="number" id="preco_pix" name="preco_pix" min="0" step="0.01">
+                </div>
+                <div class="field">
+                  <label for="preco_cartao">Preço em 10x no cartão (R$)</label>
+                  <input type="number" id="preco_cartao" name="preco_cartao" min="0" step="0.01">
                 </div>
               </div>
             </div>
@@ -317,8 +325,16 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
               <input type="number" id="custo_unitario" name="custo_unitario" min="0" step="0.01" value="${peca && peca.custo_unitario !== null ? peca.custo_unitario : ''}">
             </div>
             <div class="field">
-              <label for="preco_venda">Preço de venda — quanto você cobra do cliente (R$) *</label>
+              <label for="preco_venda">Preço à vista / dinheiro (R$) *</label>
               <input type="number" id="preco_venda" name="preco_venda" min="0" step="0.01" required value="${peca ? peca.preco_venda : ''}">
+            </div>
+            <div class="field">
+              <label for="preco_pix">Preço no PIX (R$)</label>
+              <input type="number" id="preco_pix" name="preco_pix" min="0" step="0.01" value="${peca && peca.preco_pix != null ? peca.preco_pix : ''}">
+            </div>
+            <div class="field">
+              <label for="preco_cartao">Preço em 10x no cartão (R$)</label>
+              <input type="number" id="preco_cartao" name="preco_cartao" min="0" step="0.01" value="${peca && peca.preco_cartao != null ? peca.preco_cartao : ''}">
             </div>
             <div class="field">
               <label for="fornecedor_id">Fornecedor</label>
