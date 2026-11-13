@@ -11,7 +11,6 @@ function consultaPrecoPage({ user, flash, pecas }) {
       id: p.id,
       nome: p.nome,
       preco: Number(p.preco_venda) || 0,
-      pix: p.preco_pix != null ? Number(p.preco_pix) : null,
       cartao: p.preco_cartao != null ? Number(p.preco_cartao) : null,
       foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
       codigo: p.codigo_barras || null,
@@ -172,7 +171,6 @@ function consultaPrecoPage({ user, flash, pecas }) {
         }
         function cpPrecosHtml(prod) {
           var linhas = '<b>À vista/dinheiro: ' + cpMoney(prod.preco) + '</b>';
-          if (prod.pix != null) linhas += '<br>PIX: ' + cpMoney(prod.pix);
           if (prod.cartao != null) linhas += '<br>10x no cartão: ' + cpMoney(prod.cartao) + ' <span style="color:#777;">(' + cpMoney(prod.cartao / 10) + '/mês)</span>';
           return linhas;
         }
