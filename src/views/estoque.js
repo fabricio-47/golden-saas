@@ -341,6 +341,29 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             </div>
           </div>
 
+          <details style="margin-top:20px;" ${peca && (peca.motor_serial || peca.controladora_serial || peca.bateria_serial || peca.chassi_numero) ? 'open' : ''}>
+            <summary style="cursor:pointer;font-weight:600;font-size:16px;">Dados técnicos (opcional — para motos/scooters)</summary>
+            <p class="muted" style="margin-top:6px;">Preencha quando o produto for uma moto ou scooter que você vende. Para peças comuns, pode deixar em branco.</p>
+            <div class="form-grid">
+              <div class="field">
+                <label for="motor_serial">Número de série do motor</label>
+                <input type="text" id="motor_serial" name="motor_serial" value="${escapeHtml(peca ? peca.motor_serial || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="controladora_serial">Número de série da controladora</label>
+                <input type="text" id="controladora_serial" name="controladora_serial" value="${escapeHtml(peca ? peca.controladora_serial || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="bateria_serial">Número de série da bateria</label>
+                <input type="text" id="bateria_serial" name="bateria_serial" value="${escapeHtml(peca ? peca.bateria_serial || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="chassi_numero">Número do chassi</label>
+                <input type="text" id="chassi_numero" name="chassi_numero" value="${escapeHtml(peca ? peca.chassi_numero || '' : '')}">
+              </div>
+            </div>
+          </details>
+
           <h2 style="margin-top:24px;">Foto do produto</h2>
           <p class="muted" style="margin-top:-6px;">Aparece na Consulta de preço e na lista de produtos. Opcional — JPG, PNG ou WEBP.</p>
           ${

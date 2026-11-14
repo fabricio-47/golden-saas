@@ -1283,15 +1283,17 @@ async function handler(req, res) {
       const info = db
         .prepare(
           `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, preco_pix, preco_cartao, observacoes, loja_id, fornecedor_id,
-                              ncm, cfop, csosn, origem_mercadoria, unidade_comercial, codigo_barras)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                              ncm, cfop, csosn, origem_mercadoria, unidade_comercial, codigo_barras,
+                              motor_serial, controladora_serial, bateria_serial, chassi_numero)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
           quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
           toFloatOrNull(body.custo_unitario), precoVenda, toFloatOrNull(body.preco_pix), toFloatOrNull(body.preco_cartao), body.observacoes || '', lojaIdEscolhida, fornecedorId,
           (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
-          origemPeca, (body.unidade_comercial || '').trim() || null, codigoBarras
+          origemPeca, (body.unidade_comercial || '').trim() || null, codigoBarras,
+          (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null
         );
       salvarCoresPeca(info.lastInsertRowid, cores);
       salvarFotoPeca(info.lastInsertRowid, files, body);
@@ -1462,13 +1464,15 @@ async function handler(req, res) {
       if (!codigoBarrasUp) codigoBarrasUp = gerarCodigoBarrasUnico();
       db.prepare(
         `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, preco_pix=?, preco_cartao=?, observacoes=?, loja_id=?, fornecedor_id=?,
-           ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, codigo_barras=?, updated_at=datetime('now') WHERE id=?`
+           ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, codigo_barras=?,
+           motor_serial=?, controladora_serial=?, bateria_serial=?, chassi_numero=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
         quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
         toFloatOrNull(body.custo_unitario), precoVenda, toFloatOrNull(body.preco_pix), toFloatOrNull(body.preco_cartao), body.observacoes || '', lojaIdEscolhida, fornecedorId,
         (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
-        origemPecaUp, (body.unidade_comercial || '').trim() || null, codigoBarrasUp, m.id
+        origemPecaUp, (body.unidade_comercial || '').trim() || null, codigoBarrasUp,
+        (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null, m.id
       );
       salvarCoresPeca(m.id, cores);
       salvarFotoPeca(m.id, files, body);

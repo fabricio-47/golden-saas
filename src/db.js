@@ -459,6 +459,13 @@ ensureColumn('pecas', 'foto_caminho', 'TEXT');
 ensureColumn('pecas', 'preco_pix', 'REAL');
 ensureColumn('pecas', 'preco_cartao', 'REAL');
 
+// Dados técnicos do produto (opcionais) — para quando o produto é uma moto/scooter
+// que você vende: números de série do motor, controladora, bateria e chassi.
+ensureColumn('pecas', 'motor_serial', 'TEXT');
+ensureColumn('pecas', 'controladora_serial', 'TEXT');
+ensureColumn('pecas', 'bateria_serial', 'TEXT');
+ensureColumn('pecas', 'chassi_numero', 'TEXT');
+
 // Código de barras do produto (EAN-13 gerado automaticamente ou o do fabricante).
 ensureColumn('pecas', 'codigo_barras', 'TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pecas_codigo_barras ON pecas(codigo_barras) WHERE codigo_barras IS NOT NULL');
