@@ -71,6 +71,7 @@ const { transferenciasListPage, transferenciaFormPage } = require('./src/views/t
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
 const { transportadorasListPage, transportadoraFormPage } = require('./src/views/transportadoras');
 const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/camposExtras');
+const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('./src/views/garantias');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -386,6 +387,46 @@ function salvarValoresCliente(clienteId, body) {
     const v = (body['campo_extra_' + c.id] || '').toString().trim();
     up.run(c.id, clienteId, v || null);
   }
+}
+
+// Busca garantias cujo chassi ou qualquer número de série bate (parcial) com o termo.
+function buscarGarantias(termo) {
+  const t = '%' + String(termo || '').trim() + '%';
+  return db
+    .prepare(
+      `SELECT g.*, c.nome AS cliente_nome
+       FROM garantias g
+       LEFT JOIN clientes c ON c.id = g.cliente_id
+       WHERE g.chassi_numero LIKE ? OR g.motor_serial LIKE ? OR g.controladora_serial LIKE ? OR g.bateria_serial LIKE ?
+       ORDER BY g.data_venda DESC`
+    )
+    .all(t, t, t, t);
+}
+// Lê os campos da garantia a partir do corpo do formulário.
+function garantiaDoBody(body) {
+  const mes = (v) => {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && String(v).trim() !== '' ? n : null;
+  };
+  const txt = (v) => {
+    const s = (v || '').toString().trim();
+    return s || null;
+  };
+  return {
+    cliente_id: toIntOrNull(body.cliente_id),
+    produto_id: toIntOrNull(body.produto_id),
+    descricao_produto: (body.descricao_produto || '').toString().trim(),
+    chassi_numero: txt(body.chassi_numero),
+    motor_serial: txt(body.motor_serial),
+    controladora_serial: txt(body.controladora_serial),
+    bateria_serial: txt(body.bateria_serial),
+    data_venda: (body.data_venda || '').toString().trim(),
+    meses_motor: mes(body.meses_motor),
+    meses_bateria: mes(body.meses_bateria),
+    meses_controladora: mes(body.meses_controladora),
+    meses_geral: mes(body.meses_geral),
+    observacoes: txt(body.observacoes),
+  };
 }
 
 function notFound(res) {
@@ -850,6 +891,7 @@ async function handler(req, res) {
       ['/clientes', 'clientes'],
       ['/bicicletas', 'bicicletas'],
       ['/os', 'os'],
+      ['/garantias', 'os'],
       ['/servicos', 'os'],
       ['/orcamentos', 'vendas'],
       ['/consulta-preco', 'vendas'],
@@ -1862,6 +1904,103 @@ async function handler(req, res) {
       );
       setFlash(session.sessionId, 'success', 'Campo extra atualizado.');
       return redirect(res, '/campos-extras');
+    }
+
+    // ---------------- GARANTIAS (controle por número de série) ----------------
+    if (pathname === '/garantias' && method === 'GET') {
+      const termo = url.searchParams.get('q');
+      const resultados = termo && termo.trim() ? buscarGarantias(termo) : [];
+      const recentes = db
+        .prepare(
+          `SELECT g.*, c.nome AS cliente_nome FROM garantias g
+           LEFT JOIN clientes c ON c.id = g.cliente_id
+           ORDER BY g.created_at DESC LIMIT 10`
+        )
+        .all();
+      return send(res, 200, garantiaConsultaPage({ user, flash: takeFlash(session.sessionId), termo, resultados, recentes, config: getConfigGeral() }));
+    }
+
+    if (pathname === '/garantias/prazos' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, garantiaPrazosPage({ user, flash: takeFlash(session.sessionId), config: getConfigGeral(), csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/garantias/prazos' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const m = (v, d) => { const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : d; };
+      db.prepare(
+        "UPDATE config_geral SET garantia_meses_geral=?, garantia_meses_motor=?, garantia_meses_controladora=?, garantia_meses_bateria=?, atualizado_em=datetime('now') WHERE id=1"
+      ).run(m(body.garantia_meses_geral, 3), m(body.garantia_meses_motor, 12), m(body.garantia_meses_controladora, 12), m(body.garantia_meses_bateria, 6));
+      setFlash(session.sessionId, 'success', 'Prazos de garantia salvos.');
+      return redirect(res, '/garantias');
+    }
+
+    if (pathname === '/garantias/nova' && method === 'GET') {
+      const produtos = db
+        .prepare(
+          `SELECT id, nome, chassi_numero, motor_serial, controladora_serial, bateria_serial FROM pecas
+           WHERE chassi_numero IS NOT NULL OR motor_serial IS NOT NULL OR controladora_serial IS NOT NULL OR bateria_serial IS NOT NULL
+           ORDER BY nome ASC`
+        )
+        .all();
+      const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
+      return send(res, 200, garantiaFormPage({ user, flash: takeFlash(session.sessionId), garantia: null, csrfToken: session.csrfToken, config: getConfigGeral(), produtos, clientes }));
+    }
+
+    if (pathname === '/garantias' && method === 'POST') {
+      const g = garantiaDoBody(body);
+      if (!g.descricao_produto || !g.data_venda) {
+        const produtos = db
+          .prepare(
+            `SELECT id, nome, chassi_numero, motor_serial, controladora_serial, bateria_serial FROM pecas
+             WHERE chassi_numero IS NOT NULL OR motor_serial IS NOT NULL OR controladora_serial IS NOT NULL OR bateria_serial IS NOT NULL
+             ORDER BY nome ASC`
+          )
+          .all();
+        const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
+        return send(res, 400, garantiaFormPage({ user, flash: { type: 'error', message: 'Informe ao menos a descrição do produto e a data da venda.' }, garantia: body, csrfToken: session.csrfToken, config: getConfigGeral(), produtos, clientes }));
+      }
+      db.prepare(
+        `INSERT INTO garantias (cliente_id, produto_id, descricao_produto, chassi_numero, motor_serial, controladora_serial, bateria_serial, data_venda, meses_motor, meses_bateria, meses_controladora, meses_geral, observacoes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(g.cliente_id, g.produto_id, g.descricao_produto, g.chassi_numero, g.motor_serial, g.controladora_serial, g.bateria_serial, g.data_venda, g.meses_motor, g.meses_bateria, g.meses_controladora, g.meses_geral, g.observacoes);
+      setFlash(session.sessionId, 'success', 'Garantia registrada.');
+      return redirect(res, '/garantias');
+    }
+
+    if ((m = matchRoute('/garantias/:id/editar', pathname)) && method === 'GET') {
+      const garantia = db.prepare('SELECT * FROM garantias WHERE id = ?').get(m.id);
+      if (!garantia) return notFound(res);
+      const produtos = db
+        .prepare(
+          `SELECT id, nome, chassi_numero, motor_serial, controladora_serial, bateria_serial FROM pecas
+           WHERE chassi_numero IS NOT NULL OR motor_serial IS NOT NULL OR controladora_serial IS NOT NULL OR bateria_serial IS NOT NULL
+           ORDER BY nome ASC`
+        )
+        .all();
+      const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
+      return send(res, 200, garantiaFormPage({ user, flash: takeFlash(session.sessionId), garantia, csrfToken: session.csrfToken, config: getConfigGeral(), produtos, clientes }));
+    }
+
+    if ((m = matchRoute('/garantias/:id', pathname)) && method === 'POST') {
+      const existente = db.prepare('SELECT id FROM garantias WHERE id = ?').get(m.id);
+      if (!existente) return notFound(res);
+      const g = garantiaDoBody(body);
+      if (!g.descricao_produto || !g.data_venda) {
+        setFlash(session.sessionId, 'error', 'Informe ao menos a descrição do produto e a data da venda.');
+        return redirect(res, '/garantias/' + m.id + '/editar');
+      }
+      db.prepare(
+        `UPDATE garantias SET cliente_id=?, produto_id=?, descricao_produto=?, chassi_numero=?, motor_serial=?, controladora_serial=?, bateria_serial=?, data_venda=?, meses_motor=?, meses_bateria=?, meses_controladora=?, meses_geral=?, observacoes=? WHERE id=?`
+      ).run(g.cliente_id, g.produto_id, g.descricao_produto, g.chassi_numero, g.motor_serial, g.controladora_serial, g.bateria_serial, g.data_venda, g.meses_motor, g.meses_bateria, g.meses_controladora, g.meses_geral, g.observacoes, m.id);
+      setFlash(session.sessionId, 'success', 'Garantia atualizada.');
+      return redirect(res, '/garantias');
+    }
+
+    if ((m = matchRoute('/garantias/:id/excluir', pathname)) && method === 'POST') {
+      db.prepare('DELETE FROM garantias WHERE id = ?').run(m.id);
+      setFlash(session.sessionId, 'success', 'Garantia excluída.');
+      return redirect(res, '/garantias');
     }
 
     // ---------------- FUNCIONÁRIOS ----------------
