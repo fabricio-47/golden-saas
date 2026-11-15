@@ -3413,9 +3413,12 @@ async function handler(req, res) {
 
     // ---------------- VENDA DIRETO ----------------
     if (pathname === '/consulta-preco' && method === 'GET') {
+      const colsCp = `p.id, p.nome, p.preco_venda, p.preco_pix, p.preco_cartao, p.foto_caminho, p.codigo_barras,
+        p.ficha_motor, p.ficha_autonomia, p.ficha_velocidade, p.ficha_bateria, p.ficha_pneu, p.ficha_peso, p.ficha_recarga,
+        (SELECT GROUP_CONCAT(cor, '||') FROM peca_cores WHERE peca_id = p.id) AS cores`;
       const pecas = canSeeAllLojas(user)
-        ? db.prepare('SELECT id, nome, preco_venda, preco_pix, preco_cartao, foto_caminho, codigo_barras FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT id, nome, preco_venda, preco_pix, preco_cartao, foto_caminho, codigo_barras FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        ? db.prepare(`SELECT ${colsCp} FROM pecas p ORDER BY p.nome ASC`).all()
+        : db.prepare(`SELECT ${colsCp} FROM pecas p WHERE p.loja_id = ? ORDER BY p.nome ASC`).all(user.loja_id);
       return send(res, 200, consultaPrecoPage({ user, flash: takeFlash(session.sessionId), pecas }));
     }
 

@@ -14,6 +14,16 @@ function consultaPrecoPage({ user, flash, pecas }) {
       cartao: p.preco_cartao != null ? Number(p.preco_cartao) : null,
       foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
       codigo: p.codigo_barras || null,
+      cores: p.cores ? String(p.cores).split('||').filter(Boolean) : [],
+      ficha: [
+        ['Motor', p.ficha_motor],
+        ['Autonomia', p.ficha_autonomia],
+        ['Velocidade máx.', p.ficha_velocidade],
+        ['Bateria', p.ficha_bateria],
+        ['Pneu / Aro', p.ficha_pneu],
+        ['Peso suportado', p.ficha_peso],
+        ['Recarga', p.ficha_recarga],
+      ].filter((f) => f[1] && String(f[1]).trim()),
     }))
   );
   const options = (pecas || [])
@@ -53,11 +63,13 @@ function consultaPrecoPage({ user, flash, pecas }) {
             <input type="number" id="cp_qtd" min="1" step="1" value="1">
           </div>
         </div>
-        <div id="cp_preview_box" style="display:none;align-items:center;gap:12px;margin:4px 0 12px;">
-          <img id="cp_preview_img" src="" alt="" title="Clique para ampliar" onclick="cpZoom(this.src)" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in;">
-          <div>
-            <div id="cp_preview_nome" style="font-weight:600;margin-bottom:2px;"></div>
-            <div id="cp_preview_precos" style="font-size:13px;color:#444;line-height:1.5;"></div>
+        <div id="cp_preview_box" style="display:none;gap:14px;margin:4px 0 12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(201,162,39,0.05);">
+          <img id="cp_preview_img" src="" alt="" title="Clique para ampliar" onclick="cpZoom(this.src)" style="width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in;flex-shrink:0;">
+          <div style="flex:1;min-width:0;">
+            <div id="cp_preview_nome" style="font-weight:700;font-size:16px;margin-bottom:2px;"></div>
+            <div id="cp_preview_precos" style="font-size:13px;color:#444;line-height:1.5;margin-bottom:6px;"></div>
+            <div id="cp_preview_cores" style="margin-bottom:8px;"></div>
+            <div id="cp_preview_ficha"></div>
           </div>
         </div>
         <button type="button" class="btn" onclick="cpAddEstoque()">+ Adicionar do estoque</button>
@@ -174,6 +186,12 @@ function consultaPrecoPage({ user, flash, pecas }) {
           if (prod.cartao != null) linhas += '<br>10x no cartão: ' + cpMoney(prod.cartao) + ' <span style="color:#777;">(' + cpMoney(prod.cartao / 10) + '/mês)</span>';
           return linhas;
         }
+        var CP_CORES_HEX = { preto: '#111', branco: '#f4f4f4', cinza: '#9aa0a6', prata: '#c8ccd0', vermelho: '#d1352a', azul: '#2a63d1', verde: '#2a9d4a', amarelo: '#e5c010', laranja: '#e8731a', rosa: '#e86aa8', roxo: '#7a3fb0', carbono: '#2a2a2a', marrom: '#7a4a1a', dourado: '#c9a227', vinho: '#6e1a2a', bege: '#d8c9a8' };
+        function cpCorHex(nome) {
+          var k = String(nome || '').toLowerCase().trim();
+          for (var c in CP_CORES_HEX) { if (k.indexOf(c) !== -1) return CP_CORES_HEX[c]; }
+          return '#c9a227';
+        }
         function cpMostrarPreview(prod) {
           var box = document.getElementById('cp_preview_box');
           var img = document.getElementById('cp_preview_img');
@@ -181,6 +199,21 @@ function consultaPrecoPage({ user, flash, pecas }) {
           if (prod.foto) { img.src = prod.foto; img.style.display = ''; } else { img.style.display = 'none'; }
           document.getElementById('cp_preview_nome').textContent = prod.nome;
           document.getElementById('cp_preview_precos').innerHTML = cpPrecosHtml(prod);
+          var coresEl = document.getElementById('cp_preview_cores');
+          if (prod.cores && prod.cores.length) {
+            coresEl.innerHTML = prod.cores.map(function (c) {
+              return '<span title="' + cpEsc(c) + '" style="display:inline-flex;align-items:center;gap:5px;margin:0 8px 4px 0;font-size:12px;color:#555;">' +
+                '<span style="width:14px;height:14px;border-radius:50%;border:1px solid #bbb;background:' + cpCorHex(c) + ';display:inline-block;"></span>' + cpEsc(c) + '</span>';
+            }).join('');
+          } else { coresEl.innerHTML = ''; }
+          var fichaEl = document.getElementById('cp_preview_ficha');
+          if (prod.ficha && prod.ficha.length) {
+            fichaEl.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12.5px;">' +
+              prod.ficha.map(function (f) {
+                return '<div style="display:flex;justify-content:space-between;border-bottom:1px dotted #ddd;padding:2px 0;">' +
+                  '<span style="color:#888;">' + cpEsc(f[0]) + '</span><strong style="color:#333;">' + cpEsc(f[1]) + '</strong></div>';
+              }).join('') + '</div>';
+          } else { fichaEl.innerHTML = ''; }
           box.style.display = 'flex';
         }
         function cpPreview() {
