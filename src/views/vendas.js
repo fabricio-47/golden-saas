@@ -114,6 +114,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
       estoque: p.quantidade,
       foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
       codigo: p.codigo_barras || null,
+      cores: (p.cores || []).map((c) => ({ cor: c.cor, qtd: c.quantidade })),
     }))
   );
   const pecaOptionsNovo = (pecasDisponiveis || [])
@@ -174,7 +175,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           <div class="form-grid">
             <div class="field" style="grid-column: span 2;">
               <label for="nv_produto">Produto do estoque (ou escolha na lista)</label>
-              <select id="nv_produto">
+              <select id="nv_produto" onchange="nvProdChange()">
                 <option value="">Selecione...</option>
                 ${pecaOptionsNovo}
               </select>
@@ -182,6 +183,10 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
             <div class="field">
               <label for="nv_qtd">Quantidade</label>
               <input type="number" id="nv_qtd" min="1" step="1" value="1">
+            </div>
+            <div class="field" id="nv_cor_campo" style="display:none;grid-column: span 2;">
+              <label for="nv_cor">Cor (baixa do estoque desta cor) *</label>
+              <select id="nv_cor"></select>
             </div>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="nvAddEstoque()">+ Adicionar produto</button>
@@ -258,6 +263,20 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
         var nvItens = [];
         function nvMoney(v) { return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ','); }
         function nvEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function nvProdChange() {
+          var id = document.getElementById('nv_produto').value;
+          var prod = id ? NV_PRODUTOS.find(function (p) { return String(p.id) === String(id); }) : null;
+          var campo = document.getElementById('nv_cor_campo');
+          var selCor = document.getElementById('nv_cor');
+          if (prod && prod.cores && prod.cores.length) {
+            selCor.innerHTML = prod.cores.map(function (c) {
+              return '<option value="' + nvEsc(c.cor) + '">' + nvEsc(c.cor) + ' (estoque: ' + c.qtd + ')</option>';
+            }).join('');
+            campo.style.display = '';
+          } else {
+            selCor.innerHTML = ''; campo.style.display = 'none';
+          }
+        }
         function nvAddEstoque() {
           var sel = document.getElementById('nv_produto');
           var id = sel.value;
@@ -265,8 +284,13 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           var qtd = parseInt(document.getElementById('nv_qtd').value, 10) || 1;
           var prod = NV_PRODUTOS.find(function (p) { return String(p.id) === String(id); });
           if (!prod) return;
-          nvItens.push({ peca_id: prod.id, nome: prod.nome, preco: prod.preco, qtd: qtd, foto: prod.foto || null });
-          sel.value = ''; document.getElementById('nv_qtd').value = 1;
+          var cor = null;
+          if (prod.cores && prod.cores.length) {
+            cor = document.getElementById('nv_cor').value;
+            if (!cor) { alert('Escolha a cor que está saindo.'); return; }
+          }
+          nvItens.push({ peca_id: prod.id, nome: prod.nome + (cor ? ' (' + cor + ')' : ''), preco: prod.preco, qtd: qtd, foto: prod.foto || null, cor: cor });
+          sel.value = ''; document.getElementById('nv_qtd').value = 1; nvProdChange();
           nvRender();
         }
         function nvBarcodeKey(e) {
@@ -279,6 +303,11 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           var prod = NV_PRODUTOS.find(function (p) { return p.codigo && String(p.codigo) === cod; });
           if (!prod) {
             msg.innerHTML = '<span style="color:#a1352a;">Nenhum produto com o código ' + cod + '.</span>';
+            inp.select();
+            return;
+          }
+          if (prod.cores && prod.cores.length) {
+            msg.innerHTML = '<span style="color:#a1352a;">' + nvEsc(prod.nome) + ' tem cores — escolha pela lista acima pra dizer qual cor está saindo.</span>';
             inp.select();
             return;
           }
@@ -317,7 +346,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
             }).join('');
           }
           document.getElementById('nv_itens_json').value = JSON.stringify(nvItens.map(function (it) {
-            return { peca_id: it.peca_id, nome: it.nome, preco: it.preco, qtd: it.qtd };
+            return { peca_id: it.peca_id, nome: it.nome, preco: it.preco, qtd: it.qtd, cor: it.cor || null };
           }));
           nvRecalc();
         }
