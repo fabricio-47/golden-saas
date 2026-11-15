@@ -566,6 +566,13 @@ ensureColumn('config_geral', 'etq_mostrar_loja', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('config_geral', 'etq_fonte_px', 'INTEGER NOT NULL DEFAULT 13');
 ensureColumn('config_geral', 'etq_colunas', 'INTEGER NOT NULL DEFAULT 0');
 
+// Catálogo digital público (vitrine que o cliente abre pelo link e fala no zap).
+ensureColumn('config_geral', 'catalogo_titulo', 'TEXT');
+ensureColumn('config_geral', 'catalogo_subtitulo', 'TEXT');
+ensureColumn('config_geral', 'catalogo_whatsapp', 'TEXT');
+ensureColumn('config_geral', 'catalogo_endereco1', 'TEXT');
+ensureColumn('config_geral', 'catalogo_endereco2', 'TEXT');
+
 // Licença (usada só quando LICENSE_ENABLED=1): data até quando o uso está liberado.
 // Em instância nova, começa um teste de TRIAL_DAYS dias (padrão 15).
 ensureColumn('config_geral', 'licenca_ativa_ate', 'TEXT');
