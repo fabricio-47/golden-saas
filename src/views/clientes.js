@@ -29,7 +29,10 @@ function clientesListPage({ user, flash, clientes }) {
           <h1>Clientes</h1>
           <p class="subtitle">Lojas, oficinas e frotistas atendidos</p>
         </div>
-        <a class="btn" href="/clientes/novo">+ Novo Cliente</a>
+        <div class="actions-row" style="margin:0;">
+          <a class="btn btn-secondary" href="/clientes/exportar">Exportar (Excel)</a>
+          <a class="btn" href="/clientes/novo">+ Novo Cliente</a>
+        </div>
       </div>
       <div class="card">
         ${

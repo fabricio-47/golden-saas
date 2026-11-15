@@ -28,7 +28,10 @@ function fornecedoresListPage({ user, flash, fornecedores }) {
           <h1>Fornecedores</h1>
           <p class="subtitle">Cadastro de fornecedores de produtos</p>
         </div>
-        <a class="btn" href="/fornecedores/novo">+ Novo Fornecedor</a>
+        <div class="actions-row" style="margin:0;">
+          <a class="btn btn-secondary" href="/fornecedores/exportar">Exportar (Excel)</a>
+          <a class="btn" href="/fornecedores/novo">+ Novo Fornecedor</a>
+        </div>
       </div>
       <div class="card">
         ${

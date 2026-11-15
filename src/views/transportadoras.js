@@ -28,7 +28,10 @@ function transportadorasListPage({ user, flash, transportadoras }) {
           <h1>Transportadoras</h1>
           <p class="subtitle">Cadastro de transportadoras (quem faz suas entregas)</p>
         </div>
-        <a class="btn" href="/transportadoras/novo">+ Nova Transportadora</a>
+        <div class="actions-row" style="margin:0;">
+          <a class="btn btn-secondary" href="/transportadoras/exportar">Exportar (Excel)</a>
+          <a class="btn" href="/transportadoras/novo">+ Nova Transportadora</a>
+        </div>
       </div>
       <div class="card">
         ${

@@ -83,6 +83,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
           <p class="subtitle">Controle de quantidade, custo e preço de venda dos produtos da oficina</p>
         </div>
         <div class="actions-row" style="margin:0;">
+          <a class="btn btn-secondary" href="/estoque/exportar">Exportar (Excel)</a>
           ${podeAlterar ? `<a class="btn btn-secondary" href="/estoque/entrada">Registrar Entrada</a>
           <a class="btn" href="/estoque/novo">+ Novo Produto</a>` : ''}
         </div>
