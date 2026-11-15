@@ -336,6 +336,26 @@ function redirect(res, location) {
   res.end();
 }
 
+// Exporta uma lista como CSV que o Excel abre direto (separador ';' e BOM UTF-8,
+// padrão do Excel em português). Sem dependências.
+function enviarCsv(res, filename, headers, rows) {
+  const esc = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const linhas = [headers.map(esc).join(';')];
+  for (const r of rows) linhas.push(r.map(esc).join(';'));
+  const csv = '﻿' + linhas.join('\r\n');
+  res.writeHead(200, {
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+  });
+  res.end(csv);
+}
+function dataArquivo() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function notFound(res) {
   send(res, 404, '<h1>404 - Página não encontrada</h1><a href="/">Voltar</a>');
 }
@@ -1011,6 +1031,17 @@ async function handler(req, res) {
       return send(res, 200, clientesListPage({ user, flash: takeFlash(session.sessionId), clientes }));
     }
 
+    if (pathname === '/clientes/exportar' && method === 'GET') {
+      const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
+      const rows = clientes.map((c) => [
+        c.nome, c.cpf_cnpj || '', c.telefone || '', c.email || '',
+        [c.logradouro, c.numero, c.bairro].filter(Boolean).join(', ') || c.endereco || '',
+        c.municipio || '', c.uf || '', c.observacoes || '',
+      ]);
+      return enviarCsv(res, `clientes-${dataArquivo()}.csv`,
+        ['Nome', 'CPF/CNPJ', 'Telefone', 'E-mail', 'Endereço', 'Município', 'UF', 'Observações'], rows);
+    }
+
     if (pathname === '/clientes/novo' && method === 'GET') {
       return send(res, 200, clienteFormPage({ user, flash: takeFlash(session.sessionId), cliente: null, csrfToken: session.csrfToken }));
     }
@@ -1240,6 +1271,20 @@ async function handler(req, res) {
         mostrarColunaLoja: lojasVisiveis.length > 1,
         podeAlterar: podeAlt,
       }));
+    }
+
+    if (pathname === '/estoque/exportar' && method === 'GET') {
+      const sel = 'SELECT p.*, l.nome as loja_nome FROM pecas p LEFT JOIN lojas l ON l.id = p.loja_id';
+      const pecasExp = canSeeAllLojas(user)
+        ? db.prepare(`${sel} ORDER BY p.nome ASC`).all()
+        : db.prepare(`${sel} WHERE p.loja_id = ? ORDER BY p.nome ASC`).all(user.loja_id);
+      const num = (v) => (v === null || v === undefined || v === '' ? '' : (Number(v) || 0).toFixed(2).replace('.', ','));
+      const rows = pecasExp.map((p) => [
+        p.nome, p.categoria || '', p.codigo_barras || '', p.quantidade, p.estoque_minimo,
+        num(p.custo_unitario), num(p.preco_venda), num(p.preco_cartao), p.loja_nome || '',
+      ]);
+      return enviarCsv(res, `produtos-${dataArquivo()}.csv`,
+        ['Nome', 'Categoria', 'Código de barras', 'Quantidade', 'Estoque mínimo', 'Custo (R$)', 'Preço à vista (R$)', 'Preço 10x cartão (R$)', 'Loja'], rows);
     }
 
     if (pathname === '/estoque/novo' && method === 'GET') {
@@ -1651,6 +1696,12 @@ async function handler(req, res) {
       return send(res, 200, fornecedoresListPage({ user, flash: takeFlash(session.sessionId), fornecedores }));
     }
 
+    if (pathname === '/fornecedores/exportar' && method === 'GET') {
+      const fornecedores = db.prepare('SELECT * FROM fornecedores ORDER BY nome ASC').all();
+      const rows = fornecedores.map((f) => [f.nome, f.cnpj_cpf || '', f.telefone || '', f.email || '', f.endereco || '', f.ativo ? 'Ativo' : 'Inativo']);
+      return enviarCsv(res, `fornecedores-${dataArquivo()}.csv`, ['Nome', 'CNPJ/CPF', 'Telefone', 'E-mail', 'Endereço', 'Situação'], rows);
+    }
+
     if (pathname === '/fornecedores/novo' && method === 'GET') {
       return send(res, 200, fornecedorFormPage({ user, flash: takeFlash(session.sessionId), fornecedor: null, csrfToken: session.csrfToken }));
     }
@@ -1690,6 +1741,12 @@ async function handler(req, res) {
     if (pathname === '/transportadoras' && method === 'GET') {
       const transportadoras = db.prepare('SELECT * FROM transportadoras ORDER BY ativo DESC, nome ASC').all();
       return send(res, 200, transportadorasListPage({ user, flash: takeFlash(session.sessionId), transportadoras }));
+    }
+
+    if (pathname === '/transportadoras/exportar' && method === 'GET') {
+      const transportadoras = db.prepare('SELECT * FROM transportadoras ORDER BY nome ASC').all();
+      const rows = transportadoras.map((t) => [t.nome, t.cnpj_cpf || '', t.telefone || '', t.email || '', t.endereco || '', t.ativo ? 'Ativo' : 'Inativo']);
+      return enviarCsv(res, `transportadoras-${dataArquivo()}.csv`, ['Nome', 'CNPJ/CPF', 'Telefone', 'E-mail', 'Endereço', 'Situação'], rows);
     }
 
     if (pathname === '/transportadoras/novo' && method === 'GET') {
