@@ -255,9 +255,9 @@ function layout({ title, activeNav, user, flash, children }) {
       label: 'Cadastros',
       items: [
         { key: 'clientes', href: '/clientes', label: 'Clientes', modulo: 'clientes' },
-        { key: 'bicicletas', href: '/bicicletas', label: 'Veículos', modulo: 'bicicletas' },
         { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores', modulo: 'estoque' },
         { key: 'funcionarios', href: '/funcionarios', label: 'Funcionários', modulo: null },
+        { key: 'bicicletas', href: '/bicicletas', label: 'Veículos', modulo: 'bicicletas' },
       ].filter((item) => podeVer(item.modulo)),
     },
     {
@@ -271,8 +271,15 @@ function layout({ title, activeNav, user, flash, children }) {
       ].filter((item) => podeVer(item.modulo)),
     },
     { type: 'link', key: 'orcamentos', href: '/orcamentos', label: 'Orçamentos', modulo: 'vendas' },
-    { type: 'link', key: 'vendas', href: '/vendas', label: 'Vendas', modulo: 'vendas' },
-    { type: 'link', key: 'consulta-preco', href: '/consulta-preco', label: 'Consulta de preço', modulo: 'vendas' },
+    {
+      type: 'group',
+      key: 'vendas-group',
+      label: 'Vendas',
+      items: [
+        { key: 'vendas', href: '/vendas', label: 'Balcão', modulo: 'vendas' },
+        { key: 'consulta-preco', href: '/consulta-preco', label: 'Consulta de preço', modulo: 'vendas' },
+      ].filter((item) => podeVer(item.modulo)),
+    },
     {
       type: 'group',
       key: 'os-group',
