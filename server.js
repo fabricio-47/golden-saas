@@ -69,6 +69,7 @@ const { auditoriaPage } = require('./src/views/auditoria');
 const { lojasListPage, lojaFormPage } = require('./src/views/lojas');
 const { transferenciasListPage, transferenciaFormPage } = require('./src/views/transferencias');
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
+const { transportadorasListPage, transportadoraFormPage } = require('./src/views/transportadoras');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -805,6 +806,7 @@ async function handler(req, res) {
       ['/etiquetas', 'estoque'],
       ['/estoque', 'estoque'],
       ['/fornecedores', 'estoque'],
+      ['/transportadoras', 'estoque'],
       ['/contas-pagar', 'financeiro'],
       ['/contas-receber', 'financeiro'],
       ['/financeiro', 'financeiro'],
@@ -1682,6 +1684,46 @@ async function handler(req, res) {
       );
       setFlash(session.sessionId, 'success', 'Fornecedor atualizado.');
       return redirect(res, '/fornecedores');
+    }
+
+    // ---------------- TRANSPORTADORAS ----------------
+    if (pathname === '/transportadoras' && method === 'GET') {
+      const transportadoras = db.prepare('SELECT * FROM transportadoras ORDER BY ativo DESC, nome ASC').all();
+      return send(res, 200, transportadorasListPage({ user, flash: takeFlash(session.sessionId), transportadoras }));
+    }
+
+    if (pathname === '/transportadoras/novo' && method === 'GET') {
+      return send(res, 200, transportadoraFormPage({ user, flash: takeFlash(session.sessionId), transportadora: null, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/transportadoras' && method === 'POST') {
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, transportadoraFormPage({ user, flash: { type: 'error', message: 'Nome da transportadora é obrigatório.' }, transportadora: body, csrfToken: session.csrfToken }));
+      }
+      db.prepare('INSERT INTO transportadoras (nome, cnpj_cpf, telefone, email, endereco, observacoes) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(body.nome.trim(), body.cnpj_cpf || '', body.telefone || '', body.email || '', body.endereco || '', body.observacoes || '');
+      setFlash(session.sessionId, 'success', 'Transportadora cadastrada.');
+      return redirect(res, '/transportadoras');
+    }
+
+    if ((m = matchRoute('/transportadoras/:id/editar', pathname)) && method === 'GET') {
+      const transportadora = db.prepare('SELECT * FROM transportadoras WHERE id = ?').get(m.id);
+      if (!transportadora) return notFound(res);
+      return send(res, 200, transportadoraFormPage({ user, flash: takeFlash(session.sessionId), transportadora, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/transportadoras/:id', pathname)) && method === 'POST') {
+      const transportadora = db.prepare('SELECT * FROM transportadoras WHERE id = ?').get(m.id);
+      if (!transportadora) return notFound(res);
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, transportadoraFormPage({ user, flash: { type: 'error', message: 'Nome da transportadora é obrigatório.' }, transportadora: { ...transportadora, ...body }, csrfToken: session.csrfToken }));
+      }
+      const ativo = body.ativo === '0' ? 0 : 1;
+      db.prepare('UPDATE transportadoras SET nome=?, cnpj_cpf=?, telefone=?, email=?, endereco=?, observacoes=?, ativo=? WHERE id=?').run(
+        body.nome.trim(), body.cnpj_cpf || '', body.telefone || '', body.email || '', body.endereco || '', body.observacoes || '', ativo, m.id
+      );
+      setFlash(session.sessionId, 'success', 'Transportadora atualizada.');
+      return redirect(res, '/transportadoras');
     }
 
     // ---------------- FUNCIONÁRIOS ----------------

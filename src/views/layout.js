@@ -257,6 +257,7 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'clientes', href: '/clientes', label: 'Clientes', modulo: 'clientes' },
         { key: 'fornecedores', href: '/fornecedores', label: 'Fornecedores', modulo: 'estoque' },
         { key: 'funcionarios', href: '/funcionarios', label: 'Funcionários', modulo: null },
+        { key: 'transportadoras', href: '/transportadoras', label: 'Transportadoras', modulo: 'estoque' },
         { key: 'bicicletas', href: '/bicicletas', label: 'Veículos', modulo: 'bicicletas' },
       ].filter((item) => podeVer(item.modulo)),
     },
