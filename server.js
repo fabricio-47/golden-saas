@@ -570,6 +570,19 @@ function salvarCoresPeca(pecaId, cores) {
   for (const c of cores) ins.run(pecaId, c.cor, c.quantidade);
 }
 
+// Anexa a cada produto a lista de cores cadastradas (nome + quantidade), pra
+// telas de venda/O.S. mostrarem o seletor de cor e baixarem da cor certa.
+function pecasComCores(pecas) {
+  const getCores = db.prepare('SELECT cor, quantidade FROM peca_cores WHERE peca_id = ? ORDER BY cor ASC');
+  return (pecas || []).map((p) => ({ ...p, cores: getCores.all(p.id) }));
+}
+// Baixa (ou devolve, com sinal negativo) a quantidade de uma cor específica.
+function ajustaEstoqueCor(pecaId, cor, delta) {
+  if (!cor || !delta) return;
+  const row = db.prepare('SELECT id FROM peca_cores WHERE peca_id = ? AND cor = ?').get(pecaId, cor);
+  if (row) db.prepare("UPDATE peca_cores SET quantidade = quantidade - ?, updated_at = datetime('now') WHERE id = ?").run(delta, row.id);
+}
+
 function recomputeValorPecas(osId) {
   const soma = db
     .prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM os_pecas WHERE ordem_servico_id = ?')
@@ -3519,9 +3532,9 @@ async function handler(req, res) {
       }
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
-      const pecasNovaVenda = canSeeAllLojas(user)
+      const pecasNovaVenda = pecasComCores(canSeeAllLojas(user)
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id));
       return send(res, 200, vendaFormPage({
         user, flash: takeFlash(session.sessionId), clientes, csrfToken: session.csrfToken,
         lojas, lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
@@ -3535,9 +3548,9 @@ async function handler(req, res) {
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const lojaFixaNome = canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null);
       const lojaIdEscolhida = canSeeAllLojas(user) ? toIntOrNull(body.loja_id) : user.loja_id;
-      const pecasNovaVenda = canSeeAllLojas(user)
+      const pecasNovaVenda = pecasComCores(canSeeAllLojas(user)
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id));
 
       if (!body.cliente_id) {
         return send(res, 400, vendaFormPage({ user, flash: { type: 'error', message: 'Selecione um cliente.' }, clientes, csrfToken: session.csrfToken, lojas, lojaFixaNome, pecasDisponiveis: pecasNovaVenda }));
@@ -3594,10 +3607,13 @@ async function handler(req, res) {
         if (it.peca_id) {
           const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(it.peca_id);
           if (!peca) continue;
-          db.prepare('INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)')
-            .run(vendaNovaId, peca.id, peca.nome, qtd, peca.preco_venda);
+          const cor = (it.cor || '').toString().trim() || null;
+          const nomeItem = peca.nome + (cor ? ' (' + cor + ')' : '');
+          db.prepare('INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario, cor) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(vendaNovaId, peca.id, nomeItem, qtd, peca.preco_venda, cor);
           const nova = peca.quantidade - qtd;
           db.prepare("UPDATE pecas SET quantidade = ?, updated_at = datetime('now') WHERE id = ?").run(nova, peca.id);
+          if (cor) ajustaEstoqueCor(peca.id, cor, qtd);
           if (nova < 0) estoqueNegativo = true;
         } else if (it.nome && String(it.nome).trim()) {
           const preco = Number(it.preco) || 0;
@@ -3743,6 +3759,7 @@ async function handler(req, res) {
       if (item) {
         if (item.peca_id) {
           db.prepare("UPDATE pecas SET quantidade = quantidade + ?, updated_at = datetime('now') WHERE id = ?").run(item.quantidade, item.peca_id);
+          if (item.cor) ajustaEstoqueCor(item.peca_id, item.cor, -item.quantidade);
         }
         db.prepare('DELETE FROM venda_itens WHERE id = ?').run(item.id);
         const novoTotal = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
