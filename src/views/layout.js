@@ -288,6 +288,7 @@ function layout({ title, activeNav, user, flash, children }) {
       items: [
         { key: 'os', href: '/os', label: 'Gerenciar O.S.', modulo: 'os' },
         { key: 'os-painel', href: '/os/painel', label: 'Painel', modulo: 'os' },
+        { key: 'garantias', href: '/garantias', label: 'Garantias', modulo: 'os' },
       ].filter((item) => podeVer(item.modulo)),
     },
     {

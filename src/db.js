@@ -642,6 +642,34 @@ ensureColumn('vendas', 'nfe_mensagem', 'TEXT');
 ensureColumn('vendas', 'nfe_ambiente', 'TEXT');
 ensureColumn('vendas', 'nfe_emitida_em', 'TEXT');
 
+// Garantia por número de série: registra a venda de uma unidade (chassi e séries
+// de motor/controladora/bateria) com a data da venda, para depois consultar se
+// ainda está na garantia. Prazos padrão (em meses) ficam na config_geral; cada
+// garantia pode sobrescrever com um prazo próprio (campos meses_* opcionais).
+ensureColumn('config_geral', 'garantia_meses_motor', 'INTEGER NOT NULL DEFAULT 12');
+ensureColumn('config_geral', 'garantia_meses_bateria', 'INTEGER NOT NULL DEFAULT 6');
+ensureColumn('config_geral', 'garantia_meses_controladora', 'INTEGER NOT NULL DEFAULT 12');
+ensureColumn('config_geral', 'garantia_meses_geral', 'INTEGER NOT NULL DEFAULT 3');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS garantias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    produto_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    descricao_produto TEXT,
+    chassi_numero TEXT,
+    motor_serial TEXT,
+    controladora_serial TEXT,
+    bateria_serial TEXT,
+    data_venda TEXT NOT NULL,
+    meses_motor INTEGER,
+    meses_bateria INTEGER,
+    meses_controladora INTEGER,
+    meses_geral INTEGER,
+    observacoes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // migra status antigo para o novo fluxo orcamento -> execucao -> concluida
 db.exec("UPDATE ordens_servico SET status = 'orcamento' WHERE status = 'aberta'");
 db.exec("UPDATE ordens_servico SET status = 'execucao' WHERE status = 'em_andamento'");
