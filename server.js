@@ -72,6 +72,7 @@ const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornec
 const { transportadorasListPage, transportadoraFormPage } = require('./src/views/transportadoras');
 const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/camposExtras');
 const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('./src/views/garantias');
+const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -828,7 +829,7 @@ function buildOsEmailContent(os, clienteNome, tipo) {
 
 // ---------- request handler ----------
 
-const PUBLIC_PATHS = new Set(['/login', '/licenca', '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png']);
+const PUBLIC_PATHS = new Set(['/login', '/licenca', '/catalogo', '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png']);
 const pwa = require('./src/assets/pwa');
 
 async function handler(req, res) {
@@ -850,9 +851,13 @@ async function handler(req, res) {
         }
       : null;
 
+    // O catálogo público e as fotos de produto (pasta peca-*) ficam acessíveis
+    // sem login nem licença. Só fotos de produto — comprovantes e contratos não.
+    const isFotoProdutoPublica = pathname.startsWith('/uploads/peca-');
+
     // --- licença (trava por período, só quando LICENSE_ENABLED=1) ---
     if (licencaAtivada()) {
-      const liberaSempre = pathname === '/licenca' || pathname === '/logout' || PUBLIC_PATHS.has(pathname);
+      const liberaSempre = pathname === '/licenca' || pathname === '/logout' || isFotoProdutoPublica || PUBLIC_PATHS.has(pathname);
       if (!licencaValida() && !liberaSempre) {
         return redirect(res, '/licenca');
       }
@@ -875,7 +880,7 @@ async function handler(req, res) {
     // (e-mail/WhatsApp), sem estar logado no sistema.
     const isContratoPublico = pathname.startsWith('/contratos/assinar/');
     const isConvitePublico = pathname.startsWith('/convite/');
-    if (!PUBLIC_PATHS.has(pathname) && !isContratoPublico && !isConvitePublico && !user) {
+    if (!PUBLIC_PATHS.has(pathname) && !isContratoPublico && !isConvitePublico && !isFotoProdutoPublica && !user) {
       return redirect(res, '/login');
     }
 
@@ -3420,6 +3425,37 @@ async function handler(req, res) {
         ? db.prepare(`SELECT ${colsCp} FROM pecas p ORDER BY p.nome ASC`).all()
         : db.prepare(`SELECT ${colsCp} FROM pecas p WHERE p.loja_id = ? ORDER BY p.nome ASC`).all(user.loja_id);
       return send(res, 200, consultaPrecoPage({ user, flash: takeFlash(session.sessionId), pecas }));
+    }
+
+    // ---------------- CATÁLOGO DIGITAL ----------------
+    // Página PÚBLICA (cliente abre pelo link, sem login).
+    if (pathname === '/catalogo' && method === 'GET') {
+      const produtos = db
+        .prepare(
+          `SELECT id, nome, categoria, foto_caminho, catalogo_destaque,
+                  ficha_motor, ficha_autonomia, ficha_velocidade, ficha_bateria, ficha_pneu, ficha_peso, ficha_recarga,
+                  (SELECT GROUP_CONCAT(cor, '||') FROM peca_cores WHERE peca_id = pecas.id) AS cores
+           FROM pecas WHERE catalogo_visivel = 1 ORDER BY categoria ASC, nome ASC`
+        )
+        .all();
+      return send(res, 200, catalogoPublicoPage({ config: getConfigGeral(), produtos }));
+    }
+
+    // Tela ADMIN de configuração do catálogo (gerência).
+    if (pathname === '/catalogo/config' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const origin = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`;
+      return send(res, 200, catalogoConfigPage({ user, flash: takeFlash(session.sessionId), config: { ...getConfigGeral(), __origin: origin }, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/catalogo/config' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const t = (v) => { const s = (v || '').toString().trim(); return s || null; };
+      db.prepare(
+        "UPDATE config_geral SET catalogo_titulo=?, catalogo_subtitulo=?, catalogo_whatsapp=?, catalogo_endereco1=?, catalogo_endereco2=?, atualizado_em=datetime('now') WHERE id=1"
+      ).run(t(body.catalogo_titulo), t(body.catalogo_subtitulo), t(body.catalogo_whatsapp), t(body.catalogo_endereco1), t(body.catalogo_endereco2));
+      setFlash(session.sessionId, 'success', 'Catálogo salvo.');
+      return redirect(res, '/catalogo/config');
     }
 
     if (pathname === '/etiquetas' && method === 'GET') {
