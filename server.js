@@ -1817,6 +1817,53 @@ async function handler(req, res) {
       return redirect(res, '/transportadoras');
     }
 
+    // ---------------- CAMPOS EXTRAS (campos personalizados do cliente) ----------------
+    if (pathname === '/campos-extras' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const campos = db.prepare('SELECT * FROM campos_extras WHERE entidade = ? ORDER BY ordem ASC, id ASC').all('cliente');
+      return send(res, 200, camposExtrasListPage({ user, flash: takeFlash(session.sessionId), campos }));
+    }
+
+    if (pathname === '/campos-extras/novo' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, campoExtraFormPage({ user, flash: takeFlash(session.sessionId), campo: null, csrfToken: session.csrfToken }));
+    }
+
+    if (pathname === '/campos-extras' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, campoExtraFormPage({ user, flash: { type: 'error', message: 'Nome do campo é obrigatório.' }, campo: body, csrfToken: session.csrfToken }));
+      }
+      const tipo = ['texto', 'numero', 'data'].includes(body.tipo) ? body.tipo : 'texto';
+      db.prepare('INSERT INTO campos_extras (entidade, nome, tipo, obrigatorio, ordem) VALUES (?, ?, ?, ?, ?)').run(
+        'cliente', body.nome.trim(), tipo, body.obrigatorio === '1' ? 1 : 0, toIntOrNull(body.ordem) || 0
+      );
+      setFlash(session.sessionId, 'success', 'Campo extra criado.');
+      return redirect(res, '/campos-extras');
+    }
+
+    if ((m = matchRoute('/campos-extras/:id/editar', pathname)) && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const campo = db.prepare('SELECT * FROM campos_extras WHERE id = ?').get(m.id);
+      if (!campo) return notFound(res);
+      return send(res, 200, campoExtraFormPage({ user, flash: takeFlash(session.sessionId), campo, csrfToken: session.csrfToken }));
+    }
+
+    if ((m = matchRoute('/campos-extras/:id', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const campo = db.prepare('SELECT * FROM campos_extras WHERE id = ?').get(m.id);
+      if (!campo) return notFound(res);
+      if (!body.nome || !body.nome.trim()) {
+        return send(res, 400, campoExtraFormPage({ user, flash: { type: 'error', message: 'Nome do campo é obrigatório.' }, campo: { ...campo, ...body }, csrfToken: session.csrfToken }));
+      }
+      const tipo = ['texto', 'numero', 'data'].includes(body.tipo) ? body.tipo : 'texto';
+      db.prepare('UPDATE campos_extras SET nome=?, tipo=?, obrigatorio=?, ordem=?, ativo=? WHERE id=?').run(
+        body.nome.trim(), tipo, body.obrigatorio === '1' ? 1 : 0, toIntOrNull(body.ordem) || 0, body.ativo === '0' ? 0 : 1, m.id
+      );
+      setFlash(session.sessionId, 'success', 'Campo extra atualizado.');
+      return redirect(res, '/campos-extras');
+    }
+
     // ---------------- FUNCIONÁRIOS ----------------
     if (pathname === '/funcionarios' && method === 'GET') {
       const funcionarios = db.prepare('SELECT * FROM funcionarios ORDER BY ativo DESC, nome ASC').all();
