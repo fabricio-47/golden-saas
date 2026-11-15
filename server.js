@@ -70,6 +70,7 @@ const { lojasListPage, lojaFormPage } = require('./src/views/lojas');
 const { transferenciasListPage, transferenciaFormPage } = require('./src/views/transferencias');
 const { fornecedoresListPage, fornecedorFormPage } = require('./src/views/fornecedores');
 const { transportadorasListPage, transportadoraFormPage } = require('./src/views/transportadoras');
+const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/camposExtras');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -354,6 +355,37 @@ function enviarCsv(res, filename, headers, rows) {
 }
 function dataArquivo() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// ---------------- Campos extras (campos personalizados do cliente) ----------------
+function getCamposExtras(entidade) {
+  return db.prepare('SELECT * FROM campos_extras WHERE entidade = ? AND ativo = 1 ORDER BY ordem ASC, id ASC').all(entidade || 'cliente');
+}
+function getValoresCliente(clienteId) {
+  const map = {};
+  if (!clienteId) return map;
+  for (const r of db.prepare('SELECT campo_id, valor FROM campos_extras_valores WHERE cliente_id = ?').all(clienteId)) {
+    map[r.campo_id] = r.valor;
+  }
+  return map;
+}
+function valoresDoBody(body) {
+  const map = {};
+  for (const c of getCamposExtras('cliente')) {
+    const v = body['campo_extra_' + c.id];
+    if (v !== undefined) map[c.id] = v;
+  }
+  return map;
+}
+function salvarValoresCliente(clienteId, body) {
+  const campos = getCamposExtras('cliente');
+  const up = db.prepare(
+    'INSERT INTO campos_extras_valores (campo_id, cliente_id, valor) VALUES (?, ?, ?) ON CONFLICT(campo_id, cliente_id) DO UPDATE SET valor = excluded.valor'
+  );
+  for (const c of campos) {
+    const v = (body['campo_extra_' + c.id] || '').toString().trim();
+    up.run(c.id, clienteId, v || null);
+  }
 }
 
 function notFound(res) {
@@ -1043,7 +1075,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/clientes/novo' && method === 'GET') {
-      return send(res, 200, clienteFormPage({ user, flash: takeFlash(session.sessionId), cliente: null, csrfToken: session.csrfToken }));
+      return send(res, 200, clienteFormPage({ user, flash: takeFlash(session.sessionId), cliente: null, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: {} }));
     }
 
     if (pathname === '/clientes/criar-rapido' && method === 'POST') {
@@ -1057,7 +1089,7 @@ async function handler(req, res) {
 
     if (pathname === '/clientes' && method === 'POST') {
       if (!body.nome || !body.nome.trim()) {
-        return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: body, csrfToken: session.csrfToken }));
+        return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: body, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: valoresDoBody(body) }));
       }
       const info = db
         .prepare(
@@ -1073,6 +1105,7 @@ async function handler(req, res) {
           (body.bairro || '').trim() || null, (body.municipio || '').trim() || null, (body.codigo_municipio || '').trim() || null,
           (body.uf || '').trim().toUpperCase() || null
         );
+      salvarValoresCliente(info.lastInsertRowid, body);
       setFlash(session.sessionId, 'success', 'Cliente cadastrado com sucesso.');
       return redirect(res, `/clientes/${info.lastInsertRowid}`);
     }
@@ -1080,7 +1113,7 @@ async function handler(req, res) {
     if ((m = matchRoute('/clientes/:id/editar', pathname)) && method === 'GET') {
       const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(m.id);
       if (!cliente) return notFound(res);
-      return send(res, 200, clienteFormPage({ user, flash: takeFlash(session.sessionId), cliente, csrfToken: session.csrfToken }));
+      return send(res, 200, clienteFormPage({ user, flash: takeFlash(session.sessionId), cliente, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: getValoresCliente(cliente.id) }));
     }
 
     if ((m = matchRoute('/clientes/:id/excluir', pathname)) && method === 'POST') {
@@ -1093,7 +1126,7 @@ async function handler(req, res) {
       const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(m.id);
       if (!cliente) return notFound(res);
       if (!body.nome || !body.nome.trim()) {
-        return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: { ...cliente, ...body }, csrfToken: session.csrfToken }));
+        return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: { ...cliente, ...body }, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: valoresDoBody(body) }));
       }
       db.prepare(
         `UPDATE clientes SET
@@ -1107,6 +1140,7 @@ async function handler(req, res) {
         (body.bairro || '').trim() || null, (body.municipio || '').trim() || null, (body.codigo_municipio || '').trim() || null,
         (body.uf || '').trim().toUpperCase() || null, m.id
       );
+      salvarValoresCliente(m.id, body);
       setFlash(session.sessionId, 'success', 'Cliente atualizado.');
       return redirect(res, `/clientes/${m.id}`);
     }
