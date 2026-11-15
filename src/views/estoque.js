@@ -365,6 +365,48 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             </div>
           </details>
 
+          <details style="margin-top:20px;" ${peca && (peca.ficha_motor || peca.ficha_autonomia || peca.ficha_velocidade || peca.ficha_bateria || peca.ficha_pneu || peca.ficha_peso || peca.ficha_recarga || peca.catalogo_visivel) ? 'open' : ''}>
+            <summary style="cursor:pointer;font-weight:600;font-size:16px;">Ficha técnica e catálogo (opcional — para motos/scooters)</summary>
+            <p class="muted" style="margin-top:6px;">Esses dados aparecem no card da Consulta de preço e na vitrine do catálogo.</p>
+            <div class="form-grid">
+              <div class="field">
+                <label for="ficha_motor">Motor</label>
+                <input type="text" id="ficha_motor" name="ficha_motor" placeholder="Ex.: 1000W" value="${escapeHtml(peca ? peca.ficha_motor || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="ficha_autonomia">Autonomia</label>
+                <input type="text" id="ficha_autonomia" name="ficha_autonomia" placeholder="Ex.: 45-55 km" value="${escapeHtml(peca ? peca.ficha_autonomia || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="ficha_velocidade">Velocidade máx.</label>
+                <input type="text" id="ficha_velocidade" name="ficha_velocidade" placeholder="Ex.: 32 km/h" value="${escapeHtml(peca ? peca.ficha_velocidade || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="ficha_bateria">Bateria</label>
+                <input type="text" id="ficha_bateria" name="ficha_bateria" placeholder="Ex.: 60V 32Ah Lítio" value="${escapeHtml(peca ? peca.ficha_bateria || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="ficha_pneu">Pneu / Aro</label>
+                <input type="text" id="ficha_pneu" name="ficha_pneu" placeholder="Ex.: Aro 12" value="${escapeHtml(peca ? peca.ficha_pneu || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="ficha_peso">Peso suportado</label>
+                <input type="text" id="ficha_peso" name="ficha_peso" placeholder="Ex.: 180 kg" value="${escapeHtml(peca ? peca.ficha_peso || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="ficha_recarga">Recarga</label>
+                <input type="text" id="ficha_recarga" name="ficha_recarga" placeholder="Ex.: 6-8h" value="${escapeHtml(peca ? peca.ficha_recarga || '' : '')}">
+              </div>
+              <div class="field">
+                <label for="catalogo_destaque">Selo de destaque</label>
+                <input type="text" id="catalogo_destaque" name="catalogo_destaque" placeholder="Ex.: Black Friday" value="${escapeHtml(peca ? peca.catalogo_destaque || '' : '')}">
+              </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-weight:normal;margin-top:8px;">
+              <input type="checkbox" name="catalogo_visivel" value="1" ${peca && peca.catalogo_visivel ? 'checked' : ''} style="width:auto;"> Mostrar este produto na vitrine do catálogo
+            </label>
+          </details>
+
           <h2 style="margin-top:24px;">Foto do produto</h2>
           <p class="muted" style="margin-top:-6px;">Aparece na Consulta de preço e na lista de produtos. Opcional — JPG, PNG ou WEBP.</p>
           ${

@@ -466,6 +466,18 @@ ensureColumn('pecas', 'controladora_serial', 'TEXT');
 ensureColumn('pecas', 'bateria_serial', 'TEXT');
 ensureColumn('pecas', 'chassi_numero', 'TEXT');
 
+// Ficha técnica para o catálogo (motos/scooters). Texto livre: cada modelo varia.
+ensureColumn('pecas', 'ficha_motor', 'TEXT');
+ensureColumn('pecas', 'ficha_autonomia', 'TEXT');
+ensureColumn('pecas', 'ficha_velocidade', 'TEXT');
+ensureColumn('pecas', 'ficha_bateria', 'TEXT');
+ensureColumn('pecas', 'ficha_pneu', 'TEXT');
+ensureColumn('pecas', 'ficha_peso', 'TEXT');
+ensureColumn('pecas', 'ficha_recarga', 'TEXT');
+// Catálogo: se o produto aparece na vitrine e um selo de destaque (ex.: "Black Friday").
+ensureColumn('pecas', 'catalogo_visivel', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('pecas', 'catalogo_destaque', 'TEXT');
+
 // Transportadoras (quem faz as entregas). Cadastro simples, igual ao de fornecedores.
 db.exec(`
   CREATE TABLE IF NOT EXISTS transportadoras (

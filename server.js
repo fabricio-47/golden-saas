@@ -1407,8 +1407,9 @@ async function handler(req, res) {
         .prepare(
           `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, preco_pix, preco_cartao, observacoes, loja_id, fornecedor_id,
                               ncm, cfop, csosn, origem_mercadoria, unidade_comercial, codigo_barras,
-                              motor_serial, controladora_serial, bateria_serial, chassi_numero)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                              motor_serial, controladora_serial, bateria_serial, chassi_numero,
+                              ficha_motor, ficha_autonomia, ficha_velocidade, ficha_bateria, ficha_pneu, ficha_peso, ficha_recarga, catalogo_visivel, catalogo_destaque)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
@@ -1416,7 +1417,8 @@ async function handler(req, res) {
           toFloatOrNull(body.custo_unitario), precoVenda, toFloatOrNull(body.preco_pix), toFloatOrNull(body.preco_cartao), body.observacoes || '', lojaIdEscolhida, fornecedorId,
           (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
           origemPeca, (body.unidade_comercial || '').trim() || null, codigoBarras,
-          (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null
+          (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null,
+          (body.ficha_motor || '').trim() || null, (body.ficha_autonomia || '').trim() || null, (body.ficha_velocidade || '').trim() || null, (body.ficha_bateria || '').trim() || null, (body.ficha_pneu || '').trim() || null, (body.ficha_peso || '').trim() || null, (body.ficha_recarga || '').trim() || null, body.catalogo_visivel === '1' ? 1 : 0, (body.catalogo_destaque || '').trim() || null
         );
       salvarCoresPeca(info.lastInsertRowid, cores);
       salvarFotoPeca(info.lastInsertRowid, files, body);
@@ -1588,14 +1590,16 @@ async function handler(req, res) {
       db.prepare(
         `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, preco_pix=?, preco_cartao=?, observacoes=?, loja_id=?, fornecedor_id=?,
            ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, codigo_barras=?,
-           motor_serial=?, controladora_serial=?, bateria_serial=?, chassi_numero=?, updated_at=datetime('now') WHERE id=?`
+           motor_serial=?, controladora_serial=?, bateria_serial=?, chassi_numero=?,
+           ficha_motor=?, ficha_autonomia=?, ficha_velocidade=?, ficha_bateria=?, ficha_pneu=?, ficha_peso=?, ficha_recarga=?, catalogo_visivel=?, catalogo_destaque=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
         quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
         toFloatOrNull(body.custo_unitario), precoVenda, toFloatOrNull(body.preco_pix), toFloatOrNull(body.preco_cartao), body.observacoes || '', lojaIdEscolhida, fornecedorId,
         (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
         origemPecaUp, (body.unidade_comercial || '').trim() || null, codigoBarrasUp,
-        (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null, m.id
+        (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null,
+        (body.ficha_motor || '').trim() || null, (body.ficha_autonomia || '').trim() || null, (body.ficha_velocidade || '').trim() || null, (body.ficha_bateria || '').trim() || null, (body.ficha_pneu || '').trim() || null, (body.ficha_peso || '').trim() || null, (body.ficha_recarga || '').trim() || null, body.catalogo_visivel === '1' ? 1 : 0, (body.catalogo_destaque || '').trim() || null, m.id
       );
       salvarCoresPeca(m.id, cores);
       salvarFotoPeca(m.id, files, body);
