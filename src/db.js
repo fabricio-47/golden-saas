@@ -466,6 +466,21 @@ ensureColumn('pecas', 'controladora_serial', 'TEXT');
 ensureColumn('pecas', 'bateria_serial', 'TEXT');
 ensureColumn('pecas', 'chassi_numero', 'TEXT');
 
+// Transportadoras (quem faz as entregas). Cadastro simples, igual ao de fornecedores.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transportadoras (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    cnpj_cpf TEXT,
+    telefone TEXT,
+    email TEXT,
+    endereco TEXT,
+    observacoes TEXT,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Código de barras do produto (EAN-13 gerado automaticamente ou o do fabricante).
 ensureColumn('pecas', 'codigo_barras', 'TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pecas_codigo_barras ON pecas(codigo_barras) WHERE codigo_barras IS NOT NULL');
