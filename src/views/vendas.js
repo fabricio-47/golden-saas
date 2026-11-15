@@ -158,10 +158,21 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           <div class="form-grid">
             <div class="field">
               <label for="cliente_id">Cliente *</label>
-              <select id="cliente_id" name="cliente_id" required>
+              <input type="text" id="nv_cliente_busca" placeholder="Pesquise pelo nome..." autocomplete="off" oninput="nvFiltraCliente()" style="margin-bottom:6px;">
+              <select id="cliente_id" name="cliente_id" required size="1">
                 <option value="">Selecione...</option>
                 ${clienteOptions}
               </select>
+              <button type="button" class="link-btn" style="margin-top:6px;background:none;border:none;padding:0;cursor:pointer;" onclick="nvToggleNovoCliente()">+ Cadastrar novo cliente</button>
+              <div id="nv_novo_cliente" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+                <input type="text" id="nc_nome" placeholder="Nome do cliente *" autocomplete="off" style="margin-bottom:6px;">
+                <input type="text" id="nc_telefone" placeholder="Telefone (opcional)" autocomplete="off" style="margin-bottom:6px;">
+                <div style="display:flex;gap:8px;">
+                  <button type="button" class="btn btn-sm" onclick="nvCriarCliente()">Salvar cliente</button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="nvToggleNovoCliente()">Cancelar</button>
+                </div>
+                <p class="muted" id="nc_msg" style="margin:6px 0 0;min-height:14px;"></p>
+              </div>
             </div>
             ${lojaFieldHtml}
           </div>
@@ -263,6 +274,56 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
         var nvItens = [];
         function nvMoney(v) { return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ','); }
         function nvEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+        // ---- Busca de cliente por nome (filtra a lista) ----
+        function nvFiltraCliente() {
+          var termo = (document.getElementById('nv_cliente_busca').value || '').toLowerCase().trim();
+          var sel = document.getElementById('cliente_id');
+          var visiveis = [];
+          for (var i = 0; i < sel.options.length; i++) {
+            var op = sel.options[i];
+            if (op.value === '') { op.hidden = false; continue; }
+            var match = op.textContent.toLowerCase().indexOf(termo) !== -1;
+            op.hidden = !match;
+            if (match) visiveis.push(op);
+          }
+          if (termo && visiveis.length === 1) sel.value = visiveis[0].value;
+        }
+        // ---- Cadastro rápido de cliente, sem sair da venda ----
+        function nvToggleNovoCliente() {
+          var box = document.getElementById('nv_novo_cliente');
+          var abrir = box.style.display === 'none';
+          box.style.display = abrir ? 'block' : 'none';
+          if (abrir) {
+            var busca = document.getElementById('nv_cliente_busca').value || '';
+            if (busca.trim() && !document.getElementById('nc_nome').value) document.getElementById('nc_nome').value = busca.trim();
+            document.getElementById('nc_nome').focus();
+          }
+          document.getElementById('nc_msg').textContent = '';
+        }
+        function nvCriarCliente() {
+          var nome = (document.getElementById('nc_nome').value || '').trim();
+          var tel = (document.getElementById('nc_telefone').value || '').trim();
+          var msg = document.getElementById('nc_msg');
+          if (!nome) { msg.innerHTML = '<span style="color:#a1352a;">Informe o nome.</span>'; return; }
+          msg.textContent = 'Salvando...';
+          var csrf = document.querySelector('input[name=csrf]').value;
+          var dados = 'csrf=' + encodeURIComponent(csrf) + '&nome=' + encodeURIComponent(nome) + '&telefone=' + encodeURIComponent(tel);
+          fetch('/clientes/criar-rapido', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: dados })
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if (!d.ok) { msg.innerHTML = '<span style="color:#a1352a;">' + (d.error || 'Erro ao salvar.') + '</span>'; return; }
+              var sel = document.getElementById('cliente_id');
+              var op = document.createElement('option');
+              op.value = d.id; op.textContent = d.nome; sel.appendChild(op);
+              sel.value = d.id;
+              document.getElementById('nc_nome').value = '';
+              document.getElementById('nc_telefone').value = '';
+              document.getElementById('nv_cliente_busca').value = d.nome;
+              document.getElementById('nv_novo_cliente').style.display = 'none';
+            })
+            .catch(function(){ msg.innerHTML = '<span style="color:#a1352a;">Falha de conexão. Tente de novo.</span>'; });
+        }
         function nvProdChange() {
           var id = document.getElementById('nv_produto').value;
           var prod = id ? NV_PRODUTOS.find(function (p) { return String(p.id) === String(id); }) : null;
