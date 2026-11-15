@@ -3,6 +3,7 @@
 const { layout } = require('./layout');
 const { escapeHtml, formatDate } = require('../utils');
 const { STATUS_LABELS } = require('./dashboard');
+const { camposExtrasClienteHtml } = require('./camposExtras');
 
 function clientesListPage({ user, flash, clientes }) {
   const rows = clientes
@@ -48,7 +49,7 @@ function clientesListPage({ user, flash, clientes }) {
   });
 }
 
-function clienteFormPage({ user, flash, cliente, csrfToken }) {
+function clienteFormPage({ user, flash, cliente, csrfToken, camposExtras, valores }) {
   const isEdit = !!cliente;
   return layout({
     title: isEdit ? 'Editar Cliente' : 'Novo Cliente',
@@ -132,6 +133,9 @@ function clienteFormPage({ user, flash, cliente, csrfToken }) {
               <input type="text" id="uf" name="uf" maxlength="2" value="${escapeHtml(cliente ? cliente.uf || '' : '')}" placeholder="RJ">
             </div>
           </div>
+
+          ${camposExtrasClienteHtml(camposExtras, valores)}
+
           <div class="actions-row">
             <button class="btn" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar cliente'}</button>
             <a class="btn btn-secondary" href="${isEdit ? `/clientes/${cliente.id}` : '/clientes'}">Cancelar</a>

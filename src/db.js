@@ -481,6 +481,29 @@ db.exec(`
   );
 `);
 
+// Campos extras: campos personalizados que o usuário cria para o cadastro de
+// cliente (ex.: data de aniversário, código interno). A definição fica em
+// campos_extras; o valor preenchido por cliente fica em campos_extras_valores.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS campos_extras (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entidade TEXT NOT NULL DEFAULT 'cliente',
+    nome TEXT NOT NULL,
+    tipo TEXT NOT NULL DEFAULT 'texto',
+    obrigatorio INTEGER NOT NULL DEFAULT 0,
+    ordem INTEGER NOT NULL DEFAULT 0,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS campos_extras_valores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campo_id INTEGER NOT NULL REFERENCES campos_extras(id) ON DELETE CASCADE,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    valor TEXT,
+    UNIQUE(campo_id, cliente_id)
+  );
+`);
+
 // Código de barras do produto (EAN-13 gerado automaticamente ou o do fabricante).
 ensureColumn('pecas', 'codigo_barras', 'TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pecas_codigo_barras ON pecas(codigo_barras) WHERE codigo_barras IS NOT NULL');
