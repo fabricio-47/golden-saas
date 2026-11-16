@@ -157,22 +157,14 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           <input type="hidden" name="csrf" value="${csrfToken}">
           <div class="form-grid">
             <div class="field">
-              <label for="cliente_id">Cliente *</label>
-              <input type="text" id="nv_cliente_busca" placeholder="Pesquise pelo nome..." autocomplete="off" oninput="nvFiltraCliente()" style="margin-bottom:6px;">
-              <select id="cliente_id" name="cliente_id" required size="1">
-                <option value="">Selecione...</option>
-                ${clienteOptions}
-              </select>
-              <button type="button" class="link-btn" style="margin-top:6px;background:none;border:none;padding:0;cursor:pointer;" onclick="nvToggleNovoCliente()">+ Cadastrar novo cliente</button>
-              <div id="nv_novo_cliente" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
-                <input type="text" id="nc_nome" placeholder="Nome do cliente *" autocomplete="off" style="margin-bottom:6px;">
-                <input type="text" id="nc_telefone" placeholder="Telefone (opcional)" autocomplete="off" style="margin-bottom:6px;">
-                <div style="display:flex;gap:8px;">
-                  <button type="button" class="btn btn-sm" onclick="nvCriarCliente()">Salvar cliente</button>
-                  <button type="button" class="btn btn-sm btn-secondary" onclick="nvToggleNovoCliente()">Cancelar</button>
-                </div>
-                <p class="muted" id="nc_msg" style="margin:6px 0 0;min-height:14px;"></p>
-              </div>
+              <label for="nv_cliente_busca">Cliente *</label>
+              <input type="text" id="nv_cliente_busca" list="nv_clientes_dl" placeholder="Digite o nome do cliente..." autocomplete="off" oninput="nvResolveCliente()">
+              <datalist id="nv_clientes_dl">
+                ${clientes.map((c) => `<option value="${escapeHtml(c.nome)}"></option>`).join('')}
+              </datalist>
+              <input type="hidden" name="cliente_id" id="cliente_id">
+              <a class="link-btn" href="/clientes/novo" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;">+ Cadastrar novo cliente (abre em nova aba)</a>
+              <p class="muted" id="nv_cliente_msg" style="margin:4px 0 0;min-height:14px;"></p>
             </div>
             ${lojaFieldHtml}
           </div>
@@ -275,55 +267,35 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
         function nvMoney(v) { return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ','); }
         function nvEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-        // ---- Busca de cliente por nome (filtra a lista) ----
-        function nvFiltraCliente() {
-          var termo = (document.getElementById('nv_cliente_busca').value || '').toLowerCase().trim();
-          var sel = document.getElementById('cliente_id');
-          var visiveis = [];
-          for (var i = 0; i < sel.options.length; i++) {
-            var op = sel.options[i];
-            if (op.value === '') { op.hidden = false; continue; }
-            var match = op.textContent.toLowerCase().indexOf(termo) !== -1;
-            op.hidden = !match;
-            if (match) visiveis.push(op);
+        // ---- Cliente: campo único com busca por nome (datalist) ----
+        var NV_CLIENTES = ${JSON.stringify((clientes || []).map((c) => ({ id: c.id, nome: c.nome })))};
+        function nvResolveCliente() {
+          var nome = (document.getElementById('nv_cliente_busca').value || '').trim().toLowerCase();
+          var hid = document.getElementById('cliente_id');
+          var msg = document.getElementById('nv_cliente_msg');
+          var achou = NV_CLIENTES.find(function (c) { return String(c.nome).toLowerCase() === nome; });
+          hid.value = achou ? achou.id : '';
+          if (!nome) { msg.textContent = ''; }
+          else if (achou) { msg.innerHTML = '<span style="color:#1f6b3a;">Cliente selecionado.</span>'; }
+          else { msg.innerHTML = '<span style="color:#a1352a;">Nome não está na lista — escolha uma sugestão ou cadastre o cliente.</span>'; }
+        }
+        // Ao voltar da aba de cadastro, recarrega a lista pra achar o cliente novo.
+        window.addEventListener('focus', function () {
+          fetch('/vendas/clientes-json').then(function (r) { return r.json(); }).then(function (lista) {
+            if (!Array.isArray(lista)) return;
+            NV_CLIENTES = lista;
+            var dl = document.getElementById('nv_clientes_dl');
+            dl.innerHTML = lista.map(function (c) { return '<option value="' + nvEsc(c.nome) + '"></option>'; }).join('');
+            nvResolveCliente();
+          }).catch(function () {});
+        });
+        document.querySelector('form[action="/vendas"]').addEventListener('submit', function (e) {
+          if (!document.getElementById('cliente_id').value) {
+            e.preventDefault();
+            alert('Escolha um cliente da lista (ou cadastre um na aba que abre e volte aqui).');
+            document.getElementById('nv_cliente_busca').focus();
           }
-          if (termo && visiveis.length === 1) sel.value = visiveis[0].value;
-        }
-        // ---- Cadastro rápido de cliente, sem sair da venda ----
-        function nvToggleNovoCliente() {
-          var box = document.getElementById('nv_novo_cliente');
-          var abrir = box.style.display === 'none';
-          box.style.display = abrir ? 'block' : 'none';
-          if (abrir) {
-            var busca = document.getElementById('nv_cliente_busca').value || '';
-            if (busca.trim() && !document.getElementById('nc_nome').value) document.getElementById('nc_nome').value = busca.trim();
-            document.getElementById('nc_nome').focus();
-          }
-          document.getElementById('nc_msg').textContent = '';
-        }
-        function nvCriarCliente() {
-          var nome = (document.getElementById('nc_nome').value || '').trim();
-          var tel = (document.getElementById('nc_telefone').value || '').trim();
-          var msg = document.getElementById('nc_msg');
-          if (!nome) { msg.innerHTML = '<span style="color:#a1352a;">Informe o nome.</span>'; return; }
-          msg.textContent = 'Salvando...';
-          var csrf = document.querySelector('input[name=csrf]').value;
-          var dados = 'csrf=' + encodeURIComponent(csrf) + '&nome=' + encodeURIComponent(nome) + '&telefone=' + encodeURIComponent(tel);
-          fetch('/clientes/criar-rapido', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: dados })
-            .then(function(r){ return r.json(); })
-            .then(function(d){
-              if (!d.ok) { msg.innerHTML = '<span style="color:#a1352a;">' + (d.error || 'Erro ao salvar.') + '</span>'; return; }
-              var sel = document.getElementById('cliente_id');
-              var op = document.createElement('option');
-              op.value = d.id; op.textContent = d.nome; sel.appendChild(op);
-              sel.value = d.id;
-              document.getElementById('nc_nome').value = '';
-              document.getElementById('nc_telefone').value = '';
-              document.getElementById('nv_cliente_busca').value = d.nome;
-              document.getElementById('nv_novo_cliente').style.display = 'none';
-            })
-            .catch(function(){ msg.innerHTML = '<span style="color:#a1352a;">Falha de conexão. Tente de novo.</span>'; });
-        }
+        });
         function nvProdChange() {
           var id = document.getElementById('nv_produto').value;
           var prod = id ? NV_PRODUTOS.find(function (p) { return String(p.id) === String(id); }) : null;

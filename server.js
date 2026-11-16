@@ -3529,6 +3529,11 @@ async function handler(req, res) {
       }));
     }
 
+    if (pathname === '/vendas/clientes-json' && method === 'GET') {
+      const lista = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
+      return send(res, 200, JSON.stringify(lista), { 'Content-Type': 'application/json; charset=utf-8' });
+    }
+
     if (pathname === '/vendas/novo' && method === 'GET') {
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       if (!clientes.length) {
