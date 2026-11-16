@@ -73,7 +73,7 @@ const { transportadorasListPage, transportadoraFormPage } = require('./src/views
 const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/camposExtras');
 const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('./src/views/garantias');
 const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
-const { frotaPainelPage, frotaFormPage, cobrancaPage } = require('./src/views/frota');
+const { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage } = require('./src/views/frota');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -3664,6 +3664,30 @@ async function handler(req, res) {
       db.prepare("UPDATE locacoes SET pago=0, data_pagamento=NULL, forma_pagamento=NULL WHERE id=?").run(m.id);
       setFlash(session.sessionId, 'success', 'Pagamento desfeito.');
       return redirect(res, body.voltar === 'cobranca' ? '/frota/cobranca' : '/frota');
+    }
+    if ((m = matchRoute('/locacoes/:id/editar', pathname)) && method === 'GET') {
+      if (!locacaoAtiva()) return notFound(res);
+      const loc = db.prepare('SELECT * FROM locacoes WHERE id = ?').get(m.id);
+      if (!loc) return notFound(res);
+      const modelo = db.prepare('SELECT id, identificacao FROM frota WHERE id = ?').get(loc.frota_id);
+      const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
+      return send(res, 200, locacaoEditarPage({ user, flash: takeFlash(session.sessionId), loc, modelo, clientes, csrfToken: session.csrfToken }));
+    }
+    if ((m = matchRoute('/locacoes/:id', pathname)) && method === 'POST') {
+      if (!locacaoAtiva()) return notFound(res);
+      const loc = db.prepare('SELECT id FROM locacoes WHERE id = ?').get(m.id);
+      if (!loc) return notFound(res);
+      if (!body.cliente_id) { setFlash(session.sessionId, 'error', 'Escolha o cliente (locatário).'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
+      if (!body.chassi || !body.chassi.trim()) { setFlash(session.sessionId, 'error', 'Informe o chassi.'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
+      db.prepare(
+        `UPDATE locacoes SET cliente_id=?, chassi=?, placa=?, devolucao_prevista=?, valor_combinado=?, vencimento=?, observacoes=? WHERE id=?`
+      ).run(
+        toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null,
+        (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
+        (body.vencimento || '').trim() || null, (body.observacoes || '').trim() || null, m.id
+      );
+      setFlash(session.sessionId, 'success', 'Locação atualizada.');
+      return redirect(res, '/frota');
     }
 
     if (pathname === '/etiquetas' && method === 'GET') {

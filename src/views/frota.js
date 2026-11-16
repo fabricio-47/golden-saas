@@ -98,6 +98,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                   <div class="muted" style="font-size:13px;margin-top:2px;">saída ${formatDateOnly(loc.data_saida)}${fotos ? ' · ' + fotos : ''}</div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <a class="btn btn-sm btn-secondary" href="/locacoes/${loc.id}/editar">Editar</a>
                   ${!loc.pago ? `<form method="POST" action="/locacoes/${loc.id}/pagar" style="margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">Marcar pago</button></form>` : ''}
                   <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar devolução desta moto? Ela volta pro estoque disponível.');" style="margin:0;">
                     <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
@@ -448,4 +449,60 @@ function cobrancaPage({ user, flash, pendencias, pagosRecentes, total, csrfToken
   });
 }
 
-module.exports = { frotaPainelPage, frotaFormPage, cobrancaPage };
+function locacaoEditarPage({ user, flash, loc, modelo, clientes, csrfToken }) {
+  const clienteOptions = (clientes || [])
+    .map((c) => `<option value="${c.id}"${c.id === loc.cliente_id ? ' selected' : ''}>${escapeHtml(c.nome)}</option>`)
+    .join('');
+  const nomeModelo = modelo ? modelo.identificacao : 'Moto';
+  return layout({
+    title: 'Editar locação',
+    activeNav: 'frota',
+    user,
+    flash,
+    children: `
+      <div class="page-header"><div><h1>Editar locação</h1><p class="subtitle">${escapeHtml(nomeModelo)} — corrija valor, vencimento ou dados da moto.</p></div></div>
+      <div class="card">
+        <form method="POST" action="/locacoes/${loc.id}">
+          <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+          <div class="form-grid">
+            <div class="field">
+              <label>Locatário (cliente) *</label>
+              <select name="cliente_id" required><option value="">Selecione...</option>${clienteOptions}</select>
+            </div>
+            <div class="field">
+              <label>Chassi *</label>
+              <input type="text" name="chassi" required value="${escapeHtml(loc.chassi || '')}">
+            </div>
+            <div class="field">
+              <label>Placa (opcional)</label>
+              <input type="text" name="placa" value="${escapeHtml(loc.placa || '')}">
+            </div>
+            <div class="field">
+              <label>Devolução prevista</label>
+              <input type="date" name="devolucao_prevista" value="${escapeHtml(loc.devolucao_prevista || '')}">
+            </div>
+            <div class="field">
+              <label>Valor combinado (R$)</label>
+              <input type="number" name="valor_combinado" min="0" step="0.01" value="${loc.valor_combinado != null ? loc.valor_combinado : ''}">
+            </div>
+            <div class="field">
+              <label>Vencimento do pagamento (opcional)</label>
+              <input type="date" name="vencimento" value="${escapeHtml(loc.vencimento || '')}">
+            </div>
+          </div>
+          <div class="field full">
+            <label>Observações</label>
+            <textarea name="observacoes" rows="2">${escapeHtml(loc.observacoes || '')}</textarea>
+          </div>
+          <div class="actions-row">
+            <button class="btn" type="submit">Salvar alterações</button>
+            <a class="btn btn-secondary" href="/frota">Cancelar</a>
+          </div>
+          <p class="muted" style="margin:10px 0 0;">As fotos da moto e da CNH não mudam por aqui (são a prova da entrega). O status pago/pendente se controla pelos botões "Marcar pago" / "Desfazer".</p>
+        </form>
+      </div>
+    `,
+  });
+}
+
+module.exports = { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage };
