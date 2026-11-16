@@ -612,6 +612,37 @@ db.exec(`
   );
 `);
 
+// Modelo POOL: a frota passa a representar um MODELO de moto com uma quantidade
+// total de unidades (ex: "GOLDEN CITY" x 8). A disponibilidade é calculada:
+// disponiveis = quantidade_total - locações ativas - em_manutencao.
+// A identidade de cada unidade (chassi, foto) é capturada na hora da locação,
+// não no cadastro. Colunas antigas por-unidade (status, cliente_id, etc.) ficam
+// no schema por compatibilidade, mas não são mais usadas na lógica do pool.
+ensureColumn('frota', 'quantidade_total', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('frota', 'em_manutencao', 'INTEGER NOT NULL DEFAULT 0');
+
+// Cada LOCAÇÃO é um aluguel individual de uma unidade de um modelo da frota.
+// Guarda a identidade real da moto que saiu (chassi/placa) + fotos exigidas na
+// entrega (foto da moto pra prova de condição, foto da CNH do locatário).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS locacoes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    frota_id INTEGER NOT NULL REFERENCES frota(id) ON DELETE CASCADE,
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    chassi TEXT,
+    placa TEXT,
+    foto_moto_caminho TEXT,
+    foto_cnh_caminho TEXT,
+    data_saida TEXT NOT NULL DEFAULT (date('now')),
+    devolucao_prevista TEXT,
+    data_devolucao TEXT,
+    valor_combinado REAL,
+    observacoes TEXT,
+    status TEXT NOT NULL DEFAULT 'ativa',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Comprovante do pagamento anexado na baixa (obrigatório quando digital).
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
 ensureColumn('vendas', 'comprovante_nome', 'TEXT');
