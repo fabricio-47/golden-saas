@@ -24,7 +24,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
   const rows = pecas
     .map(
       (p) => `
-    <tr>
+    <tr data-busca="${escapeHtml([p.nome, p.categoria, p.codigo_barras, p.numero_serie, p.fornecedor_nome, p.loja_nome, (p.cores || []).map((c) => c.cor).join(' ')].filter(Boolean).join(' ').toLowerCase())}">
       <td><a class="link-btn" href="/estoque/${p.id}/editar">${escapeHtml(p.nome)}</a>${p.codigo_barras ? `<div class="muted">Cód. barras: ${escapeHtml(p.codigo_barras)}</div>` : ''}${p.numero_serie ? `<div class="muted">Série: ${escapeHtml(p.numero_serie)}</div>` : ''}${p.fornecedor_nome ? `<div class="muted">Fornecedor: ${escapeHtml(p.fornecedor_nome)}</div>` : ''}${p.cores && p.cores.length ? `<div class="muted">Cores: ${p.cores.map((c) => `${escapeHtml(c.cor)} (${c.quantidade})`).join(', ')}</div>` : ''}</td>
       ${mostrarColunaLoja ? `<td>${escapeHtml(p.loja_nome || '-')}</td>` : ''}
       <td>${escapeHtml(p.categoria || '-')}</td>
@@ -93,13 +93,34 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
       <div class="card">
         ${
           pecas.length
-            ? `<table>
+            ? `<div class="field" style="margin-bottom:12px;">
+          <input type="text" id="estq_busca" placeholder="🔎 Buscar por nome, categoria, código de barras ou cor..." autocomplete="off" oninput="estqFiltra()">
+          <p class="muted" id="estq_busca_msg" style="margin:4px 0 0;min-height:14px;"></p>
+        </div>
+        <table>
           <thead><tr><th>Produto</th>${mostrarColunaLoja ? '<th>Loja</th>' : ''}<th>Categoria</th><th>Qtd.</th><th>Situação</th><th>Custo</th><th>Preço de venda</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
-        </table>`
+        </table>
+        <div class="empty" id="estq_sem_resultado" style="display:none;">Nenhum produto bate com a busca.</div>`
             : '<div class="empty">Nenhum produto cadastrado ainda. <a class="link-btn" href="/estoque/novo">Cadastrar o primeiro</a></div>'
         }
       </div>
+      <script>
+        function estqFiltra() {
+          var termo = (document.getElementById('estq_busca').value || '').toLowerCase().trim();
+          var linhas = document.querySelectorAll('tr[data-busca]');
+          var visiveis = 0;
+          linhas.forEach(function (tr) {
+            var match = !termo || tr.getAttribute('data-busca').indexOf(termo) !== -1;
+            tr.style.display = match ? '' : 'none';
+            if (match) visiveis++;
+          });
+          var msg = document.getElementById('estq_busca_msg');
+          if (msg) msg.textContent = termo ? (visiveis + ' produto(s) encontrado(s)') : '';
+          var semRes = document.getElementById('estq_sem_resultado');
+          if (semRes) semRes.style.display = (termo && visiveis === 0) ? 'block' : 'none';
+        }
+      </script>
     `,
   });
 }
