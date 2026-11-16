@@ -296,9 +296,9 @@ function layout({ title, activeNav, user, flash, children }) {
       key: 'estoque-group',
       label: 'Estoque',
       items: [
-        { key: 'entrada-estoque', href: '/estoque/entrada', label: 'Registrar Entrada', modulo: 'estoque' },
+        { key: 'entrada-estoque', href: '/estoque/entrada', label: 'Registrar Entrada', modulo: 'estoque', soGerencia: true },
         { key: 'transferencias', href: '/transferencias', label: 'Transferências', modulo: 'estoque' },
-      ].filter((item) => podeVer(item.modulo)),
+      ].filter((item) => podeVer(item.modulo) && (!item.soGerencia || canManage)),
     },
     {
       type: 'group',

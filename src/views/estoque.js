@@ -20,7 +20,7 @@ function estoqueBadge(peca) {
   return '<span class="badge badge-ok">OK</span>';
 }
 
-function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mostrarColunaLoja, podeAlterar = true }) {
+function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mostrarColunaLoja, podeAlterar = true, podeGerenciar = true }) {
   const rows = pecas
     .map(
       (p) => `
@@ -84,7 +84,7 @@ function pecasListPage({ user, flash, pecas, csrfToken, lojas, lojaFiltroId, mos
         </div>
         <div class="actions-row" style="margin:0;">
           <a class="btn btn-secondary" href="/estoque/exportar">Exportar (Excel)</a>
-          ${podeAlterar ? `<a class="btn btn-secondary" href="/estoque/entrada">Registrar Entrada</a>
+          ${podeGerenciar ? `<a class="btn btn-secondary" href="/estoque/entrada">Registrar Entrada</a>
           <a class="btn" href="/estoque/novo">+ Novo Produto</a>` : ''}
         </div>
       </div>

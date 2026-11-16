@@ -446,6 +446,14 @@ function bloqueiaAlterar(res, user) {
   return true;
 }
 
+// Bloqueia uma ação restrita à gerência (Direção/Gerência): criar produto e
+// dar entrada de estoque. Retorna true (e já responde) se bloqueou.
+function bloqueiaGerencia(res, user) {
+  if (hasManagementAccess(user)) return false;
+  send(res, 403, '<h1>Sem permissão</h1><p>Cadastrar produtos e dar entrada de estoque é só para a gerência (Direção/Gerência). Fale com a gerência.</p><p><a href="javascript:history.back()">Voltar</a></p>');
+  return true;
+}
+
 function getBackupRecipients() {
   // Envia backup para todo mundo com acesso ao módulo "Configurações"
   // (equivalente ao antigo "só Direção", agora generalizado para o novo
@@ -1364,6 +1372,7 @@ async function handler(req, res) {
         lojaFiltroId,
         mostrarColunaLoja: lojasVisiveis.length > 1,
         podeAlterar: podeAlt,
+        podeGerenciar: hasManagementAccess(user),
       }));
     }
 
@@ -1382,7 +1391,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/estoque/novo' && method === 'GET') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaGerencia(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
@@ -1399,7 +1408,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/estoque' && method === 'POST') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaGerencia(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
@@ -1445,7 +1454,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/estoque/entrada' && method === 'GET') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaGerencia(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
@@ -1468,7 +1477,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/estoque/entrada' && method === 'POST') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaGerencia(res, user)) return;
       const lojaPropria = user.loja_id ? db.prepare('SELECT * FROM lojas WHERE id = ?').get(user.loja_id) : null;
       const lojas = canSeeAllLojas(user) ? db.prepare('SELECT * FROM lojas WHERE ativo = 1 ORDER BY nome ASC').all() : [];
       const fornecedores = db.prepare('SELECT * FROM fornecedores WHERE ativo = 1 ORDER BY nome ASC').all();
