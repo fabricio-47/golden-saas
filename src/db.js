@@ -643,6 +643,13 @@ db.exec(`
   );
 `);
 
+// Cobrança simples da locação: cada aluguel pode estar pago ou pendente, com um
+// vencimento opcional. Não é contabilidade — só pra loja saber quem deve.
+ensureColumn('locacoes', 'pago', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('locacoes', 'data_pagamento', 'TEXT');
+ensureColumn('locacoes', 'vencimento', 'TEXT');
+ensureColumn('locacoes', 'forma_pagamento', 'TEXT');
+
 // Comprovante do pagamento anexado na baixa (obrigatório quando digital).
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
 ensureColumn('vendas', 'comprovante_nome', 'TEXT');

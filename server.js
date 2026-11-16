@@ -73,7 +73,7 @@ const { transportadorasListPage, transportadoraFormPage } = require('./src/views
 const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/camposExtras');
 const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('./src/views/garantias');
 const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
-const { frotaPainelPage, frotaFormPage } = require('./src/views/frota');
+const { frotaPainelPage, frotaFormPage, cobrancaPage } = require('./src/views/frota');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -3510,7 +3510,28 @@ async function handler(req, res) {
       }
       for (const mod of modelos) mod.locacoes = porModelo[mod.id] || [];
       const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
-      return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), modelos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user) }));
+      const ar = db.prepare('SELECT COALESCE(SUM(valor_combinado),0) t, COUNT(*) c FROM locacoes WHERE pago = 0').get();
+      return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), modelos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user), totalReceber: ar.t, qtdPendentes: ar.c }));
+    }
+    if (pathname === '/frota/cobranca' && method === 'GET') {
+      const pendencias = db.prepare(
+        `SELECT l.*, c.nome AS cliente_nome, f.identificacao AS modelo_nome
+         FROM locacoes l
+         LEFT JOIN clientes c ON c.id = l.cliente_id
+         LEFT JOIN frota f ON f.id = l.frota_id
+         WHERE l.pago = 0
+         ORDER BY (l.vencimento IS NULL), l.vencimento ASC, l.data_saida ASC`
+      ).all();
+      const pagosRecentes = db.prepare(
+        `SELECT l.*, c.nome AS cliente_nome, f.identificacao AS modelo_nome
+         FROM locacoes l
+         LEFT JOIN clientes c ON c.id = l.cliente_id
+         LEFT JOIN frota f ON f.id = l.frota_id
+         WHERE l.pago = 1
+         ORDER BY l.data_pagamento DESC, l.id DESC LIMIT 20`
+      ).all();
+      const total = pendencias.reduce((s, p) => s + (p.valor_combinado || 0), 0);
+      return send(res, 200, cobrancaPage({ user, flash: takeFlash(session.sessionId), pendencias, pagosRecentes, total, csrfToken: session.csrfToken }));
     }
     if (pathname === '/frota/nova' && method === 'GET') {
       if (!hasManagementAccess(user)) return forbidden(res);
@@ -3577,12 +3598,16 @@ async function handler(req, res) {
       const fotoCnh = (files || []).find((f) => f.fieldName === 'foto_cnh' && f.data && f.data.length > 0);
       if (!fotoMoto) { setFlash(session.sessionId, 'error', 'A foto da moto na entrega é obrigatória.'); return redirect(res, '/frota'); }
       if (!fotoCnh) { setFlash(session.sessionId, 'error', 'A foto da CNH do locatário é obrigatória.'); return redirect(res, '/frota'); }
+      const pagoEntrega = body.pago_entrega === '1' || body.pago_entrega === 'on' ? 1 : 0;
       const info = db.prepare(
-        `INSERT INTO locacoes (frota_id, cliente_id, chassi, placa, data_saida, devolucao_prevista, valor_combinado, observacoes, status)
-         VALUES (?, ?, ?, ?, date('now'), ?, ?, ?, 'ativa')`
+        `INSERT INTO locacoes (frota_id, cliente_id, chassi, placa, data_saida, devolucao_prevista, valor_combinado, vencimento, pago, data_pagamento, forma_pagamento, observacoes, status)
+         VALUES (?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, 'ativa')`
       ).run(
         m.id, toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null,
-        (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado), (body.observacoes || '').trim() || null
+        (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
+        (body.vencimento || '').trim() || null, pagoEntrega, pagoEntrega ? new Date().toISOString().slice(0, 10) : null,
+        pagoEntrega ? ((body.forma_pagamento || '').trim() || null) : null,
+        (body.observacoes || '').trim() || null
       );
       const locId = info.lastInsertRowid;
       const savedMoto = saveUploadedFile('locacao', locId, fotoMoto);
@@ -3623,6 +3648,22 @@ async function handler(req, res) {
       db.prepare("UPDATE locacoes SET status='devolvida', data_devolucao=date('now') WHERE id=?").run(m.id);
       setFlash(session.sessionId, 'success', 'Devolução registrada — moto disponível de novo.');
       return redirect(res, '/frota');
+    }
+    if ((m = matchRoute('/locacoes/:id/pagar', pathname)) && method === 'POST') {
+      if (!locacaoAtiva()) return notFound(res);
+      const loc = db.prepare('SELECT id FROM locacoes WHERE id = ?').get(m.id);
+      if (!loc) return notFound(res);
+      db.prepare("UPDATE locacoes SET pago=1, data_pagamento=date('now'), forma_pagamento=? WHERE id=?").run((body.forma_pagamento || '').trim() || null, m.id);
+      setFlash(session.sessionId, 'success', 'Pagamento registrado.');
+      return redirect(res, body.voltar === 'cobranca' ? '/frota/cobranca' : '/frota');
+    }
+    if ((m = matchRoute('/locacoes/:id/estornar', pathname)) && method === 'POST') {
+      if (!locacaoAtiva()) return notFound(res);
+      const loc = db.prepare('SELECT id FROM locacoes WHERE id = ?').get(m.id);
+      if (!loc) return notFound(res);
+      db.prepare("UPDATE locacoes SET pago=0, data_pagamento=NULL, forma_pagamento=NULL WHERE id=?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Pagamento desfeito.');
+      return redirect(res, body.voltar === 'cobranca' ? '/frota/cobranca' : '/frota');
     }
 
     if (pathname === '/etiquetas' && method === 'GET') {

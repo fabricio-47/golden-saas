@@ -32,7 +32,18 @@ function textoLocacao(loc) {
   return { texto, atrasada };
 }
 
-function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenciar = true }) {
+// Badge de status de pagamento de uma locação: Pago (verde), Vencido (vermelho,
+// quando passou do vencimento sem pagar) ou Pendente (amarelo).
+function pagamentoBadge(loc) {
+  if (loc.pago) return '<span style="font-size:12px;padding:2px 8px;border-radius:10px;background:rgba(27,122,67,0.12);color:#1b7a43;">Pago</span>';
+  const d = diasAteHoje(loc.vencimento);
+  if (loc.vencimento && d !== null && d < 0) {
+    return '<span style="font-size:12px;padding:2px 8px;border-radius:10px;background:rgba(161,53,42,0.12);color:#a1352a;">Vencido</span>';
+  }
+  return '<span style="font-size:12px;padding:2px 8px;border-radius:10px;background:rgba(176,137,0,0.16);color:#8a6d00;">Pendente</span>';
+}
+
+function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenciar = true, totalReceber = 0, qtdPendentes = 0 }) {
   modelos = modelos || [];
   // Calcula aqui, a partir das locações ativas, pra o contador grande bater
   // sempre com as linhas de cada moto (mesma base de data do navegador).
@@ -72,18 +83,27 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
             loc.foto_moto_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_moto_caminho)}" target="_blank">foto da moto</a>` : null,
             loc.foto_cnh_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_cnh_caminho)}" target="_blank">CNH</a>` : null,
           ].filter(Boolean).join(' · ');
+          const pagItems = [
+            loc.valor_combinado != null ? '<strong>' + formatMoney(loc.valor_combinado) + '</strong>' : null,
+            pagamentoBadge(loc),
+            !loc.pago && loc.vencimento ? '<span class="muted">venc. ' + formatDateOnly(loc.vencimento) + '</span>' : null,
+          ].filter(Boolean).join(' ');
           return `
             <div style="padding:10px 0;border-top:1px solid var(--border);${t.atrasada ? 'background:rgba(161,53,42,0.04);' : ''}">
               <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">
                 <div>
                   <div>${t.texto}</div>
                   ${ident ? `<div class="muted" style="font-size:13px;margin-top:2px;">${ident}</div>` : ''}
+                  <div style="font-size:13px;margin-top:4px;">${pagItems}</div>
                   <div class="muted" style="font-size:13px;margin-top:2px;">saída ${formatDateOnly(loc.data_saida)}${fotos ? ' · ' + fotos : ''}</div>
                 </div>
-                <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar devolução desta moto? Ela volta pro estoque disponível.');" style="margin:0;">
-                  <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
-                  <button class="btn btn-sm" type="submit">Registrar devolução</button>
-                </form>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  ${!loc.pago ? `<form method="POST" action="/locacoes/${loc.id}/pagar" style="margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">Marcar pago</button></form>` : ''}
+                  <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar devolução desta moto? Ela volta pro estoque disponível.');" style="margin:0;">
+                    <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+                    <button class="btn btn-sm" type="submit">Registrar devolução</button>
+                  </form>
+                </div>
               </div>
             </div>`;
         })
@@ -135,8 +155,12 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                 <input type="date" name="devolucao_prevista">
               </div>
               <div class="field">
-                <label>Valor combinado (R$, opcional)</label>
-                <input type="number" name="valor_combinado" min="0" step="0.01">
+                <label>Valor combinado (R$)</label>
+                <input type="number" name="valor_combinado" min="0" step="0.01" placeholder="Pra controlar a cobrança">
+              </div>
+              <div class="field">
+                <label>Vencimento do pagamento (opcional)</label>
+                <input type="date" name="vencimento">
               </div>
             </div>
             <div class="form-grid">
@@ -154,6 +178,11 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
             <div class="field full">
               <label>Observações (opcional)</label>
               <textarea name="observacoes" rows="2"></textarea>
+            </div>
+            <div class="field full">
+              <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
+                <input type="checkbox" name="pago_entrega" value="1" style="width:auto;"> Já pago na entrega (senão fica como pendente na cobrança)
+              </label>
             </div>
             <div class="actions-row" style="margin-top:8px;">
               <button class="btn" type="submit">Confirmar locação</button>
@@ -179,13 +208,20 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
           <h1>Frota de locação</h1>
           <p class="subtitle">Cada modelo tem uma quantidade. A moto específica (chassi + foto) é registrada na hora de alugar.</p>
         </div>
-        ${podeGerenciar ? '<a class="btn" href="/frota/nova">+ Novo modelo</a>' : ''}
+        <div class="actions-row" style="gap:8px;margin:0;">
+          <a class="btn btn-secondary" href="/frota/cobranca">Cobrança</a>
+          ${podeGerenciar ? '<a class="btn" href="/frota/nova">+ Novo modelo</a>' : ''}
+        </div>
       </div>
       <div class="stat-grid">
         <div class="stat-card"><div class="num">${totDisp}</div><div class="label">Disponíveis</div></div>
         <div class="stat-card"><div class="num">${totAlug}</div><div class="label">Alugadas</div></div>
         <div class="stat-card"><div class="num">${totManut}</div><div class="label">Em manutenção</div></div>
         <div class="stat-card"><div class="num" style="${totAtras ? 'color:#a1352a;' : ''}">${totAtras}</div><div class="label">Atrasadas na devolução</div></div>
+        <a class="stat-card" href="/frota/cobranca" style="text-decoration:none;color:inherit;">
+          <div class="num" style="${qtdPendentes ? 'color:#8a6d00;' : ''}">${formatMoney(totalReceber)}</div>
+          <div class="label">A receber${qtdPendentes ? ' (' + qtdPendentes + ')' : ''} ›</div>
+        </a>
       </div>
       ${modelos.length ? cards : '<div class="card"><div class="empty">Nenhum modelo na frota ainda. Clique em "Novo modelo" pra cadastrar o primeiro.</div></div>'}
       <script>
@@ -319,4 +355,97 @@ function frotaFormPage({ user, flash, moto, csrfToken }) {
   });
 }
 
-module.exports = { frotaPainelPage, frotaFormPage };
+function cobrancaPage({ user, flash, pendencias, pagosRecentes, total, csrfToken }) {
+  pendencias = pendencias || [];
+  pagosRecentes = pagosRecentes || [];
+  const vencidas = pendencias.filter((p) => {
+    const d = diasAteHoje(p.vencimento);
+    return p.vencimento && d !== null && d < 0;
+  }).length;
+
+  const linhaPend = (p) => {
+    const d = diasAteHoje(p.vencimento);
+    const vencida = p.vencimento && d !== null && d < 0;
+    const moto = [escapeHtml(p.modelo_nome || 'Moto'), p.chassi ? 'chassi ' + escapeHtml(p.chassi) : null].filter(Boolean).join(' · ');
+    const tagStatus = p.status === 'devolvida'
+      ? '<span class="muted" style="font-size:12px;">(já devolvida)</span>'
+      : '<span class="muted" style="font-size:12px;">(em locação)</span>';
+    return `
+      <div style="padding:12px 0;border-top:1px solid var(--border);${vencida ? 'background:rgba(161,53,42,0.04);' : ''}">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+          <div>
+            <div><strong>${escapeHtml(p.cliente_nome || 'Cliente')}</strong> ${tagStatus}</div>
+            <div class="muted" style="font-size:13px;margin-top:2px;">${moto}</div>
+            <div style="font-size:13px;margin-top:4px;">
+              ${p.valor_combinado != null ? '<strong>' + formatMoney(p.valor_combinado) + '</strong>' : '<span class="muted">sem valor</span>'} ${pagamentoBadge(p)}
+              ${p.vencimento ? ` <span class="${vencida ? '' : 'muted'}" style="${vencida ? 'color:#a1352a;font-weight:600;' : ''}">venc. ${formatDateOnly(p.vencimento)}${vencida ? ' (atrasado ' + Math.abs(d) + ' dia(s))' : ''}</span>` : ''}
+            </div>
+          </div>
+          <form method="POST" action="/locacoes/${p.id}/pagar" style="margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+            <input type="hidden" name="voltar" value="cobranca">
+            <select name="forma_pagamento" style="width:auto;">
+              <option value="">Forma...</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="PIX">PIX</option>
+              <option value="Cartão">Cartão</option>
+              <option value="Outro">Outro</option>
+            </select>
+            <button class="btn btn-sm" type="submit">Marcar pago</button>
+          </form>
+        </div>
+      </div>`;
+  };
+
+  const linhaPago = (p) => {
+    const moto = [escapeHtml(p.modelo_nome || 'Moto'), p.chassi ? 'chassi ' + escapeHtml(p.chassi) : null].filter(Boolean).join(' · ');
+    return `
+      <div style="padding:10px 0;border-top:1px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+          <div>
+            <div><strong>${escapeHtml(p.cliente_nome || 'Cliente')}</strong> — ${p.valor_combinado != null ? formatMoney(p.valor_combinado) : 's/ valor'}</div>
+            <div class="muted" style="font-size:13px;margin-top:2px;">${moto}</div>
+            <div class="muted" style="font-size:13px;margin-top:2px;">pago ${p.data_pagamento ? formatDateOnly(p.data_pagamento) : ''}${p.forma_pagamento ? ' · ' + escapeHtml(p.forma_pagamento) : ''}</div>
+          </div>
+          <form method="POST" action="/locacoes/${p.id}/estornar" onsubmit="return confirm('Desfazer o pagamento desta locação?');" style="margin:0;">
+            <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+            <input type="hidden" name="voltar" value="cobranca">
+            <button class="btn btn-sm btn-secondary" type="submit">Desfazer</button>
+          </form>
+        </div>
+      </div>`;
+  };
+
+  return layout({
+    title: 'Cobrança da locação',
+    activeNav: 'cobranca',
+    user,
+    flash,
+    children: `
+      <div class="page-header">
+        <div>
+          <h1>Cobrança</h1>
+          <p class="subtitle">Quem está devendo nas locações. Marque como pago quando receber.</p>
+        </div>
+        <a class="btn btn-secondary" href="/frota">‹ Voltar pra frota</a>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="num" style="${total ? 'color:#8a6d00;' : ''}">${formatMoney(total)}</div><div class="label">Total a receber</div></div>
+        <div class="stat-card"><div class="num">${pendencias.length}</div><div class="label">Locações pendentes</div></div>
+        <div class="stat-card"><div class="num" style="${vencidas ? 'color:#a1352a;' : ''}">${vencidas}</div><div class="label">Vencidas</div></div>
+      </div>
+      <div class="card">
+        <h2 style="margin:0 0 4px;">Pendentes</h2>
+        ${pendencias.length ? pendencias.map(linhaPend).join('') : '<div class="empty">Nenhuma cobrança pendente. Tudo pago ✅</div>'}
+      </div>
+      ${pagosRecentes.length ? `
+      <div class="card" style="margin-top:14px;">
+        <h2 style="margin:0 0 4px;">Pagos recentes</h2>
+        <p class="muted" style="margin:0 0 4px;">Últimos pagamentos registrados — use "Desfazer" se marcou errado.</p>
+        ${pagosRecentes.map(linhaPago).join('')}
+      </div>` : ''}
+    `,
+  });
+}
+
+module.exports = { frotaPainelPage, frotaFormPage, cobrancaPage };
