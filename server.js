@@ -3079,9 +3079,9 @@ async function handler(req, res) {
         if (b) defaultClienteId = b.cliente_id;
       }
       const funcionarios = db.prepare('SELECT * FROM funcionarios WHERE ativo = 1 ORDER BY nome ASC').all();
-      const pecasDisponiveis = canSeeAllLojas(user)
+      const pecasDisponiveis = pecasComCores(canSeeAllLojas(user)
         ? db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        : db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id));
       return send(
         res,
         200,
@@ -3095,9 +3095,9 @@ async function handler(req, res) {
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       if (!body.cliente_id || !body.bicicleta_id) {
         const funcionarios = db.prepare('SELECT * FROM funcionarios WHERE ativo = 1 ORDER BY nome ASC').all();
-        const pecasDisponiveis = canSeeAllLojas(user)
+        const pecasDisponiveis = pecasComCores(canSeeAllLojas(user)
           ? db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas ORDER BY nome ASC').all()
-          : db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+          : db.prepare('SELECT id, nome, preco_venda, quantidade FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id));
         return send(res, 400, ordemFormPage({ user, flash: { type: 'error', message: 'Cliente e veículo são obrigatórios.' }, os: null, clientes, bicicletas, csrfToken: session.csrfToken, funcionarios, pecasDisponiveis }));
       }
       const checklist = parseChecklistFromBody(body);
@@ -3133,15 +3133,17 @@ async function handler(req, res) {
         pecasEscolhidas = [];
       }
       if (pecasEscolhidas.length) {
-        const insOsPeca = db.prepare('INSERT INTO os_pecas (ordem_servico_id, peca_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)');
+        const insOsPeca = db.prepare('INSERT INTO os_pecas (ordem_servico_id, peca_id, nome_peca, quantidade, preco_unitario, cor) VALUES (?, ?, ?, ?, ?, ?)');
         const updStock = db.prepare("UPDATE pecas SET quantidade = quantidade - ?, updated_at = datetime('now') WHERE id = ?");
         let algumZerou = false;
         for (const it of pecasEscolhidas) {
           const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(it.peca_id);
           if (!peca) continue;
           const q = Math.max(1, parseInt(it.qtd, 10) || 1);
-          insOsPeca.run(osId, peca.id, peca.nome, q, peca.preco_venda);
+          const cor = (it.cor || '').toString().trim() || null;
+          insOsPeca.run(osId, peca.id, peca.nome + (cor ? ' (' + cor + ')' : ''), q, peca.preco_venda, cor);
           updStock.run(q, peca.id);
+          if (cor) ajustaEstoqueCor(peca.id, cor, q);
           if (peca.quantidade - q <= 0) algumZerou = true;
         }
         recomputeValorPecas(osId);
@@ -3236,11 +3238,13 @@ async function handler(req, res) {
         setFlash(session.sessionId, 'error', 'Quantidade inválida.');
         return redirect(res, `/os/${m.id}`);
       }
+      const corOs = (body.cor || '').toString().trim() || null;
       db.prepare(
-        'INSERT INTO os_pecas (ordem_servico_id, peca_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)'
-      ).run(m.id, peca.id, peca.nome, quantidade, peca.preco_venda);
+        'INSERT INTO os_pecas (ordem_servico_id, peca_id, nome_peca, quantidade, preco_unitario, cor) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(m.id, peca.id, peca.nome + (corOs ? ' (' + corOs + ')' : ''), quantidade, peca.preco_venda, corOs);
       const novaQuantidade = peca.quantidade - quantidade;
       db.prepare("UPDATE pecas SET quantidade = ?, updated_at = datetime('now') WHERE id = ?").run(novaQuantidade, peca.id);
+      if (corOs) ajustaEstoqueCor(peca.id, corOs, quantidade);
       recomputeValorPecas(m.id);
       setFlash(
         session.sessionId,
@@ -3258,6 +3262,7 @@ async function handler(req, res) {
       if (item) {
         if (item.peca_id) {
           db.prepare("UPDATE pecas SET quantidade = quantidade + ?, updated_at = datetime('now') WHERE id = ?").run(item.quantidade, item.peca_id);
+          if (item.cor) ajustaEstoqueCor(item.peca_id, item.cor, -item.quantidade);
         }
         db.prepare('DELETE FROM os_pecas WHERE id = ?').run(item.id);
         recomputeValorPecas(m.id);
@@ -3421,9 +3426,9 @@ async function handler(req, res) {
       const midiasChecklist = db.prepare("SELECT * FROM os_midias WHERE ordem_servico_id = ? AND categoria = 'checklist' ORDER BY created_at DESC").all(m.id);
       const midiasServico = db.prepare("SELECT * FROM os_midias WHERE ordem_servico_id = ? AND categoria = 'servico' ORDER BY created_at DESC").all(m.id);
       const osPecas = db.prepare('SELECT * FROM os_pecas WHERE ordem_servico_id = ? ORDER BY created_at DESC').all(m.id);
-      const pecasDisponiveis = canSeeAllLojas(user)
+      const pecasDisponiveis = pecasComCores(canSeeAllLojas(user)
         ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id));
       const osServicos = db.prepare('SELECT * FROM os_servicos WHERE ordem_servico_id = ? ORDER BY created_at DESC').all(m.id);
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       return send(res, 200, ordemShowPage({ user, flash: takeFlash(session.sessionId), os, midiasChecklist, midiasServico, osPecas, pecasDisponiveis, osServicos, servicosDisponiveis, csrfToken: session.csrfToken, podeAlterar: podeAlterarExcluir(user) }));
