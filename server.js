@@ -3669,7 +3669,7 @@ async function handler(req, res) {
       if (!locacaoAtiva()) return notFound(res);
       const loc = db.prepare('SELECT * FROM locacoes WHERE id = ?').get(m.id);
       if (!loc) return notFound(res);
-      const modelo = db.prepare('SELECT id, identificacao FROM frota WHERE id = ?').get(loc.frota_id);
+      const modelo = db.prepare('SELECT * FROM frota WHERE id = ?').get(loc.frota_id);
       const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
       return send(res, 200, locacaoEditarPage({ user, flash: takeFlash(session.sessionId), loc, modelo, clientes, csrfToken: session.csrfToken }));
     }

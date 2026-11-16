@@ -43,7 +43,63 @@ function pagamentoBadge(loc) {
   return '<span style="font-size:12px;padding:2px 8px;border-radius:10px;background:rgba(176,137,0,0.16);color:#8a6d00;">Pendente</span>';
 }
 
+// Opções de período com a tarifa do modelo embutida (pra o JS calcular o valor).
+function periodoOpcoes(modelo) {
+  const o = [];
+  if (modelo && modelo.valor_diaria != null) o.push(`<option value="diaria" data-rate="${modelo.valor_diaria}" data-dias="1">Diária (${formatMoney(modelo.valor_diaria)})</option>`);
+  if (modelo && modelo.valor_semanal != null) o.push(`<option value="semanal" data-rate="${modelo.valor_semanal}" data-dias="7" selected>Semana (${formatMoney(modelo.valor_semanal)})</option>`);
+  if (modelo && modelo.valor_mensal != null) o.push(`<option value="mensal" data-rate="${modelo.valor_mensal}" data-dias="30">Mês (${formatMoney(modelo.valor_mensal)})</option>`);
+  return o.join('');
+}
+// Bloco período + quantidade. Só aparece se o modelo tiver pelo menos uma tarifa.
+function periodoBloco(modelo, baseDate) {
+  const opts = periodoOpcoes(modelo);
+  if (!opts) return '';
+  return `
+    <div class="form-grid loc-periodo-wrap" data-base="${baseDate || ''}">
+      <div class="field">
+        <label>Período (calcula o valor)</label>
+        <select class="loc-periodo"><option value="">(digitar valor manual)</option>${opts}</select>
+      </div>
+      <div class="field">
+        <label>Quantas?</label>
+        <input type="number" class="loc-qtd" min="1" step="1" placeholder="Ex: 2">
+      </div>
+    </div>`;
+}
+const PERIODO_SCRIPT = `
+  function frPeriodoCalc(wrap){
+    var sel=wrap.querySelector('.loc-periodo'), qtd=wrap.querySelector('.loc-qtd');
+    if(!sel||!qtd) return;
+    var form=wrap.closest('form');
+    var valor=form&&form.querySelector('input[name=valor_combinado]');
+    var dev=form&&form.querySelector('input[name=devolucao_prevista]');
+    var opt=sel.options[sel.selectedIndex];
+    var rate=opt?parseFloat(opt.getAttribute('data-rate')):NaN;
+    var dias=opt?parseInt(opt.getAttribute('data-dias'),10):NaN;
+    var n=parseInt(qtd.value,10);
+    if(sel.value&&!isNaN(rate)&&!isNaN(n)&&n>0){
+      if(valor) valor.value=(rate*n).toFixed(2);
+      if(dev&&!isNaN(dias)){
+        var base=wrap.getAttribute('data-base');
+        var d=base?new Date(base+'T00:00:00'):new Date();
+        d.setDate(d.getDate()+dias*n);
+        dev.value=d.toISOString().slice(0,10);
+      }
+    }
+  }
+  function frPeriodoInit(){
+    document.querySelectorAll('.loc-periodo-wrap').forEach(function(w){
+      var s=w.querySelector('.loc-periodo'), q=w.querySelector('.loc-qtd');
+      if(s) s.addEventListener('change',function(){frPeriodoCalc(w);});
+      if(q) q.addEventListener('input',function(){frPeriodoCalc(w);});
+    });
+  }
+  if(document.readyState!=='loading') frPeriodoInit(); else document.addEventListener('DOMContentLoaded', frPeriodoInit);
+`;
+
 function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenciar = true, totalReceber = 0, qtdPendentes = 0 }) {
+  const hojeStr = new Date().toISOString().slice(0, 10);
   modelos = modelos || [];
   // Calcula aqui, a partir das locações ativas, pra o contador grande bater
   // sempre com as linhas de cada moto (mesma base de data do navegador).
@@ -138,6 +194,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
           <h3 style="margin:0 0 10px;">Registrar locação — ${escapeHtml(m.identificacao)}</h3>
           <form method="POST" action="/frota/${m.id}/alugar" enctype="multipart/form-data" onsubmit="return frSubmitAlugar(event, this);">
             <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+            ${periodoBloco(m, hojeStr)}
             <div class="form-grid">
               <div class="field">
                 <label>Locatário (cliente) *</label>
@@ -283,6 +340,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                               .catch(function(){ form.dataset.frReady='1'; form.submit(); });
           return false;
         }
+        ${PERIODO_SCRIPT}
       </script>
     `,
   });
@@ -464,6 +522,7 @@ function locacaoEditarPage({ user, flash, loc, modelo, clientes, csrfToken }) {
       <div class="card">
         <form method="POST" action="/locacoes/${loc.id}">
           <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+          ${periodoBloco(modelo, loc.data_saida)}
           <div class="form-grid">
             <div class="field">
               <label>Locatário (cliente) *</label>
@@ -501,6 +560,7 @@ function locacaoEditarPage({ user, flash, loc, modelo, clientes, csrfToken }) {
           <p class="muted" style="margin:10px 0 0;">As fotos da moto e da CNH não mudam por aqui (são a prova da entrega). O status pago/pendente se controla pelos botões "Marcar pago" / "Desfazer".</p>
         </form>
       </div>
+      <script>${PERIODO_SCRIPT}</script>
     `,
   });
 }
