@@ -144,7 +144,7 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
   const pecaOptionsNova = pecasDisp
     .map(
       (p) =>
-        `<option value="${p.id}" data-nome="${escapeHtml(p.nome)}" data-preco="${Number(p.preco_venda) || 0}" data-estoque="${Number(p.quantidade) || 0}">${escapeHtml(p.nome)} — ${formatMoney(p.preco_venda)} (estoque: ${Number(p.quantidade) || 0})</option>`
+        `<option value="${p.id}" data-nome="${escapeHtml(p.nome)}" data-preco="${Number(p.preco_venda) || 0}" data-estoque="${Number(p.quantidade) || 0}" data-cores="${escapeHtml(JSON.stringify((p.cores || []).map((c) => ({ cor: c.cor, qtd: c.quantidade }))))}">${escapeHtml(p.nome)} — ${formatMoney(p.preco_venda)} (estoque: ${Number(p.quantidade) || 0})</option>`
     )
     .join('');
 
@@ -281,10 +281,14 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
                 pecasDisp.length
                   ? `<div class="form-grid" style="margin-bottom:8px;">
                 <div class="field">
-                  <select id="os_peca_sel">
+                  <select id="os_peca_sel" onchange="osPecaChange()">
                     <option value="">Selecione um produto...</option>
                     ${pecaOptionsNova}
                   </select>
+                </div>
+                <div class="field" id="os_peca_cor_campo" style="display:none;">
+                  <label for="os_peca_cor" style="font-size:12px;">Cor (baixa desta cor)</label>
+                  <select id="os_peca_cor"></select>
                 </div>
                 <div class="field" style="display:flex;gap:8px;align-items:flex-end;">
                   <input type="number" id="os_peca_qtd" min="1" step="1" value="1" style="max-width:100px;">
@@ -410,24 +414,42 @@ function ordemFormPage({ user, flash, os, clientes, bicicletas, defaultClienteId
             if (nota) nota.textContent = 'Calculado pelos produtos escolhidos (' + osMoney(total) + '). Remova todos para digitar manualmente.';
           }
           var hid = document.getElementById('os_pecas_json');
-          if (hid) hid.value = JSON.stringify(OS_PECAS.map(function(it){ return { peca_id: it.peca_id, qtd: it.qtd }; }));
+          if (hid) hid.value = JSON.stringify(OS_PECAS.map(function(it){ return { peca_id: it.peca_id, qtd: it.qtd, cor: it.cor || null }; }));
+        }
+        function osCoresDe(opt){ try { return JSON.parse(opt.getAttribute('data-cores') || '[]'); } catch(e){ return []; } }
+        function osPecaChange(){
+          var sel = document.getElementById('os_peca_sel');
+          var campo = document.getElementById('os_peca_cor_campo');
+          var selCor = document.getElementById('os_peca_cor');
+          var cores = (sel && sel.value) ? osCoresDe(sel.options[sel.selectedIndex]) : [];
+          if (cores.length){
+            selCor.innerHTML = cores.map(function(c){ return '<option value="' + String(c.cor).replace(/</g,'&lt;') + '">' + String(c.cor).replace(/</g,'&lt;') + ' (estoque: ' + c.qtd + ')</option>'; }).join('');
+            campo.style.display = '';
+          } else { selCor.innerHTML = ''; campo.style.display = 'none'; }
         }
         function osAddPeca(){
           var sel = document.getElementById('os_peca_sel');
           if (!sel || !sel.value) return;
           var opt = sel.options[sel.selectedIndex];
           var qtd = Math.max(1, parseInt(document.getElementById('os_peca_qtd').value, 10) || 1);
-          var nome = opt.getAttribute('data-nome') || opt.textContent;
+          var nomeBase = opt.getAttribute('data-nome') || opt.textContent;
           var preco = parseFloat(opt.getAttribute('data-preco')) || 0;
           var estoque = parseInt(opt.getAttribute('data-estoque'), 10);
-          var achou = OS_PECAS.find(function(p){ return String(p.peca_id) === String(sel.value); });
-          if (achou){ achou.qtd += qtd; } else { OS_PECAS.push({ peca_id: sel.value, nome: nome, preco: preco, qtd: qtd }); }
-          var totalItem = OS_PECAS.find(function(p){ return String(p.peca_id) === String(sel.value); }).qtd;
-          if (isFinite(estoque) && totalItem > estoque){
-            alert('Atenção: você colocou ' + totalItem + ' de "' + nome + '", mas só há ' + estoque + ' em estoque. Ao abrir a O.S. o estoque vai ficar negativo.');
+          var cor = null;
+          if (osCoresDe(opt).length){
+            cor = document.getElementById('os_peca_cor').value;
+            if (!cor){ alert('Escolha a cor que está saindo.'); return; }
+          }
+          var nome = nomeBase + (cor ? ' (' + cor + ')' : '');
+          var achou = OS_PECAS.find(function(p){ return String(p.peca_id) === String(sel.value) && (p.cor||null) === (cor||null); });
+          if (achou){ achou.qtd += qtd; } else { OS_PECAS.push({ peca_id: sel.value, nome: nome, preco: preco, qtd: qtd, cor: cor }); }
+          var totalItem = OS_PECAS.find(function(p){ return String(p.peca_id) === String(sel.value) && (p.cor||null) === (cor||null); }).qtd;
+          if (isFinite(estoque) && !cor && totalItem > estoque){
+            alert('Atenção: você colocou ' + totalItem + ' de "' + nomeBase + '", mas só há ' + estoque + ' em estoque. Ao abrir a O.S. o estoque vai ficar negativo.');
           }
           sel.value = '';
           document.getElementById('os_peca_qtd').value = 1;
+          osPecaChange();
           osRenderPecas();
         }
         function osRemovePeca(idx){ OS_PECAS.splice(idx, 1); osRenderPecas(); }
@@ -477,7 +499,7 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
     .join('');
 
   const options = pecasDisponiveis
-    .map((p) => `<option value="${p.id}" data-preco="${p.preco_venda}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — ${formatMoney(p.preco_venda)}</option>`)
+    .map((p) => `<option value="${p.id}" data-preco="${p.preco_venda}" data-cores="${escapeHtml(JSON.stringify((p.cores || []).map((c) => ({ cor: c.cor, qtd: c.quantidade }))))}">${escapeHtml(p.nome)} (estoque: ${p.quantidade}) — ${formatMoney(p.preco_venda)}</option>`)
     .join('');
 
   const totalPecas = osPecas.reduce((sum, item) => sum + item.quantidade * item.preco_unitario, 0);
@@ -498,10 +520,14 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
           <div class="form-grid">
             <div class="field">
               <label for="peca_id">Produto</label>
-              <select id="peca_id" name="peca_id" required>
+              <select id="peca_id" name="peca_id" required onchange="osShowPecaChange()">
                 <option value="">Selecione...</option>
                 ${options}
               </select>
+            </div>
+            <div class="field" id="os_show_cor_campo" style="display:none;">
+              <label for="os_show_cor">Cor (baixa desta cor)</label>
+              <select id="os_show_cor" name="cor"></select>
             </div>
             <div class="field">
               <label for="peca_quantidade">Quantidade</label>
@@ -509,7 +535,20 @@ function pecasOsSection(osId, osPecas, pecasDisponiveis, csrfToken) {
             </div>
           </div>
           <button class="btn btn-sm" type="submit">+ Adicionar produto à O.S.</button>
-        </form>`
+        </form>
+        <script>
+          function osShowPecaChange(){
+            var sel = document.getElementById('peca_id');
+            var campo = document.getElementById('os_show_cor_campo');
+            var selCor = document.getElementById('os_show_cor');
+            var cores = [];
+            if (sel && sel.value){ try { cores = JSON.parse(sel.options[sel.selectedIndex].getAttribute('data-cores')||'[]'); } catch(e){ cores = []; } }
+            if (cores.length){
+              selCor.innerHTML = cores.map(function(c){ return '<option value="'+String(c.cor).replace(/</g,'&lt;')+'">'+String(c.cor).replace(/</g,'&lt;')+' (estoque: '+c.qtd+')</option>'; }).join('');
+              selCor.disabled = false; campo.style.display = '';
+            } else { selCor.innerHTML = ''; selCor.disabled = true; campo.style.display = 'none'; }
+          }
+        </script>`
             : '<p class="muted" style="margin-top:12px;">Nenhum produto cadastrado no <a class="link-btn" href="/estoque/novo">Estoque</a> ainda.</p>'
         }
         <p class="muted" style="margin-top:8px;">Ao adicionar um produto aqui, ele é descontado do estoque automaticamente, e o "Valor de produtos" da O.S. é recalculado.</p>

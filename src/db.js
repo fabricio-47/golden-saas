@@ -414,6 +414,7 @@ ensureColumn('venda_itens', 'tipo_servico_id', 'INTEGER');
 // Cor vendida (quando o produto tem controle de estoque por cor). Guarda qual
 // cor saiu, pra baixar do peca_cores certo e mostrar no item da venda.
 ensureColumn('venda_itens', 'cor', 'TEXT');
+ensureColumn('os_pecas', 'cor', 'TEXT');
 ensureColumn('contas_pagar', 'anexo_caminho', 'TEXT');
 ensureColumn('contas_pagar', 'anexo_nome', 'TEXT');
 ensureColumn('ordens_servico', 'previsao_entrega', 'TEXT');
