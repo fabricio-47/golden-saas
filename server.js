@@ -73,6 +73,7 @@ const { transportadorasListPage, transportadoraFormPage } = require('./src/views
 const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/camposExtras');
 const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('./src/views/garantias');
 const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
+const { frotaPainelPage, frotaFormPage } = require('./src/views/frota');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -179,6 +180,12 @@ function setEtiquetaConfig(body) {
 // Ativa só quando LICENSE_ENABLED=1 (na sua instância própria fica desligada).
 function licencaAtivada() {
   return process.env.LICENSE_ENABLED === '1';
+}
+
+// Módulo de LOCAÇÃO de motos: só liga quando LOCACAO_ENABLED=1 na instância.
+// Cliente que só tem oficina não vê o módulo; o dono liga ao provisionar.
+function locacaoAtiva() {
+  return process.env.LOCACAO_ENABLED === '1' || process.env.LOCACAO_ENABLED === 'true';
 }
 function licenseSecret() {
   return process.env.LICENSE_SECRET || 'golden-saas-chave-padrao-troque-no-servidor';
@@ -3483,6 +3490,99 @@ async function handler(req, res) {
       ).run(t(body.catalogo_titulo), t(body.catalogo_subtitulo), t(body.catalogo_whatsapp), t(body.catalogo_endereco1), t(body.catalogo_endereco2));
       setFlash(session.sessionId, 'success', 'Catálogo salvo.');
       return redirect(res, '/catalogo/config');
+    }
+
+    // ---------------- LOCAÇÃO — FROTA (só quando LOCACAO_ENABLED=1) ----------------
+    if (pathname === '/frota' || pathname.startsWith('/frota/')) {
+      if (!locacaoAtiva()) return notFound(res);
+    }
+    if (pathname === '/frota' && method === 'GET') {
+      const motos = db.prepare(
+        `SELECT f.*, c.nome AS cliente_nome FROM frota f
+         LEFT JOIN clientes c ON c.id = f.cliente_id
+         WHERE f.ativo = 1
+         ORDER BY CASE f.status WHEN 'alugada' THEN 0 WHEN 'disponivel' THEN 1 ELSE 2 END, f.identificacao ASC`
+      ).all();
+      const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
+      return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), motos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user) }));
+    }
+    if (pathname === '/frota/nova' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      return send(res, 200, frotaFormPage({ user, flash: takeFlash(session.sessionId), moto: null, csrfToken: session.csrfToken }));
+    }
+    if (pathname === '/frota' && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      if (!body.identificacao || !body.identificacao.trim()) {
+        return send(res, 400, frotaFormPage({ user, flash: { type: 'error', message: 'Informe a identificação da moto.' }, moto: body, csrfToken: session.csrfToken }));
+      }
+      db.prepare(
+        `INSERT INTO frota (identificacao, modelo, cor, placa, chassi, km, valor_diaria, valor_semanal, valor_mensal, observacoes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        body.identificacao.trim(), (body.modelo || '').trim() || null, (body.cor || '').trim() || null, (body.placa || '').trim() || null,
+        (body.chassi || '').trim() || null, toIntOrNull(body.km), toFloatOrNull(body.valor_diaria), toFloatOrNull(body.valor_semanal), toFloatOrNull(body.valor_mensal), (body.observacoes || '').trim() || null
+      );
+      setFlash(session.sessionId, 'success', 'Moto cadastrada na frota.');
+      return redirect(res, '/frota');
+    }
+    if ((m = matchRoute('/frota/:id/editar', pathname)) && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const moto = db.prepare('SELECT * FROM frota WHERE id = ?').get(m.id);
+      if (!moto) return notFound(res);
+      return send(res, 200, frotaFormPage({ user, flash: takeFlash(session.sessionId), moto, csrfToken: session.csrfToken }));
+    }
+    if ((m = matchRoute('/frota/:id', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const moto = db.prepare('SELECT id FROM frota WHERE id = ?').get(m.id);
+      if (!moto) return notFound(res);
+      if (!body.identificacao || !body.identificacao.trim()) {
+        setFlash(session.sessionId, 'error', 'Informe a identificação da moto.');
+        return redirect(res, '/frota/' + m.id + '/editar');
+      }
+      db.prepare(
+        `UPDATE frota SET identificacao=?, modelo=?, cor=?, placa=?, chassi=?, km=?, valor_diaria=?, valor_semanal=?, valor_mensal=?, observacoes=? WHERE id=?`
+      ).run(
+        body.identificacao.trim(), (body.modelo || '').trim() || null, (body.cor || '').trim() || null, (body.placa || '').trim() || null,
+        (body.chassi || '').trim() || null, toIntOrNull(body.km), toFloatOrNull(body.valor_diaria), toFloatOrNull(body.valor_semanal), toFloatOrNull(body.valor_mensal), (body.observacoes || '').trim() || null, m.id
+      );
+      setFlash(session.sessionId, 'success', 'Moto atualizada.');
+      return redirect(res, '/frota');
+    }
+    if ((m = matchRoute('/frota/:id/alugar', pathname)) && method === 'POST') {
+      const moto = db.prepare('SELECT * FROM frota WHERE id = ?').get(m.id);
+      if (!moto) return notFound(res);
+      if (!body.cliente_id) {
+        setFlash(session.sessionId, 'error', 'Escolha o cliente (locatário).');
+        return redirect(res, '/frota');
+      }
+      db.prepare(
+        "UPDATE frota SET status='alugada', cliente_id=?, alugada_desde=date('now'), devolucao_prevista=? WHERE id=?"
+      ).run(toIntOrNull(body.cliente_id), (body.devolucao_prevista || '').trim() || null, m.id);
+      setFlash(session.sessionId, 'success', `Moto "${moto.identificacao}" marcada como alugada.`);
+      return redirect(res, '/frota');
+    }
+    if ((m = matchRoute('/frota/:id/devolver', pathname)) && method === 'POST') {
+      const moto = db.prepare('SELECT * FROM frota WHERE id = ?').get(m.id);
+      if (!moto) return notFound(res);
+      db.prepare("UPDATE frota SET status='disponivel', cliente_id=NULL, alugada_desde=NULL, devolucao_prevista=NULL WHERE id=?").run(m.id);
+      setFlash(session.sessionId, 'success', `Devolução registrada — "${moto.identificacao}" está disponível.`);
+      return redirect(res, '/frota');
+    }
+    if ((m = matchRoute('/frota/:id/manutencao', pathname)) && method === 'POST') {
+      db.prepare("UPDATE frota SET status='manutencao', cliente_id=NULL, alugada_desde=NULL, devolucao_prevista=NULL WHERE id=?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Moto enviada para manutenção.');
+      return redirect(res, '/frota');
+    }
+    if ((m = matchRoute('/frota/:id/disponivel', pathname)) && method === 'POST') {
+      db.prepare("UPDATE frota SET status='disponivel' WHERE id=?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Moto disponível de novo.');
+      return redirect(res, '/frota');
+    }
+    if ((m = matchRoute('/frota/:id/excluir', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
+      db.prepare('DELETE FROM frota WHERE id = ?').run(m.id);
+      setFlash(session.sessionId, 'success', 'Moto removida da frota.');
+      return redirect(res, '/frota');
     }
 
     if (pathname === '/etiquetas' && method === 'GET') {

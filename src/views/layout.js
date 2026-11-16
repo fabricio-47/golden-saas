@@ -291,6 +291,9 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'garantias', href: '/garantias', label: 'Garantias', modulo: 'os' },
       ].filter((item) => podeVer(item.modulo)),
     },
+    ...(process.env.LOCACAO_ENABLED === '1' || process.env.LOCACAO_ENABLED === 'true'
+      ? [{ type: 'group', key: 'locacao-group', label: 'Locação', items: [{ key: 'frota', href: '/frota', label: 'Frota (painel)' }] }]
+      : []),
     {
       type: 'group',
       key: 'estoque-group',

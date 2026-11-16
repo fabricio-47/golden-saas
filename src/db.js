@@ -588,6 +588,30 @@ ensureColumn('config_geral', 'licenca_plano', "TEXT NOT NULL DEFAULT 'trial'");
   ).run('+' + dias + ' days');
 })();
 
+// Módulo de LOCAÇÃO de motos (só ativo quando LOCACAO_ENABLED=1). Frota = as
+// motos da locadora (do dono, não do cliente). status: disponivel | alugada | manutencao.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS frota (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    identificacao TEXT NOT NULL,
+    modelo TEXT,
+    cor TEXT,
+    placa TEXT,
+    chassi TEXT,
+    km INTEGER,
+    status TEXT NOT NULL DEFAULT 'disponivel',
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    alugada_desde TEXT,
+    devolucao_prevista TEXT,
+    valor_diaria REAL,
+    valor_semanal REAL,
+    valor_mensal REAL,
+    observacoes TEXT,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Comprovante do pagamento anexado na baixa (obrigatório quando digital).
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
 ensureColumn('vendas', 'comprovante_nome', 'TEXT');
