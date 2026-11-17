@@ -480,6 +480,11 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
   (pecasDisponiveis || []).forEach((p) => {
     if (p.cores && p.cores.length) coresMap[p.id] = p.cores.map((c) => ({ cor: c.cor, qtd: c.quantidade }));
   });
+  // Mapa produto -> preço de venda, pra o preço aparecer e poder ser ajustado (desconto).
+  const precoMap = {};
+  (pecasDisponiveis || []).forEach((p) => {
+    precoMap[p.id] = p.preco_venda;
+  });
 
   const addItemFormHtml =
     venda.status === 'aberta'
@@ -512,6 +517,11 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
             <div class="field" id="campo-cor" style="display:none;">
               <label for="item_cor">Cor (baixa do estoque desta cor) *</label>
               <select id="item_cor" name="cor"></select>
+            </div>
+            <div class="field" id="campo-preco" style="display:none;">
+              <label for="item_preco">Preço unit. (R$)</label>
+              <input type="number" id="item_preco" name="preco_unitario" min="0" step="0.01">
+              <small class="muted">Vem do cadastro — mude aqui pra dar desconto só nesta venda.</small>
             </div>
           </div>
 
@@ -560,10 +570,12 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
         </form>
         <script>
           var VENDA_CORES = ${JSON.stringify(coresMap)};
+          var PRECO_MAP = ${JSON.stringify(precoMap)};
           function vEsc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           function toggleProduto() {
             var val = document.getElementById('produto_id').value;
             var isVeiculo = val === 'veiculo';
+            var isPeca = (!isVeiculo && val && String(val).indexOf('servico:') !== 0 && PRECO_MAP[val] !== undefined);
             document.getElementById('campo-quantidade').style.display = isVeiculo ? 'none' : '';
             document.getElementById('campo-veiculo').style.display = isVeiculo ? '' : 'none';
             var campoCor = document.getElementById('campo-cor');
@@ -577,6 +589,15 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
               selCor.innerHTML = '';
               selCor.required = false;
               campoCor.style.display = 'none';
+            }
+            var campoPreco = document.getElementById('campo-preco');
+            var inpPreco = document.getElementById('item_preco');
+            if (isPeca) {
+              inpPreco.value = PRECO_MAP[val];
+              campoPreco.style.display = '';
+            } else {
+              inpPreco.value = '';
+              campoPreco.style.display = 'none';
             }
           }
           toggleProduto();

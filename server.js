@@ -3964,9 +3964,12 @@ async function handler(req, res) {
         return redirect(res, `/vendas/${m.id}`);
       }
       const nomeItem = peca.nome + (cor ? ' (' + cor + ')' : '');
+      // Preço: usa o informado (desconto/ajuste nesta venda) se válido; senão o do cadastro.
+      const precoInformado = toFloatOrNull(body.preco_unitario);
+      const precoFinal = precoInformado != null && precoInformado >= 0 ? precoInformado : peca.preco_venda;
       db.prepare(
         'INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario, cor) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(m.id, peca.id, nomeItem, quantidade, peca.preco_venda, cor);
+      ).run(m.id, peca.id, nomeItem, quantidade, precoFinal, cor);
       const novaQuantidade = peca.quantidade - quantidade;
       db.prepare("UPDATE pecas SET quantidade = ?, updated_at = datetime('now') WHERE id = ?").run(novaQuantidade, peca.id);
       if (cor) ajustaEstoqueCor(peca.id, cor, quantidade);
