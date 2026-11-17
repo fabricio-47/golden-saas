@@ -3,7 +3,7 @@
 const { layout } = require('./layout');
 const { escapeHtml, formatMoney, formatDate } = require('../utils');
 
-const STATUS_LABELS = { aberta: 'Aguardando pagamento', concluida: 'Pago' };
+const STATUS_LABELS = { aberta: 'Aguardando pagamento', concluida: 'Pago', cancelada: 'Cancelada' };
 
 const FORMA_PAGAMENTO_LABELS = {
   pix: 'Pix',
@@ -44,9 +44,9 @@ function pagamentosVendaSection(pagamentos) {
 }
 
 function vendaStatusBadge(venda) {
-  return venda.status === 'concluida'
-    ? '<span class="badge badge-concluida">Pago</span>'
-    : '<span class="badge badge-execucao">Aguardando pagamento</span>';
+  if (venda.status === 'concluida') return '<span class="badge badge-concluida">Pago</span>';
+  if (venda.status === 'cancelada') return '<span class="badge badge-desativada">Cancelada</span>';
+  return '<span class="badge badge-execucao">Aguardando pagamento</span>';
 }
 
 function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja }) {
@@ -633,7 +633,16 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
             &nbsp;·&nbsp; Pagamento: ${formaPagamentoLabel(venda)}
           </p>
         </div>
-        <div class="actions-row" style="margin-top:0;"></div>
+        <div class="actions-row" style="margin-top:0;">
+          ${
+            venda.status === 'aberta'
+              ? `<form method="POST" action="/vendas/${venda.id}/cancelar" onsubmit="return confirm('Cancelar esta venda? Os itens voltam pro estoque e a venda fica marcada como Cancelada. Não dá pra desfazer.');" style="margin:0;">
+                   <input type="hidden" name="csrf" value="${csrfToken}">
+                   <button class="btn btn-danger btn-sm" type="submit">Cancelar venda</button>
+                 </form>`
+              : ''
+          }
+        </div>
       </div>
 
       ${(() => {
@@ -642,6 +651,9 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
             ? ` · <a class="link-btn" href="/uploads/${escapeHtml(venda.comprovante_caminho)}" target="_blank" rel="noopener">ver comprovante</a>`
             : '';
           return `<div class="flash flash-success">Pagamento confirmado (baixa) em ${formatDate(venda.finalizada_at)}.${compLink}</div>`;
+        }
+        if (venda.status === 'cancelada') {
+          return '<div class="flash flash-error">Venda cancelada — os itens voltaram pro estoque.</div>';
         }
         if (venda.status !== 'aberta' || !itens.length) return '';
         const temDigital = (pagamentos || []).some((p) => ['pix', 'debito', 'credito'].includes(p.forma));

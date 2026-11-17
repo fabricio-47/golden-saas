@@ -4015,6 +4015,31 @@ async function handler(req, res) {
       return redirect(res, `/vendas/${m.id}`);
     }
 
+    if ((m = matchRoute('/vendas/:id/cancelar', pathname)) && method === 'POST') {
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
+      if (venda.status !== 'aberta') {
+        setFlash(session.sessionId, 'error', 'Só dá pra cancelar uma venda que está aguardando pagamento.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      if (venda.nfe_status === 'autorizado') {
+        setFlash(session.sessionId, 'error', 'Esta venda tem NF-e autorizada. Cancele a NF-e antes de cancelar a venda.');
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      // Devolve o estoque de cada item de peça (produto normal e cor específica).
+      const itensCancel = db.prepare('SELECT * FROM venda_itens WHERE venda_id = ?').all(m.id);
+      for (const item of itensCancel) {
+        if (item.peca_id) {
+          db.prepare("UPDATE pecas SET quantidade = quantidade + ?, updated_at = datetime('now') WHERE id = ?").run(item.quantidade, item.peca_id);
+          if (item.cor) ajustaEstoqueCor(item.peca_id, item.cor, -item.quantidade);
+        }
+      }
+      db.prepare("UPDATE vendas SET status='cancelada' WHERE id = ?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Venda cancelada e estoque devolvido.');
+      return redirect(res, `/vendas/${m.id}`);
+    }
+
     if ((m = matchRoute('/vendas/:id/finalizar', pathname)) && method === 'POST') {
       const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
       if (!venda) return notFound(res);
