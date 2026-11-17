@@ -475,6 +475,12 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
     .map((s) => `<option value="servico:${s.id}">${escapeHtml(s.nome)} — ${formatMoney(s.valor)}</option>`)
     .join('');
 
+  // Mapa produto -> cores, pra o seletor de cor aparecer só quando o produto tem cores.
+  const coresMap = {};
+  (pecasDisponiveis || []).forEach((p) => {
+    if (p.cores && p.cores.length) coresMap[p.id] = p.cores.map((c) => ({ cor: c.cor, qtd: c.quantidade }));
+  });
+
   const addItemFormHtml =
     venda.status === 'aberta'
       ? `<form method="POST" action="/vendas/${venda.id}/itens" enctype="multipart/form-data" style="margin-top:16px;">
@@ -502,6 +508,10 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
             <div class="field" id="campo-quantidade">
               <label for="item_quantidade">Quantidade</label>
               <input type="number" id="item_quantidade" name="quantidade" min="1" step="1" value="1">
+            </div>
+            <div class="field" id="campo-cor" style="display:none;">
+              <label for="item_cor">Cor (baixa do estoque desta cor) *</label>
+              <select id="item_cor" name="cor"></select>
             </div>
           </div>
 
@@ -549,10 +559,25 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
           <button class="btn btn-sm" type="submit" style="margin-top:12px;">+ Adicionar item</button>
         </form>
         <script>
+          var VENDA_CORES = ${JSON.stringify(coresMap)};
+          function vEsc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
           function toggleProduto() {
-            var isVeiculo = document.getElementById('produto_id').value === 'veiculo';
+            var val = document.getElementById('produto_id').value;
+            var isVeiculo = val === 'veiculo';
             document.getElementById('campo-quantidade').style.display = isVeiculo ? 'none' : '';
             document.getElementById('campo-veiculo').style.display = isVeiculo ? '' : 'none';
+            var campoCor = document.getElementById('campo-cor');
+            var selCor = document.getElementById('item_cor');
+            var cores = (!isVeiculo && VENDA_CORES[val]) ? VENDA_CORES[val] : null;
+            if (cores && cores.length) {
+              selCor.innerHTML = cores.map(function(c){ return '<option value="'+vEsc(c.cor)+'">'+vEsc(c.cor)+' (estoque: '+c.qtd+')</option>'; }).join('');
+              selCor.required = true;
+              campoCor.style.display = '';
+            } else {
+              selCor.innerHTML = '';
+              selCor.required = false;
+              campoCor.style.display = 'none';
+            }
           }
           toggleProduto();
         </script>`

@@ -3870,11 +3870,13 @@ async function handler(req, res) {
       if (!venda) return notFound(res);
       if (!canSeeLoja(user, venda.loja_id)) return forbidden(res);
       const itens = db.prepare('SELECT * FROM venda_itens WHERE venda_id = ? ORDER BY created_at DESC').all(m.id);
-      const pecasDisponiveis = venda.loja_id
-        ? db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(venda.loja_id)
-        : canSeeAllLojas(user)
-        ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
-        : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id);
+      const pecasDisponiveis = pecasComCores(
+        venda.loja_id
+          ? db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(venda.loja_id)
+          : canSeeAllLojas(user)
+          ? db.prepare('SELECT * FROM pecas ORDER BY nome ASC').all()
+          : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id)
+      );
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       const pagamentosVenda = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ? ORDER BY id ASC').all(m.id);
       return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda, podeAlterar: podeAlterarExcluir(user), senhaCaixaConfig: senhaCaixaConfigurada() }));
@@ -3954,11 +3956,20 @@ async function handler(req, res) {
         setFlash(session.sessionId, 'error', 'Quantidade inválida.');
         return redirect(res, `/vendas/${m.id}`);
       }
+      // Cor: obrigatória quando o produto tem cores cadastradas (pra baixar a cor certa).
+      const temCores = db.prepare('SELECT COUNT(*) c FROM peca_cores WHERE peca_id = ?').get(peca.id).c > 0;
+      const cor = (body.cor || '').trim() || null;
+      if (temCores && !cor) {
+        setFlash(session.sessionId, 'error', `O produto "${peca.nome}" tem cores — escolha qual cor está saindo.`);
+        return redirect(res, `/vendas/${m.id}`);
+      }
+      const nomeItem = peca.nome + (cor ? ' (' + cor + ')' : '');
       db.prepare(
-        'INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)'
-      ).run(m.id, peca.id, peca.nome, quantidade, peca.preco_venda);
+        'INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario, cor) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(m.id, peca.id, nomeItem, quantidade, peca.preco_venda, cor);
       const novaQuantidade = peca.quantidade - quantidade;
       db.prepare("UPDATE pecas SET quantidade = ?, updated_at = datetime('now') WHERE id = ?").run(novaQuantidade, peca.id);
+      if (cor) ajustaEstoqueCor(peca.id, cor, quantidade);
       const novoTotal = db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total FROM venda_itens WHERE venda_id = ?').get(m.id).total;
       db.prepare('UPDATE vendas SET valor_total = ? WHERE id = ?').run(novoTotal, m.id);
       setFlash(
