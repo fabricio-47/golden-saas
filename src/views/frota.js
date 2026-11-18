@@ -196,9 +196,21 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
             <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
             ${periodoBloco(m, hojeStr)}
             <div class="form-grid">
-              <div class="field">
+              <div class="field full fr-novocli">
                 <label>Locatário (cliente) *</label>
                 <select name="cliente_id" required><option value="">Selecione...</option>${clienteOptions}</select>
+                <a href="javascript:void(0)" class="link-btn" style="font-size:13px;display:inline-block;margin-top:4px;" onclick="frToggleNovoCli(this,true)">+ Cadastrar cliente novo aqui</a>
+                <div class="fr-nc-box" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--border);border-radius:8px;">
+                  <div class="form-grid">
+                    <div class="field"><label>Nome do cliente *</label><input type="text" class="fr-nc-nome" placeholder="Nome completo"></div>
+                    <div class="field"><label>Telefone</label><input type="text" class="fr-nc-tel" placeholder="(21) 9...."></div>
+                  </div>
+                  <div class="actions-row" style="margin-top:6px;">
+                    <button type="button" class="btn btn-sm" onclick="frNovoCliente(this)">Salvar cliente</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="frToggleNovoCli(this,false)">Cancelar</button>
+                  </div>
+                  <p class="muted" style="margin:6px 0 0;">Cadastro rápido (nome + telefone). Pra endereço e mais dados, use o <a class="link-btn" href="/clientes/novo" target="_blank">cadastro completo</a>.</p>
+                </div>
               </div>
               <div class="field">
                 <label>Chassi da moto que saiu *</label>
@@ -246,7 +258,6 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
               <button class="btn" type="submit">Confirmar locação</button>
               <button type="button" class="btn btn-secondary" onclick="frFecharAlugar(${m.id})">Cancelar</button>
             </div>
-            <p class="muted" style="margin:8px 0 0;">Falta cadastrar o cliente? <a class="link-btn" href="/clientes/novo" target="_blank">Cadastrar (nova aba)</a> e depois recarregue esta página.</p>
           </form>
         </div>
 
@@ -285,6 +296,33 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
       <script>
         function frAbrirAlugar(id){ var b=document.getElementById('fr_alugar_'+id); if(b){ b.style.display='block'; b.scrollIntoView({behavior:'smooth',block:'nearest'}); } }
         function frFecharAlugar(id){ var b=document.getElementById('fr_alugar_'+id); if(b) b.style.display='none'; }
+
+        var FR_CSRF = ${JSON.stringify(csrfToken)};
+        function frToggleNovoCli(el, show){
+          var wrap = el.closest('.fr-novocli'); if(!wrap) return;
+          var box = wrap.querySelector('.fr-nc-box'); if(box) box.style.display = show ? 'block' : 'none';
+        }
+        function frNovoCliente(btn){
+          var wrap = btn.closest('.fr-novocli'); if(!wrap) return;
+          var nome = (wrap.querySelector('.fr-nc-nome').value||'').trim();
+          var tel = (wrap.querySelector('.fr-nc-tel').value||'').trim();
+          if(!nome){ alert('Digite o nome do cliente.'); return; }
+          btn.disabled=true; btn.textContent='Salvando...';
+          var params = new URLSearchParams(); params.set('csrf', FR_CSRF); params.set('nome', nome); params.set('telefone', tel);
+          fetch('/clientes/criar-rapido', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: params.toString() })
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              btn.disabled=false; btn.textContent='Salvar cliente';
+              if(!d || !d.ok){ alert((d && d.error) || 'Não deu pra cadastrar o cliente.'); return; }
+              document.querySelectorAll('select[name=cliente_id]').forEach(function(sel){
+                if(!sel.querySelector('option[value="'+d.id+'"]')){ var o=document.createElement('option'); o.value=d.id; o.textContent=nome; sel.appendChild(o); }
+              });
+              var form = wrap.closest('form'); var sel = form && form.querySelector('select[name=cliente_id]'); if(sel) sel.value=d.id;
+              wrap.querySelector('.fr-nc-nome').value=''; wrap.querySelector('.fr-nc-tel').value='';
+              frToggleNovoCli(btn, false);
+            })
+            .catch(function(){ btn.disabled=false; btn.textContent='Salvar cliente'; alert('Erro de conexão ao cadastrar.'); });
+        }
 
         // Comprime uma imagem (foto de celular) no próprio navegador antes de enviar:
         // reduz o maior lado pra 1280px e exporta JPEG. Economiza disco e dados do celular.
