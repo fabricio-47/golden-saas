@@ -3514,6 +3514,7 @@ async function handler(req, res) {
       return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), modelos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user), totalReceber: ar.t, qtdPendentes: ar.c }));
     }
     if (pathname === '/frota/cobranca' && method === 'GET') {
+      if (!hasManagementAccess(user)) return forbidden(res);
       const pendencias = db.prepare(
         `SELECT l.*, c.nome AS cliente_nome, f.identificacao AS modelo_nome
          FROM locacoes l
@@ -3629,6 +3630,7 @@ async function handler(req, res) {
       return redirect(res, '/frota');
     }
     if ((m = matchRoute('/frota/:id/manutencao', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
       const modelo = db.prepare('SELECT * FROM frota WHERE id = ?').get(m.id);
       if (!modelo) return notFound(res);
       const ativas = db.prepare("SELECT COUNT(*) c FROM locacoes WHERE frota_id=? AND status='ativa'").get(m.id).c;
@@ -3639,6 +3641,7 @@ async function handler(req, res) {
       return redirect(res, '/frota');
     }
     if ((m = matchRoute('/frota/:id/voltou-manutencao', pathname)) && method === 'POST') {
+      if (!hasManagementAccess(user)) return forbidden(res);
       const modelo = db.prepare('SELECT * FROM frota WHERE id = ?').get(m.id);
       if (!modelo) return notFound(res);
       if ((modelo.em_manutencao || 0) > 0) db.prepare('UPDATE frota SET em_manutencao = em_manutencao - 1 WHERE id=?').run(m.id);
@@ -3661,6 +3664,7 @@ async function handler(req, res) {
     }
     if ((m = matchRoute('/locacoes/:id/pagar', pathname)) && method === 'POST') {
       if (!locacaoAtiva()) return notFound(res);
+      if (!hasManagementAccess(user)) return forbidden(res);
       const loc = db.prepare('SELECT id FROM locacoes WHERE id = ?').get(m.id);
       if (!loc) return notFound(res);
       db.prepare("UPDATE locacoes SET pago=1, data_pagamento=date('now'), forma_pagamento=? WHERE id=?").run((body.forma_pagamento || '').trim() || null, m.id);
@@ -3669,6 +3673,7 @@ async function handler(req, res) {
     }
     if ((m = matchRoute('/locacoes/:id/estornar', pathname)) && method === 'POST') {
       if (!locacaoAtiva()) return notFound(res);
+      if (!hasManagementAccess(user)) return forbidden(res);
       const loc = db.prepare('SELECT id FROM locacoes WHERE id = ?').get(m.id);
       if (!loc) return notFound(res);
       db.prepare("UPDATE locacoes SET pago=0, data_pagamento=NULL, forma_pagamento=NULL WHERE id=?").run(m.id);
@@ -3677,6 +3682,7 @@ async function handler(req, res) {
     }
     if ((m = matchRoute('/locacoes/:id/editar', pathname)) && method === 'GET') {
       if (!locacaoAtiva()) return notFound(res);
+      if (!hasManagementAccess(user)) return forbidden(res);
       const loc = db.prepare('SELECT * FROM locacoes WHERE id = ?').get(m.id);
       if (!loc) return notFound(res);
       const modelo = db.prepare('SELECT * FROM frota WHERE id = ?').get(loc.frota_id);
@@ -3685,6 +3691,7 @@ async function handler(req, res) {
     }
     if ((m = matchRoute('/locacoes/:id', pathname)) && method === 'POST') {
       if (!locacaoAtiva()) return notFound(res);
+      if (!hasManagementAccess(user)) return forbidden(res);
       const loc = db.prepare('SELECT id FROM locacoes WHERE id = ?').get(m.id);
       if (!loc) return notFound(res);
       if (!body.cliente_id) { setFlash(session.sessionId, 'error', 'Escolha o cliente (locatário).'); return redirect(res, '/locacoes/' + m.id + '/editar'); }

@@ -157,8 +157,8 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                   <div class="muted" style="font-size:13px;margin-top:2px;">saída ${formatDateOnly(loc.data_saida)}${fotos ? ' · ' + fotos : ''}</div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  <a class="btn btn-sm btn-secondary" href="/locacoes/${loc.id}/editar">Editar</a>
-                  ${!loc.pago ? `<form method="POST" action="/locacoes/${loc.id}/pagar" style="margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">Marcar pago</button></form>` : ''}
+                  ${podeGerenciar ? `<a class="btn btn-sm btn-secondary" href="/locacoes/${loc.id}/editar">Editar</a>` : ''}
+                  ${podeGerenciar && !loc.pago ? `<form method="POST" action="/locacoes/${loc.id}/pagar" style="margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">Marcar pago</button></form>` : ''}
                   <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar devolução desta moto? Ela volta pro estoque disponível.');" style="margin:0;">
                     <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
                     <button class="btn btn-sm" type="submit">Registrar devolução</button>
@@ -172,9 +172,9 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
       const acoes = [];
       if (m.disponiveis > 0) {
         acoes.push(`<button type="button" class="btn btn-sm" onclick="frAbrirAlugar(${m.id})">Alugar moto</button>`);
-        acoes.push(`<form method="POST" action="/frota/${m.id}/manutencao" style="display:inline;margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">+ Manutenção</button></form>`);
+        if (podeGerenciar) acoes.push(`<form method="POST" action="/frota/${m.id}/manutencao" style="display:inline;margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">+ Manutenção</button></form>`);
       }
-      if (m.em_manutencao > 0) {
+      if (podeGerenciar && m.em_manutencao > 0) {
         acoes.push(`<form method="POST" action="/frota/${m.id}/voltou-manutencao" style="display:inline;margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">− Manutenção (voltou ${m.em_manutencao})</button></form>`);
       }
       if (podeGerenciar) acoes.push(`<a class="btn btn-sm btn-secondary" href="/frota/${m.id}/editar">Editar modelo</a>`);
@@ -300,7 +300,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
           <p class="subtitle">Cada modelo tem uma quantidade. A moto específica (chassi + foto) é registrada na hora de alugar.</p>
         </div>
         <div class="actions-row" style="gap:8px;margin:0;">
-          <a class="btn btn-secondary" href="/frota/cobranca">Cobrança</a>
+          ${podeGerenciar ? '<a class="btn btn-secondary" href="/frota/cobranca">Cobrança</a>' : ''}
           ${podeGerenciar ? '<a class="btn" href="/frota/nova">+ Novo modelo</a>' : ''}
         </div>
       </div>
@@ -309,10 +309,14 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
         <div class="stat-card"><div class="num">${totAlug}</div><div class="label">Alugadas</div></div>
         <div class="stat-card"><div class="num">${totManut}</div><div class="label">Em manutenção</div></div>
         <div class="stat-card"><div class="num" style="${totAtras ? 'color:#a1352a;' : ''}">${totAtras}</div><div class="label">Atrasadas na devolução</div></div>
-        <a class="stat-card" href="/frota/cobranca" style="text-decoration:none;color:inherit;">
+        ${
+          podeGerenciar
+            ? `<a class="stat-card" href="/frota/cobranca" style="text-decoration:none;color:inherit;">
           <div class="num" style="${qtdPendentes ? 'color:#8a6d00;' : ''}">${formatMoney(totalReceber)}</div>
           <div class="label">A receber${qtdPendentes ? ' (' + qtdPendentes + ')' : ''} ›</div>
-        </a>
+        </a>`
+            : ''
+        }
       </div>
       ${modelos.length ? cards : '<div class="card"><div class="empty">Nenhum modelo na frota ainda. Clique em "Novo modelo" pra cadastrar o primeiro.</div></div>'}
       <script>

@@ -292,7 +292,7 @@ function layout({ title, activeNav, user, flash, children }) {
       ].filter((item) => podeVer(item.modulo)),
     },
     ...(process.env.LOCACAO_ENABLED === '1' || process.env.LOCACAO_ENABLED === 'true'
-      ? [{ type: 'group', key: 'locacao-group', label: 'Locação', items: [{ key: 'frota', href: '/frota', label: 'Frota (painel)' }, { key: 'cobranca', href: '/frota/cobranca', label: 'Cobrança' }] }]
+      ? [{ type: 'group', key: 'locacao-group', label: 'Locação', items: [{ key: 'frota', href: '/frota', label: 'Frota (painel)' }, ...(canManage ? [{ key: 'cobranca', href: '/frota/cobranca', label: 'Cobrança' }] : [])] }]
       : []),
     {
       type: 'group',
