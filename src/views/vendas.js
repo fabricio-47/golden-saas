@@ -49,7 +49,7 @@ function vendaStatusBadge(venda) {
   return '<span class="badge badge-execucao">Aguardando pagamento</span>';
 }
 
-function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja, statusFiltro = '', contagem = {} }) {
+function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja, statusFiltro = '', contagem = {}, somaStatus = {} }) {
   const rows = vendas
     .map(
       (v) => `
@@ -65,24 +65,38 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
     )
     .join('');
 
-  const sel = (val) => (String(statusFiltro) === val ? 'selected' : '');
-  const filtroHtml = `
-    <form method="GET" action="/vendas" class="actions-row" style="margin-top:0;margin-bottom:20px;gap:8px;flex-wrap:wrap;">
-      ${
-        lojas && lojas.length > 1
-          ? `<select name="loja_id" onchange="this.form.submit()">
-               <option value="">Todas as lojas que posso ver</option>
-               ${lojas.map((l) => `<option value="${l.id}" ${String(lojaFiltroId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
-             </select>`
-          : ''
-      }
-      <select name="status" onchange="this.form.submit()">
-        <option value="">Todos os status</option>
-        <option value="aberta" ${sel('aberta')}>Aguardando pagamento (${contagem.aberta || 0})</option>
-        <option value="concluida" ${sel('concluida')}>Pago (${contagem.concluida || 0})</option>
-        <option value="cancelada" ${sel('cancelada')}>Cancelada (${contagem.cancelada || 0})</option>
-      </select>
-    </form>`;
+  // Filtro de loja (quando há mais de uma) — mantém o status atual ao trocar de loja.
+  const lojaFilterHtml =
+    lojas && lojas.length > 1
+      ? `<form method="GET" action="/vendas" class="actions-row" style="margin-top:0;margin-bottom:16px;">
+          <input type="hidden" name="status" value="${escapeHtml(statusFiltro)}">
+          <select name="loja_id" onchange="this.form.submit()">
+            <option value="">Todas as lojas que posso ver</option>
+            ${lojas.map((l) => `<option value="${l.id}" ${String(lojaFiltroId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
+          </select>
+        </form>`
+      : '';
+
+  // Dashboard de status: cards clicáveis que filtram a lista. Mantém a loja escolhida.
+  const lojaQ = lojaFiltroId ? '&loja_id=' + encodeURIComponent(lojaFiltroId) : '';
+  const totalCount = (contagem.aberta || 0) + (contagem.concluida || 0) + (contagem.cancelada || 0);
+  const totalSoma = (somaStatus.aberta || 0) + (somaStatus.concluida || 0) + (somaStatus.cancelada || 0);
+  const card = (st, label, cor, count, valor) => {
+    const ativo = String(statusFiltro) === st;
+    const href = st ? `/vendas?status=${st}${lojaQ}` : `/vendas${lojaFiltroId ? '?loja_id=' + encodeURIComponent(lojaFiltroId) : ''}`;
+    return `<a class="stat-card" href="${href}" style="text-decoration:none;color:inherit;${ativo ? 'outline:2px solid ' + cor + ';outline-offset:-2px;' : ''}">
+      <div class="num" style="${cor ? 'color:' + cor + ';' : ''}">${count}</div>
+      <div class="label">${label}</div>
+      <div class="label" style="font-size:12px;opacity:.8;">${formatMoney(valor)}</div>
+    </a>`;
+  };
+  const statusCardsHtml = `
+    <div class="stat-grid" style="margin-bottom:16px;">
+      ${card('', 'Todas', '', totalCount, totalSoma)}
+      ${card('aberta', 'Aguardando pagamento', '#8a6d00', contagem.aberta || 0, somaStatus.aberta || 0)}
+      ${card('concluida', 'Pago', '#1b7a43', contagem.concluida || 0, somaStatus.concluida || 0)}
+      ${card('cancelada', 'Cancelada', '#a1352a', contagem.cancelada || 0, somaStatus.cancelada || 0)}
+    </div>`;
 
   return layout({
     title: 'Venda Direto',
@@ -97,7 +111,8 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
         </div>
         <a class="btn" href="/vendas/novo">+ Nova Venda</a>
       </div>
-      ${filtroHtml}
+      ${statusCardsHtml}
+      ${lojaFilterHtml}
       <div class="card">
         ${
           vendas.length

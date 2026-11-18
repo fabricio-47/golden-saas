@@ -3733,9 +3733,13 @@ async function handler(req, res) {
       vendas = vendas.filter((v) => canSeeLoja(user, v.loja_id));
       if (lojaFiltroId) vendas = vendas.filter((v) => String(v.loja_id) === String(lojaFiltroId));
 
-      // Contagem por status (no conjunto já filtrado por loja), depois filtra por status.
+      // Contagem e valor por status (no conjunto já filtrado por loja), depois filtra por status.
       const contagem = { aberta: 0, concluida: 0, cancelada: 0 };
-      for (const v of vendas) contagem[v.status] = (contagem[v.status] || 0) + 1;
+      const somaStatus = { aberta: 0, concluida: 0, cancelada: 0 };
+      for (const v of vendas) {
+        contagem[v.status] = (contagem[v.status] || 0) + 1;
+        somaStatus[v.status] = (somaStatus[v.status] || 0) + (Number(v.valor_total) || 0);
+      }
       const statusFiltro = url.searchParams.get('status') || '';
       if (statusFiltro) vendas = vendas.filter((v) => v.status === statusFiltro);
 
@@ -3748,6 +3752,7 @@ async function handler(req, res) {
         mostrarColunaLoja: lojasVisiveis.length > 1,
         statusFiltro,
         contagem,
+        somaStatus,
       }));
     }
 
