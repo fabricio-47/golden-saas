@@ -3600,10 +3600,10 @@ async function handler(req, res) {
       if (!fotoCnh) { setFlash(session.sessionId, 'error', 'A foto da CNH do locatário é obrigatória.'); return redirect(res, '/frota'); }
       const pagoEntrega = body.pago_entrega === '1' || body.pago_entrega === 'on' ? 1 : 0;
       const info = db.prepare(
-        `INSERT INTO locacoes (frota_id, cliente_id, chassi, placa, data_saida, devolucao_prevista, valor_combinado, vencimento, pago, data_pagamento, forma_pagamento, observacoes, status)
-         VALUES (?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, 'ativa')`
+        `INSERT INTO locacoes (frota_id, cliente_id, chassi, placa, cor, data_saida, devolucao_prevista, valor_combinado, vencimento, pago, data_pagamento, forma_pagamento, observacoes, status)
+         VALUES (?, ?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, 'ativa')`
       ).run(
-        m.id, toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null,
+        m.id, toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null, (body.cor || '').trim() || null,
         (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
         (body.vencimento || '').trim() || null, pagoEntrega, pagoEntrega ? new Date().toISOString().slice(0, 10) : null,
         pagoEntrega ? ((body.forma_pagamento || '').trim() || null) : null,
@@ -3611,9 +3611,19 @@ async function handler(req, res) {
       );
       const locId = info.lastInsertRowid;
       const savedMoto = saveUploadedFile('locacao', locId, fotoMoto);
+      const fotoMoto2 = (files || []).find((f) => f.fieldName === 'foto_moto2' && f.data && f.data.length > 0);
+      const fotoMoto3 = (files || []).find((f) => f.fieldName === 'foto_moto3' && f.data && f.data.length > 0);
+      const fotoMoto4 = (files || []).find((f) => f.fieldName === 'foto_moto4' && f.data && f.data.length > 0);
+      const savedMoto2 = fotoMoto2 ? saveUploadedFile('locacao', locId, fotoMoto2) : null;
+      const savedMoto3 = fotoMoto3 ? saveUploadedFile('locacao', locId, fotoMoto3) : null;
+      const savedMoto4 = fotoMoto4 ? saveUploadedFile('locacao', locId, fotoMoto4) : null;
       const savedCnh = saveUploadedFile('locacao', locId, fotoCnh);
-      db.prepare('UPDATE locacoes SET foto_moto_caminho=?, foto_cnh_caminho=? WHERE id=?').run(
-        savedMoto ? savedMoto.caminho_arquivo : null, savedCnh ? savedCnh.caminho_arquivo : null, locId
+      db.prepare('UPDATE locacoes SET foto_moto_caminho=?, foto_moto2_caminho=?, foto_moto3_caminho=?, foto_moto4_caminho=?, foto_cnh_caminho=? WHERE id=?').run(
+        savedMoto ? savedMoto.caminho_arquivo : null,
+        savedMoto2 ? savedMoto2.caminho_arquivo : null,
+        savedMoto3 ? savedMoto3.caminho_arquivo : null,
+        savedMoto4 ? savedMoto4.caminho_arquivo : null,
+        savedCnh ? savedCnh.caminho_arquivo : null, locId
       );
       setFlash(session.sessionId, 'success', `Locação registrada — "${modelo.identificacao}" entregue.`);
       return redirect(res, '/frota');
@@ -3680,9 +3690,9 @@ async function handler(req, res) {
       if (!body.cliente_id) { setFlash(session.sessionId, 'error', 'Escolha o cliente (locatário).'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
       if (!body.chassi || !body.chassi.trim()) { setFlash(session.sessionId, 'error', 'Informe o chassi.'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
       db.prepare(
-        `UPDATE locacoes SET cliente_id=?, chassi=?, placa=?, devolucao_prevista=?, valor_combinado=?, vencimento=?, observacoes=? WHERE id=?`
+        `UPDATE locacoes SET cliente_id=?, chassi=?, placa=?, cor=?, devolucao_prevista=?, valor_combinado=?, vencimento=?, observacoes=? WHERE id=?`
       ).run(
-        toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null,
+        toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null, (body.cor || '').trim() || null,
         (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
         (body.vencimento || '').trim() || null, (body.observacoes || '').trim() || null, m.id
       );

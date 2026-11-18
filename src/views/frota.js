@@ -134,9 +134,12 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
       const locacoesHtml = (m.locacoes || [])
         .map((loc) => {
           const t = textoLocacao(loc);
-          const ident = [loc.chassi ? 'chassi ' + escapeHtml(loc.chassi) : null, loc.placa ? 'placa ' + escapeHtml(loc.placa) : null].filter(Boolean).join(' · ');
+          const ident = [loc.chassi ? 'chassi ' + escapeHtml(loc.chassi) : null, loc.placa ? 'placa ' + escapeHtml(loc.placa) : null, loc.cor ? escapeHtml(loc.cor) : null].filter(Boolean).join(' · ');
           const fotos = [
-            loc.foto_moto_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_moto_caminho)}" target="_blank">foto da moto</a>` : null,
+            loc.foto_moto_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_moto_caminho)}" target="_blank">foto 1</a>` : null,
+            loc.foto_moto2_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_moto2_caminho)}" target="_blank">foto 2</a>` : null,
+            loc.foto_moto3_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_moto3_caminho)}" target="_blank">foto 3</a>` : null,
+            loc.foto_moto4_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_moto4_caminho)}" target="_blank">foto 4</a>` : null,
             loc.foto_cnh_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_cnh_caminho)}" target="_blank">CNH</a>` : null,
           ].filter(Boolean).join(' · ');
           const pagItems = [
@@ -221,6 +224,10 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                 <input type="text" name="placa" placeholder="ABC1D23">
               </div>
               <div class="field">
+                <label>Cor da moto</label>
+                <input type="text" name="cor" value="${escapeHtml(m.cor || '')}" placeholder="Ex.: Preta">
+              </div>
+              <div class="field">
                 <label>Devolução prevista</label>
                 <input type="date" name="devolucao_prevista">
               </div>
@@ -235,9 +242,24 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
             </div>
             <div class="form-grid">
               <div class="field">
-                <label>Foto da moto na entrega *</label>
+                <label>Foto 1 da moto na entrega *</label>
                 <input type="file" name="foto_moto" accept="image/*" class="img-compress" required>
-                <small class="muted">Prova da condição da moto (arranhões, amassados). Comprimida automaticamente.</small>
+                <small class="muted">Prova da condição (arranhões, amassados). Comprimida automaticamente.</small>
+              </div>
+              <div class="field">
+                <label>Foto 2 da moto (opcional)</label>
+                <input type="file" name="foto_moto2" accept="image/*" class="img-compress">
+                <small class="muted">Outro ângulo.</small>
+              </div>
+              <div class="field">
+                <label>Foto 3 da moto (opcional)</label>
+                <input type="file" name="foto_moto3" accept="image/*" class="img-compress">
+                <small class="muted">Outro ângulo.</small>
+              </div>
+              <div class="field">
+                <label>Foto 4 da moto (opcional)</label>
+                <input type="file" name="foto_moto4" accept="image/*" class="img-compress">
+                <small class="muted">Outro ângulo.</small>
               </div>
               <div class="field">
                 <label>Foto da CNH do locatário *</label>
@@ -573,6 +595,10 @@ function locacaoEditarPage({ user, flash, loc, modelo, clientes, csrfToken }) {
             <div class="field">
               <label>Placa (opcional)</label>
               <input type="text" name="placa" value="${escapeHtml(loc.placa || '')}">
+            </div>
+            <div class="field">
+              <label>Cor da moto</label>
+              <input type="text" name="cor" value="${escapeHtml(loc.cor || '')}">
             </div>
             <div class="field">
               <label>Devolução prevista</label>

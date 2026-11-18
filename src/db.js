@@ -649,6 +649,11 @@ ensureColumn('locacoes', 'pago', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('locacoes', 'data_pagamento', 'TEXT');
 ensureColumn('locacoes', 'vencimento', 'TEXT');
 ensureColumn('locacoes', 'forma_pagamento', 'TEXT');
+// Cor da moto que saiu + até 4 fotos da moto na entrega (1 obrigatória, 3 extras).
+ensureColumn('locacoes', 'cor', 'TEXT');
+ensureColumn('locacoes', 'foto_moto2_caminho', 'TEXT');
+ensureColumn('locacoes', 'foto_moto3_caminho', 'TEXT');
+ensureColumn('locacoes', 'foto_moto4_caminho', 'TEXT');
 
 // Comprovante do pagamento anexado na baixa (obrigatório quando digital).
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
