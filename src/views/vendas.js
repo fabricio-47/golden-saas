@@ -49,7 +49,7 @@ function vendaStatusBadge(venda) {
   return '<span class="badge badge-execucao">Aguardando pagamento</span>';
 }
 
-function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja }) {
+function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja, statusFiltro = '', contagem = {} }) {
   const rows = vendas
     .map(
       (v) => `
@@ -65,15 +65,24 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
     )
     .join('');
 
-  const lojaFilterHtml =
-    lojas && lojas.length > 1
-      ? `<form method="GET" action="/vendas" class="actions-row" style="margin-top:0;margin-bottom:20px;">
-          <select name="loja_id" onchange="this.form.submit()">
-            <option value="">Todas as lojas que posso ver</option>
-            ${lojas.map((l) => `<option value="${l.id}" ${String(lojaFiltroId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
-          </select>
-        </form>`
-      : '';
+  const sel = (val) => (String(statusFiltro) === val ? 'selected' : '');
+  const filtroHtml = `
+    <form method="GET" action="/vendas" class="actions-row" style="margin-top:0;margin-bottom:20px;gap:8px;flex-wrap:wrap;">
+      ${
+        lojas && lojas.length > 1
+          ? `<select name="loja_id" onchange="this.form.submit()">
+               <option value="">Todas as lojas que posso ver</option>
+               ${lojas.map((l) => `<option value="${l.id}" ${String(lojaFiltroId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
+             </select>`
+          : ''
+      }
+      <select name="status" onchange="this.form.submit()">
+        <option value="">Todos os status</option>
+        <option value="aberta" ${sel('aberta')}>Aguardando pagamento (${contagem.aberta || 0})</option>
+        <option value="concluida" ${sel('concluida')}>Pago (${contagem.concluida || 0})</option>
+        <option value="cancelada" ${sel('cancelada')}>Cancelada (${contagem.cancelada || 0})</option>
+      </select>
+    </form>`;
 
   return layout({
     title: 'Venda Direto',
@@ -88,7 +97,7 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
         </div>
         <a class="btn" href="/vendas/novo">+ Nova Venda</a>
       </div>
-      ${lojaFilterHtml}
+      ${filtroHtml}
       <div class="card">
         ${
           vendas.length
