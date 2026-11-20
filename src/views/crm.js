@@ -5,6 +5,7 @@
 const { layout } = require('./layout');
 const { escapeHtml, formatMoney } = require('../utils');
 const { hasManagementAccess } = require('../roles');
+const { db } = require('../db');
 
 const esc = escapeHtml;
 const money = (v) => formatMoney(Number(v) || 0);
@@ -209,7 +210,7 @@ function negocioFormPage({ user, flash, csrfToken, neg, etapas, vendedores, prod
       <div class="field"><label>Valor potencial (R$)</label><input type="number" step="0.01" name="valor" value="${esc(n.valor ?? '')}"></div>
       <div class="field"><label>Etapa</label><select name="etapa_id">${etapas.map((e) => opt(e.id, e.nome, n.etapa_id)).join('')}</select></div>
       <div class="field"><label>Origem</label><select name="origem">${options(origens, n.origem, '—')}</select></div>
-      <div class="field"><label>Detalhe da origem</label><input type="text" name="origem_detalhe" value="${esc(n.origem_detalhe || '')}" placeholder="Ex.: anúncio Golden City"></div>
+      <div class="field"><label>Detalhe da origem</label><input type="text" name="origem_detalhe" value="${esc(n.origem_detalhe || '')}" placeholder="Ex.: anúncio do modelo X"></div>
       <div class="field"><label>Canal</label><select name="canal">${options(canais, n.canal, '—')}</select></div>
       <div class="field"><label>Campanha</label><input type="text" name="campanha" value="${esc(n.campanha || '')}"></div>
       <div class="field"><label>Vendedor responsável</label><select name="responsavel_id">${opt('', editando ? '— sem dono —' : 'Rodízio automático', n.responsavel_id)}${vendedores.map((v) => opt(v.id, v.name, n.responsavel_id)).join('')}</select></div>
@@ -386,10 +387,20 @@ function propostaFormPage({ user, flash, csrfToken, neg, prop, editando, produto
   return page({ title: 'CRM · Proposta', user, flash, gestor: false }, 'propostas', body);
 }
 
+// Nome da empresa vem do título do catálogo (Configurações → Catálogo), pra servir a qualquer cliente do SaaS.
+function nomeEmpresa() {
+  try {
+    const r = db.prepare('SELECT catalogo_titulo FROM config_geral WHERE id = 1').get();
+    return r && r.catalogo_titulo ? String(r.catalogo_titulo).trim() : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function propostaTextoWhatsApp(p, neg) {
   const primeiro = String(neg.lead_nome || '').split(/\s+/)[0];
   const linhas = [
-    `Olá, ${primeiro}! Segue sua proposta da Golden Motors:`,
+    `Olá, ${primeiro}! Segue sua proposta${nomeEmpresa() ? ' da ' + nomeEmpresa() : ''}:`,
     '',
     `🛵 ${p.produto || 'Produto'}`,
     `💰 Valor: ${money(p.valor - p.desconto)}${p.desconto ? ` (desconto de ${money(p.desconto)})` : ''}`,
