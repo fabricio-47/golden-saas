@@ -655,6 +655,41 @@ ensureColumn('locacoes', 'foto_moto2_caminho', 'TEXT');
 ensureColumn('locacoes', 'foto_moto3_caminho', 'TEXT');
 ensureColumn('locacoes', 'foto_moto4_caminho', 'TEXT');
 
+// Parcelas da locação: ao alugar por N períodos (ex: 4 semanas), o sistema gera
+// N parcelas (cada uma com valor e vencimento). É o "financeiro da locação" —
+// aparece só na tela de Cobrança, separado do Financeiro geral da loja.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS locacao_parcelas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    locacao_id INTEGER NOT NULL REFERENCES locacoes(id) ON DELETE CASCADE,
+    numero INTEGER NOT NULL DEFAULT 1,
+    valor REAL NOT NULL DEFAULT 0,
+    vencimento TEXT,
+    pago INTEGER NOT NULL DEFAULT 0,
+    data_pagamento TEXT,
+    forma_pagamento TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+// Migração: locações antigas (criadas antes das parcelas) viram 1 parcela,
+// preservando valor/vencimento/pagamento que elas já tinham.
+(function migrarLocacoesParaParcelas() {
+  const semParcela = db
+    .prepare(
+      `SELECT l.* FROM locacoes l
+       WHERE NOT EXISTS (SELECT 1 FROM locacao_parcelas p WHERE p.locacao_id = l.id)`
+    )
+    .all();
+  const ins = db.prepare(
+    `INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, pago, data_pagamento, forma_pagamento)
+     VALUES (?, 1, ?, ?, ?, ?, ?)`
+  );
+  for (const l of semParcela) {
+    ins.run(l.id, Number(l.valor_combinado) || 0, l.vencimento || null, l.pago ? 1 : 0, l.data_pagamento || null, l.forma_pagamento || null);
+  }
+})();
+
 // Comprovante do pagamento anexado na baixa (obrigatório quando digital).
 ensureColumn('vendas', 'comprovante_caminho', 'TEXT');
 ensureColumn('vendas', 'comprovante_nome', 'TEXT');

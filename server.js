@@ -3509,29 +3509,47 @@ async function handler(req, res) {
         (porModelo[l.frota_id] = porModelo[l.frota_id] || []).push(l);
       }
       for (const mod of modelos) mod.locacoes = porModelo[mod.id] || [];
+      // Agrega as parcelas de cada locação ativa (total, pagas, aberto, próxima pendente).
+      const parcelasDe = db.prepare('SELECT * FROM locacao_parcelas WHERE locacao_id = ? ORDER BY numero ASC');
+      for (const l of locAtivas) {
+        const ps = parcelasDe.all(l.id);
+        l.parcelas_total = ps.length;
+        l.parcelas_pagas = ps.filter((p) => p.pago).length;
+        l.valor_total = ps.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+        l.valor_aberto = ps.filter((p) => !p.pago).reduce((s, p) => s + (Number(p.valor) || 0), 0);
+        const prox = ps.find((p) => !p.pago);
+        l.proxima_parcela_id = prox ? prox.id : null;
+        l.proxima_venc = prox ? prox.vencimento : null;
+      }
       const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
-      const ar = db.prepare('SELECT COALESCE(SUM(valor_combinado),0) t, COUNT(*) c FROM locacoes WHERE pago = 0').get();
+      const ar = db.prepare('SELECT COALESCE(SUM(valor),0) t, COUNT(*) c FROM locacao_parcelas WHERE pago = 0').get();
       return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), modelos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user), totalReceber: ar.t, qtdPendentes: ar.c }));
     }
     if (pathname === '/frota/cobranca' && method === 'GET') {
       if (!hasManagementAccess(user)) return forbidden(res);
+      const COLS_PARCELA = `pa.id AS id, pa.numero AS numero, pa.valor AS valor, pa.vencimento AS vencimento, pa.pago AS pago,
+         pa.data_pagamento AS data_pagamento, pa.forma_pagamento AS forma_pagamento,
+         l.status AS status, l.chassi AS chassi, c.nome AS cliente_nome, f.identificacao AS modelo_nome,
+         (SELECT COUNT(*) FROM locacao_parcelas pp WHERE pp.locacao_id = pa.locacao_id) AS total_parcelas`;
       const pendencias = db.prepare(
-        `SELECT l.*, c.nome AS cliente_nome, f.identificacao AS modelo_nome
-         FROM locacoes l
+        `SELECT ${COLS_PARCELA}
+         FROM locacao_parcelas pa
+         JOIN locacoes l ON l.id = pa.locacao_id
          LEFT JOIN clientes c ON c.id = l.cliente_id
          LEFT JOIN frota f ON f.id = l.frota_id
-         WHERE l.pago = 0
-         ORDER BY (l.vencimento IS NULL), l.vencimento ASC, l.data_saida ASC`
+         WHERE pa.pago = 0
+         ORDER BY (pa.vencimento IS NULL), pa.vencimento ASC, pa.locacao_id ASC, pa.numero ASC`
       ).all();
       const pagosRecentes = db.prepare(
-        `SELECT l.*, c.nome AS cliente_nome, f.identificacao AS modelo_nome
-         FROM locacoes l
+        `SELECT ${COLS_PARCELA}
+         FROM locacao_parcelas pa
+         JOIN locacoes l ON l.id = pa.locacao_id
          LEFT JOIN clientes c ON c.id = l.cliente_id
          LEFT JOIN frota f ON f.id = l.frota_id
-         WHERE l.pago = 1
-         ORDER BY l.data_pagamento DESC, l.id DESC LIMIT 20`
+         WHERE pa.pago = 1
+         ORDER BY pa.data_pagamento DESC, pa.id DESC LIMIT 20`
       ).all();
-      const total = pendencias.reduce((s, p) => s + (p.valor_combinado || 0), 0);
+      const total = pendencias.reduce((s, p) => s + (Number(p.valor) || 0), 0);
       return send(res, 200, cobrancaPage({ user, flash: takeFlash(session.sessionId), pendencias, pagosRecentes, total, csrfToken: session.csrfToken }));
     }
     if (pathname === '/frota/nova' && method === 'GET') {
@@ -3626,7 +3644,33 @@ async function handler(req, res) {
         savedMoto4 ? savedMoto4.caminho_arquivo : null,
         savedCnh ? savedCnh.caminho_arquivo : null, locId
       );
-      setFlash(session.sessionId, 'success', `Locação registrada — "${modelo.identificacao}" entregue.`);
+      // Gera as parcelas (financeiro da locação). Por período × quantidade, ou 1 manual.
+      const addDiasISO = (iso, dias) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + dias); return d.toISOString().slice(0, 10); };
+      const periodo = (body.periodo || '').trim();
+      const quantas = Math.max(1, toIntOrNull(body.quantas) || 1);
+      const diasPorPeriodo = { diaria: 1, semanal: 7, mensal: 30 };
+      const rateByPeriodo = { diaria: modelo.valor_diaria, semanal: modelo.valor_semanal, mensal: modelo.valor_mensal };
+      const parcelas = [];
+      if (periodo && diasPorPeriodo[periodo] && rateByPeriodo[periodo] != null) {
+        const rate = Number(rateByPeriodo[periodo]) || 0;
+        const dias = diasPorPeriodo[periodo];
+        const baseVenc = (body.vencimento || '').trim() || new Date().toISOString().slice(0, 10);
+        for (let k = 0; k < quantas; k++) parcelas.push({ numero: k + 1, valor: rate, vencimento: addDiasISO(baseVenc, k * dias) });
+      } else {
+        parcelas.push({ numero: 1, valor: toFloatOrNull(body.valor_combinado) || 0, vencimento: (body.vencimento || '').trim() || null });
+      }
+      const hojeISO = new Date().toISOString().slice(0, 10);
+      const insParcela = db.prepare(
+        'INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, pago, data_pagamento, forma_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      );
+      for (const pc of parcelas) {
+        const paga = pagoEntrega && pc.numero === 1 ? 1 : 0;
+        insParcela.run(locId, pc.numero, pc.valor, pc.vencimento, paga, paga ? hojeISO : null, paga ? (body.forma_pagamento || '').trim() || null : null);
+      }
+      const totalParc = parcelas.reduce((s, pc) => s + (Number(pc.valor) || 0), 0);
+      db.prepare('UPDATE locacoes SET valor_combinado=? WHERE id=?').run(totalParc, locId);
+      const msgParc = parcelas.length > 1 ? ` (${parcelas.length} parcelas geradas)` : '';
+      setFlash(session.sessionId, 'success', `Locação registrada — "${modelo.identificacao}" entregue.${msgParc}`);
       return redirect(res, '/frota');
     }
     if ((m = matchRoute('/frota/:id/manutencao', pathname)) && method === 'POST') {
@@ -3680,6 +3724,24 @@ async function handler(req, res) {
       setFlash(session.sessionId, 'success', 'Pagamento desfeito.');
       return redirect(res, body.voltar === 'cobranca' ? '/frota/cobranca' : '/frota');
     }
+    if ((m = matchRoute('/parcelas/:id/pagar', pathname)) && method === 'POST') {
+      if (!locacaoAtiva()) return notFound(res);
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const pc = db.prepare('SELECT id FROM locacao_parcelas WHERE id = ?').get(m.id);
+      if (!pc) return notFound(res);
+      db.prepare("UPDATE locacao_parcelas SET pago=1, data_pagamento=date('now'), forma_pagamento=? WHERE id=?").run((body.forma_pagamento || '').trim() || null, m.id);
+      setFlash(session.sessionId, 'success', 'Parcela recebida.');
+      return redirect(res, body.voltar === 'cobranca' ? '/frota/cobranca' : '/frota');
+    }
+    if ((m = matchRoute('/parcelas/:id/estornar', pathname)) && method === 'POST') {
+      if (!locacaoAtiva()) return notFound(res);
+      if (!hasManagementAccess(user)) return forbidden(res);
+      const pc = db.prepare('SELECT id FROM locacao_parcelas WHERE id = ?').get(m.id);
+      if (!pc) return notFound(res);
+      db.prepare("UPDATE locacao_parcelas SET pago=0, data_pagamento=NULL, forma_pagamento=NULL WHERE id=?").run(m.id);
+      setFlash(session.sessionId, 'success', 'Pagamento da parcela desfeito.');
+      return redirect(res, body.voltar === 'cobranca' ? '/frota/cobranca' : '/frota');
+    }
     if ((m = matchRoute('/locacoes/:id/editar', pathname)) && method === 'GET') {
       if (!locacaoAtiva()) return notFound(res);
       if (!hasManagementAccess(user)) return forbidden(res);
@@ -3697,11 +3759,10 @@ async function handler(req, res) {
       if (!body.cliente_id) { setFlash(session.sessionId, 'error', 'Escolha o cliente (locatário).'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
       if (!body.chassi || !body.chassi.trim()) { setFlash(session.sessionId, 'error', 'Informe o chassi.'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
       db.prepare(
-        `UPDATE locacoes SET cliente_id=?, chassi=?, placa=?, cor=?, devolucao_prevista=?, valor_combinado=?, vencimento=?, observacoes=? WHERE id=?`
+        `UPDATE locacoes SET cliente_id=?, chassi=?, placa=?, cor=?, devolucao_prevista=?, observacoes=? WHERE id=?`
       ).run(
         toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null, (body.cor || '').trim() || null,
-        (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
-        (body.vencimento || '').trim() || null, (body.observacoes || '').trim() || null, m.id
+        (body.devolucao_prevista || '').trim() || null, (body.observacoes || '').trim() || null, m.id
       );
       setFlash(session.sessionId, 'success', 'Locação atualizada.');
       return redirect(res, '/frota');

@@ -58,12 +58,12 @@ function periodoBloco(modelo, baseDate) {
   return `
     <div class="form-grid loc-periodo-wrap" data-base="${baseDate || ''}">
       <div class="field">
-        <label>Período (calcula o valor)</label>
-        <select class="loc-periodo"><option value="">(digitar valor manual)</option>${opts}</select>
+        <label>Período (gera as parcelas)</label>
+        <select class="loc-periodo" name="periodo"><option value="">(digitar valor manual)</option>${opts}</select>
       </div>
       <div class="field">
-        <label>Quantas?</label>
-        <input type="number" class="loc-qtd" min="1" step="1" placeholder="Ex: 2">
+        <label>Quantas? (ex: 4 semanas = 4 parcelas)</label>
+        <input type="number" class="loc-qtd" name="quantas" min="1" step="1" placeholder="Ex: 4">
       </div>
     </div>`;
 }
@@ -142,11 +142,15 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
             loc.foto_moto4_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_moto4_caminho)}" target="_blank">foto 4</a>` : null,
             loc.foto_cnh_caminho ? `<a class="link-btn" href="/uploads/${escapeHtml(loc.foto_cnh_caminho)}" target="_blank">CNH</a>` : null,
           ].filter(Boolean).join(' · ');
-          const pagItems = [
-            loc.valor_combinado != null ? '<strong>' + formatMoney(loc.valor_combinado) + '</strong>' : null,
-            pagamentoBadge(loc),
-            !loc.pago && loc.vencimento ? '<span class="muted">venc. ' + formatDateOnly(loc.vencimento) + '</span>' : null,
-          ].filter(Boolean).join(' ');
+          const nParc = loc.parcelas_total || 0;
+          const allPaid = nParc > 0 && (loc.parcelas_pagas || 0) >= nParc;
+          const pagItems = nParc > 0
+            ? (allPaid
+                ? '<strong>' + formatMoney(loc.valor_total || 0) + '</strong> ' + pagamentoBadge({ pago: 1 })
+                : '<strong>' + formatMoney(loc.valor_total || 0) + '</strong> ' + pagamentoBadge({ pago: 0, vencimento: loc.proxima_venc }) +
+                  (nParc > 1 ? ' <span class="muted">' + (loc.parcelas_pagas || 0) + '/' + nParc + ' parcelas pagas · falta ' + formatMoney(loc.valor_aberto || 0) + '</span>' : '') +
+                  (loc.proxima_venc ? ' <span class="muted">próx. venc. ' + formatDateOnly(loc.proxima_venc) + '</span>' : ''))
+            : '';
           return `
             <div style="padding:10px 0;border-top:1px solid var(--border);${t.atrasada ? 'background:rgba(161,53,42,0.04);' : ''}">
               <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">
@@ -158,7 +162,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                   ${podeGerenciar ? `<a class="btn btn-sm btn-secondary" href="/locacoes/${loc.id}/editar">Editar</a>` : ''}
-                  ${podeGerenciar && !loc.pago ? `<form method="POST" action="/locacoes/${loc.id}/pagar" style="margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">Marcar pago</button></form>` : ''}
+                  ${podeGerenciar && loc.proxima_parcela_id ? `<form method="POST" action="/parcelas/${loc.proxima_parcela_id}/pagar" style="margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">Receber parcela</button></form>` : ''}
                   <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar devolução desta moto? Ela volta pro estoque disponível.');" style="margin:0;">
                     <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
                     <button class="btn btn-sm" type="submit">Registrar devolução</button>
@@ -486,6 +490,7 @@ function cobrancaPage({ user, flash, pendencias, pagosRecentes, total, csrfToken
     return p.vencimento && d !== null && d < 0;
   }).length;
 
+  const parcelaLabel = (p) => (p.total_parcelas > 1 ? `parcela ${p.numero}/${p.total_parcelas}` : 'cobrança única');
   const linhaPend = (p) => {
     const d = diasAteHoje(p.vencimento);
     const vencida = p.vencimento && d !== null && d < 0;
@@ -498,13 +503,13 @@ function cobrancaPage({ user, flash, pendencias, pagosRecentes, total, csrfToken
         <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
           <div>
             <div><strong>${escapeHtml(p.cliente_nome || 'Cliente')}</strong> ${tagStatus}</div>
-            <div class="muted" style="font-size:13px;margin-top:2px;">${moto}</div>
+            <div class="muted" style="font-size:13px;margin-top:2px;">${moto} · ${parcelaLabel(p)}</div>
             <div style="font-size:13px;margin-top:4px;">
-              ${p.valor_combinado != null ? '<strong>' + formatMoney(p.valor_combinado) + '</strong>' : '<span class="muted">sem valor</span>'} ${pagamentoBadge(p)}
+              <strong>${formatMoney(p.valor || 0)}</strong> ${pagamentoBadge(p)}
               ${p.vencimento ? ` <span class="${vencida ? '' : 'muted'}" style="${vencida ? 'color:#a1352a;font-weight:600;' : ''}">venc. ${formatDateOnly(p.vencimento)}${vencida ? ' (atrasado ' + Math.abs(d) + ' dia(s))' : ''}</span>` : ''}
             </div>
           </div>
-          <form method="POST" action="/locacoes/${p.id}/pagar" style="margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <form method="POST" action="/parcelas/${p.id}/pagar" style="margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
             <input type="hidden" name="voltar" value="cobranca">
             <select name="forma_pagamento" style="width:auto;">
@@ -514,7 +519,7 @@ function cobrancaPage({ user, flash, pendencias, pagosRecentes, total, csrfToken
               <option value="Cartão">Cartão</option>
               <option value="Outro">Outro</option>
             </select>
-            <button class="btn btn-sm" type="submit">Marcar pago</button>
+            <button class="btn btn-sm" type="submit">Marcar paga</button>
           </form>
         </div>
       </div>`;
@@ -526,11 +531,11 @@ function cobrancaPage({ user, flash, pendencias, pagosRecentes, total, csrfToken
       <div style="padding:10px 0;border-top:1px solid var(--border);">
         <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
           <div>
-            <div><strong>${escapeHtml(p.cliente_nome || 'Cliente')}</strong> — ${p.valor_combinado != null ? formatMoney(p.valor_combinado) : 's/ valor'}</div>
+            <div><strong>${escapeHtml(p.cliente_nome || 'Cliente')}</strong> — ${formatMoney(p.valor || 0)} <span class="muted" style="font-size:12px;">(${parcelaLabel(p)})</span></div>
             <div class="muted" style="font-size:13px;margin-top:2px;">${moto}</div>
             <div class="muted" style="font-size:13px;margin-top:2px;">pago ${p.data_pagamento ? formatDateOnly(p.data_pagamento) : ''}${p.forma_pagamento ? ' · ' + escapeHtml(p.forma_pagamento) : ''}</div>
           </div>
-          <form method="POST" action="/locacoes/${p.id}/estornar" onsubmit="return confirm('Desfazer o pagamento desta locação?');" style="margin:0;">
+          <form method="POST" action="/parcelas/${p.id}/estornar" onsubmit="return confirm('Desfazer o pagamento desta parcela?');" style="margin:0;">
             <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
             <input type="hidden" name="voltar" value="cobranca">
             <button class="btn btn-sm btn-secondary" type="submit">Desfazer</button>
@@ -554,7 +559,7 @@ function cobrancaPage({ user, flash, pendencias, pagosRecentes, total, csrfToken
       </div>
       <div class="stat-grid">
         <div class="stat-card"><div class="num" style="${total ? 'color:#8a6d00;' : ''}">${formatMoney(total)}</div><div class="label">Total a receber</div></div>
-        <div class="stat-card"><div class="num">${pendencias.length}</div><div class="label">Locações pendentes</div></div>
+        <div class="stat-card"><div class="num">${pendencias.length}</div><div class="label">Parcelas pendentes</div></div>
         <div class="stat-card"><div class="num" style="${vencidas ? 'color:#a1352a;' : ''}">${vencidas}</div><div class="label">Vencidas</div></div>
       </div>
       <div class="card">
@@ -608,14 +613,6 @@ function locacaoEditarPage({ user, flash, loc, modelo, clientes, csrfToken }) {
               <label>Devolução prevista</label>
               <input type="date" name="devolucao_prevista" value="${escapeHtml(loc.devolucao_prevista || '')}">
             </div>
-            <div class="field">
-              <label>Valor combinado (R$)</label>
-              <input type="number" name="valor_combinado" min="0" step="0.01" value="${loc.valor_combinado != null ? loc.valor_combinado : ''}">
-            </div>
-            <div class="field">
-              <label>Vencimento do pagamento (opcional)</label>
-              <input type="date" name="vencimento" value="${escapeHtml(loc.vencimento || '')}">
-            </div>
           </div>
           <div class="field full">
             <label>Observações</label>
@@ -625,7 +622,7 @@ function locacaoEditarPage({ user, flash, loc, modelo, clientes, csrfToken }) {
             <button class="btn" type="submit">Salvar alterações</button>
             <a class="btn btn-secondary" href="/frota">Cancelar</a>
           </div>
-          <p class="muted" style="margin:10px 0 0;">As fotos da moto e da CNH não mudam por aqui (são a prova da entrega). O status pago/pendente se controla pelos botões "Marcar pago" / "Desfazer".</p>
+          <p class="muted" style="margin:10px 0 0;">As fotos e os valores/parcelas não mudam por aqui. As parcelas (financeiro da locação) ficam na tela de <strong>Cobrança</strong>.</p>
         </form>
       </div>
       <script>${PERIODO_SCRIPT}</script>
