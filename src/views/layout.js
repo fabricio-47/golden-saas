@@ -292,7 +292,7 @@ function layout({ title, activeNav, user, flash, children }) {
       ].filter((item) => podeVer(item.modulo)),
     },
     ...(process.env.LOCACAO_ENABLED === '1' || process.env.LOCACAO_ENABLED === 'true'
-      ? [{ type: 'group', key: 'locacao-group', label: 'Locação', items: [...(canManage ? [{ key: 'locacao-painel', href: '/locacao', label: 'Painel' }] : []), { key: 'frota', href: '/frota', label: 'Frota / alugar' }, { key: 'locacoes', href: '/locacoes', label: 'Locações' }, { key: 'agendamentos', href: '/frota/agendamentos', label: 'Agendamentos' }, ...(canManage ? [{ key: 'cobranca', href: '/frota/cobranca', label: 'Cobrança' }, { key: 'despesas-frota', href: '/frota/despesas', label: 'Despesas' }, { key: 'lucratividade', href: '/frota/relatorios', label: 'Lucratividade' }, { key: 'contratos-modelos', href: '/frota/contratos-modelos', label: 'Modelos de contrato' }] : [])] }]
+      ? [{ type: 'group', key: 'locacao-group', label: 'Locação', items: [...(canManage ? [{ key: 'locacao-painel', href: '/locacao', label: 'Painel' }] : []), { key: 'frota', href: '/frota', label: 'Frota / alugar' }, { key: 'locacoes', href: '/locacoes', label: 'Locações' }, { key: 'agendamentos', href: '/frota/agendamentos', label: 'Agendamentos' }, ...(canManage ? [{ key: 'cobranca', href: '/frota/cobranca', label: 'Cobrança' }, { key: 'despesas-frota', href: '/frota/despesas', label: 'Despesas' }, { key: 'revisoes', href: '/frota/revisoes', label: 'Revisões' }, { key: 'lucratividade', href: '/frota/relatorios', label: 'Lucratividade' }, { key: 'contratos-modelos', href: '/frota/contratos-modelos', label: 'Modelos de contrato' }] : [])] }]
       : []),
     {
       type: 'group',

@@ -40,11 +40,27 @@ function unidadesComStatus(where = '1=1', params = []) {
   return db
     .prepare(
       `SELECT u.*, f.identificacao AS modelo, ${SQL_LOC_ATIVA_DA_UNIDADE} AS locacao_id,
+         (SELECT MIN(l.data_saida) FROM locacoes l WHERE l.unidade_id = u.id
+            OR (l.unidade_id IS NULL AND UPPER(TRIM(l.chassi)) = UPPER(TRIM(u.chassi)))) AS primeira_locacao,
          (SELECT c.nome FROM locacoes l JOIN clientes c ON c.id=l.cliente_id WHERE l.id = ${SQL_LOC_ATIVA_DA_UNIDADE}) AS cliente_nome
        FROM frota_unidades u JOIN frota f ON f.id = u.frota_id
        WHERE ${where} ORDER BY f.identificacao, u.placa, u.chassi`
     )
     .all(...params);
+}
+
+// Revisão periódica (garantia): conta a partir da última revisão registrada; sem revisão,
+// a partir do primeiro dia em que a moto foi locada. Moto nunca locada não entra no alerta.
+function proximaRevisao(u) {
+  const base = u.data_ultima_revisao || u.primeira_locacao || null;
+  if (!base) return null;
+  const d = new Date(String(base).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + (u.intervalo_revisao_dias || 90));
+  const prox = d.toISOString().slice(0, 10);
+  const hoje0 = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00');
+  const dias = Math.round((d - hoje0) / 86400000);
+  return { base: String(base).slice(0, 10), origem: u.data_ultima_revisao ? 'revisao' : 'locacao', prox, dias };
 }
 
 function unidadeDoBody(body) {
@@ -211,12 +227,9 @@ async function handleLocacaoPro(ctx) {
     const alertas = [];
     for (const u of unidadesComStatus('u.ativo=1')) {
       const motivos = [];
-      if (u.data_ultima_revisao) {
-        const prox = new Date(u.data_ultima_revisao + 'T00:00:00');
-        prox.setDate(prox.getDate() + (u.intervalo_revisao_dias || 90));
-        const iso = prox.toISOString().slice(0, 10);
-        if (iso <= t) motivos.push('revisão vencida em ' + brData(iso));
-      } else motivos.push('sem revisão registrada');
+      const rv = proximaRevisao(u);
+      if (rv && rv.dias < 0) motivos.push(`revisão vencida há ${-rv.dias}d (${brData(rv.prox)})`);
+      else if (rv && rv.dias <= 7) motivos.push(`revisão em ${rv.dias}d (${brData(rv.prox)})`);
       if (u.km_prox_pastilha && u.km_atual != null && u.km_atual >= u.km_prox_pastilha - 200) motivos.push('pastilha');
       if (u.km_prox_pneu && u.km_atual != null && u.km_atual >= u.km_prox_pneu - 200) motivos.push('pneu');
       if (motivos.length) alertas.push({ ...u, motivos });
@@ -229,7 +242,8 @@ async function handleLocacaoPro(ctx) {
     const modelo = db.prepare('SELECT * FROM frota WHERE id=?').get(m.id);
     if (!modelo) return done(() => notFound(res));
     const outros = db.prepare('SELECT id, identificacao FROM frota WHERE id<>? ORDER BY identificacao').all(m.id);
-    return done(() => send(res, 200, V.unidadesPage({ user, flash: flash(), modelo, unidades: unidadesComStatus('u.frota_id=?', [m.id]), csrfToken, outros, podeGerenciar: ger })));
+    const unidades = unidadesComStatus('u.frota_id=?', [m.id]).map((u) => ({ ...u, revisao: proximaRevisao(u) }));
+    return done(() => send(res, 200, V.unidadesPage({ user, flash: flash(), modelo, unidades, csrfToken, outros, podeGerenciar: ger })));
   }
   // Juntar dois modelos (ex.: "X13" e "X13 GOLD" são a mesma moto): move tudo para o destino e apaga a origem.
   if ((m = matchRoute('/frota/:id/juntar', pathname)) && method === 'POST') {
@@ -621,6 +635,50 @@ async function handleLocacaoPro(ctx) {
     db.prepare("UPDATE contrato_modelos SET titulo=?, corpo=?, updated_at=datetime('now') WHERE id=?").run(txt(body.titulo), body.corpo || '', m.id);
     ok('Modelo atualizado.');
     return done(() => redirect(res, '/frota/contratos-modelos'));
+  }
+
+  // ---------------- revisões (frota da locação + motos vendidas)
+  if (pathname === '/frota/revisoes' && method === 'GET') {
+    const lista = [];
+    for (const u of unidadesComStatus('u.ativo=1')) {
+      const rv = proximaRevisao(u);
+      if (!rv) continue;
+      const cli = u.locacao_id
+        ? db.prepare('SELECT c.nome, c.telefone FROM locacoes l JOIN clientes c ON c.id=l.cliente_id WHERE l.id=?').get(u.locacao_id)
+        : null;
+      lista.push({ tipo: 'locacao', id: u.id, modelo: u.modelo, chassi: u.placa || u.chassi, cliente: cli && cli.nome, telefone: cli && cli.telefone, ...rv });
+    }
+    // Vendidas: base = última revisão (botão ou O.S. concluída do mesmo chassi) ou data da venda.
+    const gs = db
+      .prepare(
+        `SELECT g.*, c.nome AS cliente_nome, c.telefone AS cliente_tel,
+           (SELECT MAX(substr(o.data_conclusao,1,10)) FROM ordens_servico o JOIN bicicletas b ON b.id=o.bicicleta_id
+             WHERE o.status='concluida' AND g.chassi_numero IS NOT NULL AND g.chassi_numero<>''
+               AND UPPER(TRIM(b.chassi_numero))=UPPER(TRIM(g.chassi_numero))) AS ultima_os
+         FROM garantias g LEFT JOIN clientes c ON c.id=g.cliente_id`
+      )
+      .all();
+    for (const g of gs) {
+      const ultima = [g.data_ultima_revisao, g.ultima_os].filter(Boolean).sort().pop() || null;
+      const rv = proximaRevisao({ data_ultima_revisao: ultima, primeira_locacao: g.data_venda, intervalo_revisao_dias: 90 });
+      if (!rv) continue;
+      // Garantia de 24 meses: depois disso não precisa mais de alerta.
+      const fimGarantia = new Date(String(g.data_venda).slice(0, 10) + 'T00:00:00');
+      fimGarantia.setMonth(fimGarantia.getMonth() + (g.meses_geral || Math.max(g.meses_motor || 0, g.meses_bateria || 0, g.meses_controladora || 0) || 24));
+      if (fimGarantia.toISOString().slice(0, 10) < hoje()) continue;
+      lista.push({ tipo: 'venda', id: g.id, modelo: g.descricao_produto, chassi: g.chassi_numero, cliente: g.cliente_nome, telefone: g.cliente_tel, ...rv, origem: ultima ? 'revisao' : 'venda' });
+    }
+    lista.sort((a, b) => a.dias - b.dias);
+    const filtro = url.searchParams.get('ver') || 'proximas';
+    const mostrar = filtro === 'todas' ? lista : lista.filter((x) => x.dias <= 15);
+    return done(() => send(res, 200, V.revisoesPage({ user, flash: flash(), lista: mostrar, total: lista.length, filtro, csrfToken })));
+  }
+  if ((m = matchRoute('/frota/revisoes/:tipo/:id/feita', pathname)) && method === 'POST') {
+    const data = txt(body.data) || hoje();
+    if (m.tipo === 'venda') db.prepare('UPDATE garantias SET data_ultima_revisao=? WHERE id=?').run(data, m.id);
+    else if (m.tipo === 'locacao') db.prepare('UPDATE frota_unidades SET data_ultima_revisao=? WHERE id=?').run(data, m.id);
+    ok('Revisão registrada — próxima em 90 dias.');
+    return done(() => redirect(res, '/frota/revisoes' + (body.ver === 'todas' ? '?ver=todas' : '')));
   }
 
   // ---------------- importação do WSYS

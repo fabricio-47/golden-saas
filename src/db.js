@@ -1009,6 +1009,8 @@ db.exec(`
 `);
 // Locação: dados que o contrato e o financeiro precisam.
 ensureColumn('frota', 'marca', 'TEXT');
+// Moto vendida: data da última revisão periódica (garantia exige a cada 90 dias).
+ensureColumn('garantias', 'data_ultima_revisao', 'TEXT');
 // Parcela criada fora do plano (multa, avaria, cobrança avulsa): não entra no valor do contrato.
 ensureColumn('locacao_parcelas', 'origem', 'TEXT');
 ensureColumn('locacoes', 'unidade_id', 'INTEGER REFERENCES frota_unidades(id) ON DELETE SET NULL');

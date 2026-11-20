@@ -51,6 +51,7 @@ function subnav(ativo) {
     ['agendamentos', '/frota/agendamentos', 'Agendamentos'],
     ['cobranca', '/frota/cobranca', 'Cobrança'],
     ['despesas', '/frota/despesas', 'Despesas'],
+    ['revisoes', '/frota/revisoes', 'Revisões'],
     ['relatorios', '/frota/relatorios', 'Lucratividade'],
     ['contratos', '/frota/contratos-modelos', 'Modelos de contrato'],
   ];
@@ -62,7 +63,7 @@ function subnav(ativo) {
 function page({ title, user, flash, ativo, header, children }) {
   return layout({
     title,
-    activeNav: { painel: 'locacao-painel', despesas: 'despesas-frota', relatorios: 'lucratividade', contratos: 'contratos-modelos' }[ativo] || ativo,
+    activeNav: { painel: 'locacao-painel', despesas: 'despesas-frota', relatorios: 'lucratividade', contratos: 'contratos-modelos', revisoes: 'revisoes' }[ativo] || ativo,
     user,
     flash,
     children: `
@@ -157,11 +158,16 @@ function painelLocacaoPage({ user, flash, k, retornos, receber, ocorrencias, ale
 function unidadesPage({ user, flash, modelo, unidades, csrfToken, outros = [], podeGerenciar = false }) {
   const linhas = unidades.map((u) => {
     const st = !u.ativo ? badge('desativada', 'cinza') : u.locacao_id ? badge('locada', 'amarelo') : u.em_manutencao ? badge('manutenção', 'vermelho') : badge('disponível', 'verde');
+    const rv = u.revisao;
+    const rev = !rv
+      ? '<span class="muted">nunca locada</span>'
+      : `${dt(rv.prox)} ${rv.dias < 0 ? badge(`vencida ${-rv.dias}d`, 'vermelho') : rv.dias <= 7 ? badge(`em ${rv.dias}d`, 'amarelo') : badge(`em ${rv.dias}d`, 'verde')}<br><small class="muted">conta de ${rv.origem === 'revisao' ? 'última revisão' : '1º dia locada'} (${dt(rv.base)})</small>`;
     return [
       esc(u.placa || '—'),
       esc(u.chassi),
       esc(u.cor || ''),
       u.km_atual != null ? esc(String(u.km_atual)) : '—',
+      rev,
       st + (u.locacao_id ? ` <a href="/locacoes/${u.locacao_id}">${esc(u.cliente_nome || '#' + u.locacao_id)}</a>` : ''),
       `<a class="btn btn-sm btn-secondary" href="/frota/unidades/${u.id}/editar">Editar</a>`,
     ];
@@ -173,7 +179,7 @@ function unidadesPage({ user, flash, modelo, unidades, csrfToken, outros = [], p
     ativo: 'frota',
     header: 'Cada moto física com placa, chassi e km. Com motos cadastradas, a quantidade do modelo passa a ser calculada por elas.',
     children: `
-      <div class="card">${tabela(['Placa', 'Chassi', 'Cor', 'Km', 'Situação', ''], linhas, 'Nenhuma moto cadastrada neste modelo (ele segue no modo quantidade).')}</div>
+      <div class="card">${tabela(['Placa', 'Chassi', 'Cor', 'Km', 'Próx. revisão', 'Situação', ''], linhas, 'Nenhuma moto cadastrada neste modelo (ele segue no modo quantidade).')}</div>
       <div class="card"><h2 style="margin-top:0;">Cadastrar moto</h2>${unidadeForm({ u: { frota_id: modelo.id, cor: modelo.cor }, csrfToken, action: '/frota/unidades' })}</div>
       ${
         podeGerenciar && outros.length
@@ -207,7 +213,7 @@ function unidadeForm({ u, csrfToken, action, modelos }) {
       </div>
       <h3>Manutenção (moto elétrica)</h3>
       <div class="form-grid">
-        ${f('data_ultima_revisao', 'Última revisão', 'date')}
+        ${f('data_ultima_revisao', 'Última revisão (vazio = conta do 1º dia locada)', 'date')}
         ${f('intervalo_revisao_dias', 'Revisão a cada (dias)', 'number', 'min="1"')}
         ${f('km_prox_pastilha', 'Próxima troca de pastilha (km)', 'number', 'min="0"')}
         ${f('km_prox_pneu', 'Próxima troca de pneu (km)', 'number', 'min="0"')}
@@ -649,7 +655,50 @@ function importarPage({ user, flash, csrfToken, relatorio, erroImp, modo, dadosT
   });
 }
 
+// ---------------------------------------------------------------- REVISÕES
+function waRevisao(tel, nome, prox, vencida) {
+  let d = String(tel || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length <= 11) d = '55' + d;
+  const primeiro = String(nome || '').split(' ')[0];
+  const msg = vencida
+    ? `Olá ${primeiro}! Aqui é da Golden Motors. A revisão periódica da sua moto venceu em ${prox}. Ela é obrigatória a cada 90 dias para manter a garantia. Podemos agendar? Loja na Barra Olímpica.`
+    : `Olá ${primeiro}! Aqui é da Golden Motors. A revisão periódica da sua moto vence em ${prox} (obrigatória a cada 90 dias para manter a garantia). Quer agendar? Loja na Barra Olímpica.`;
+  return `<a class="btn btn-sm btn-secondary" target="_blank" href="https://wa.me/${d}?text=${encodeURIComponent(msg)}">WhatsApp</a>`;
+}
+function revisoesPage({ user, flash, lista, total, filtro, csrfToken }) {
+  const linhas = lista.map((x) => {
+    const st = x.dias < 0 ? badge(`vencida há ${-x.dias}d`, 'vermelho') : x.dias <= 7 ? badge(`em ${x.dias}d`, 'amarelo') : badge(`em ${x.dias}d`, 'verde');
+    const de = x.origem === 'revisao' ? 'última revisão' : x.tipo === 'venda' ? 'data da venda' : '1º dia locada';
+    return [
+      x.tipo === 'venda' ? badge('vendida', 'cinza') : badge('locação', 'amarelo'),
+      esc(x.cliente || '—'),
+      esc(x.modelo || ''),
+      esc(x.chassi || ''),
+      `${dt(x.prox)} ${st}<br><small class="muted">conta de ${de} (${dt(x.base)})</small>`,
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;">${waRevisao(x.telefone, x.cliente, dt(x.prox), x.dias < 0)}
+        <form method="POST" action="/frota/revisoes/${x.tipo}/${x.id}/feita" style="margin:0;display:flex;gap:4px;">${csrfInput(csrfToken)}<input type="hidden" name="ver" value="${esc(filtro)}">
+          <input type="date" name="data" value="${new Date().toISOString().slice(0, 10)}" style="width:auto;"><button class="btn btn-sm">Revisão feita</button></form></div>`,
+    ];
+  });
+  return page({
+    title: 'Revisões a cada 90 dias',
+    user,
+    flash,
+    ativo: 'revisoes',
+    header: 'Motos da locação (contam do 1º dia locada) e motos vendidas na garantia (contam da data da venda). Depois de uma revisão, contam dela.',
+    children: `
+      <div class="actions-row" style="margin-bottom:10px;">
+        <a class="btn btn-sm ${filtro === 'proximas' ? '' : 'btn-secondary'}" href="/frota/revisoes">Vencidas e próximos 15 dias</a>
+        <a class="btn btn-sm ${filtro === 'todas' ? '' : 'btn-secondary'}" href="/frota/revisoes?ver=todas">Todas (${total})</a>
+      </div>
+      <div class="card">${tabela(['Tipo', 'Cliente', 'Modelo', 'Chassi', 'Próxima revisão', ''], linhas, 'Nenhuma revisão vencida ou para os próximos 15 dias.')}</div>
+      <p class="muted">Moto vendida entra aqui quando a garantia dela está cadastrada (menu Garantias) com o chassi e a data da venda. Uma O.S. concluída para o mesmo chassi conta como revisão.</p>`,
+  });
+}
+
 module.exports = {
+  revisoesPage,
   importarPage,
   painelLocacaoPage,
   unidadesPage,
