@@ -3552,7 +3552,7 @@ async function handler(req, res) {
         l.proxima_venc = prox ? prox.vencimento : null;
       }
       const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
-      const ar = db.prepare('SELECT COALESCE(SUM(valor),0) t, COUNT(*) c FROM locacao_parcelas WHERE pago = 0').get();
+      const ar = db.prepare('SELECT COALESCE(SUM(valor),0) t, COUNT(*) c FROM locacao_parcelas WHERE pago = 0 AND valor > 0').get();
       return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), modelos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user), totalReceber: ar.t, qtdPendentes: ar.c, prefill }));
     }
     if (pathname === '/frota/cobranca' && method === 'GET') {
@@ -3567,7 +3567,7 @@ async function handler(req, res) {
          JOIN locacoes l ON l.id = pa.locacao_id
          LEFT JOIN clientes c ON c.id = l.cliente_id
          LEFT JOIN frota f ON f.id = l.frota_id
-         WHERE pa.pago = 0
+         WHERE pa.pago = 0 AND pa.valor > 0
          ORDER BY (pa.vencimento IS NULL), pa.vencimento ASC, pa.locacao_id ASC, pa.numero ASC`
       ).all();
       const pagosRecentes = db.prepare(

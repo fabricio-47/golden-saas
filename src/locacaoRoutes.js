@@ -75,6 +75,8 @@ function fmtCpfCnpj(v) {
   if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
   return v || '';
 }
+// Valor sem o símbolo: os modelos do WSYS já trazem "R$" no texto (ex.: "Valor da Parcela R$: {{ $valor... }}").
+const valorBR = (v) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const brData = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '');
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 function diasEntre(a, b) {
@@ -109,8 +111,8 @@ function variaveisContrato(locId) {
     data_saida: brData(l.data_saida), hora_saida: l.hora_saida, data_retorno: brData(l.devolucao_prevista), hora_retorno: l.hora_retorno,
     qtd_diarias: dias, qtd_semanas: l.periodo === 'semanal' && l.qtd_periodos ? l.qtd_periodos : dias !== null ? Math.round(dias / 7) : null,
     qtd_periodos: l.qtd_periodos, periodo: l.periodo,
-    valor_total: formatMoney(total), valor_desconto: formatMoney(l.desconto || 0), valor_total_desconto: formatMoney(total - (Number(l.desconto) || 0)),
-    valor_caucao: formatMoney(l.valor_caucao || 0), parcelas_financeiro: ps.length, valor_parcela_financeiro: valorParcela !== undefined ? formatMoney(Number(valorParcela)) : '',
+    valor_total: valorBR(total), valor_desconto: valorBR(l.desconto || 0), valor_total_desconto: valorBR(total - (Number(l.desconto) || 0)),
+    valor_caucao: valorBR(l.valor_caucao || 0), parcelas_financeiro: ps.length, valor_parcela_financeiro: valorParcela !== undefined ? valorBR(Number(valorParcela)) : '',
     observacoes: l.observacoes,
     testemunha_1: l.testemunha1_nome, testemunha_1_rg: l.testemunha1_rg, testemunha_2: l.testemunha2_nome, testemunha_2_rg: l.testemunha2_rg,
     fiador: l.fiador_nome, dados_fiador: l.fiador_dados,
@@ -180,10 +182,10 @@ async function handleLocacaoPro(ctx) {
       ocupacao: fr.q ? Math.round((locadas / fr.q) * 100) : 0,
       recebidoHoje: soma('SELECT SUM(valor) v FROM locacao_parcelas WHERE pago=1 AND data_pagamento=?', t),
       recebidoMes: soma("SELECT SUM(valor) v FROM locacao_parcelas WHERE pago=1 AND substr(data_pagamento,1,7)=?", mes),
-      vencido: soma('SELECT SUM(valor) v FROM locacao_parcelas WHERE pago=0 AND vencimento < ?', t),
-      qtdVencido: soma('SELECT COUNT(*) v FROM locacao_parcelas WHERE pago=0 AND vencimento < ?', t),
+      vencido: soma('SELECT SUM(valor) v FROM locacao_parcelas WHERE pago=0 AND valor > 0 AND vencimento < ?', t),
+      qtdVencido: soma('SELECT COUNT(*) v FROM locacao_parcelas WHERE pago=0 AND valor > 0 AND vencimento < ?', t),
       despesasMes: soma('SELECT SUM(valor) v FROM frota_despesas WHERE substr(data,1,7)=?', mes),
-      carteira: soma('SELECT SUM(valor) v FROM locacao_parcelas WHERE pago=0'),
+      carteira: soma('SELECT SUM(valor) v FROM locacao_parcelas WHERE pago=0 AND valor > 0'),
     };
     k.resultadoMes = k.recebidoMes - k.despesasMes;
     const retornos = db
@@ -197,7 +199,7 @@ async function handleLocacaoPro(ctx) {
       .prepare(
         `SELECT p.*, c.nome cliente_nome, (SELECT COUNT(*) FROM locacao_parcelas x WHERE x.locacao_id=p.locacao_id) total
          FROM locacao_parcelas p JOIN locacoes l ON l.id=p.locacao_id LEFT JOIN clientes c ON c.id=l.cliente_id
-         WHERE p.pago=0 AND p.vencimento <= ? ORDER BY p.vencimento LIMIT 50`
+         WHERE p.pago=0 AND p.valor > 0 AND p.vencimento <= ? ORDER BY p.vencimento LIMIT 50`
       )
       .all(t);
     const ocorrencias = db
