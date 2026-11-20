@@ -589,6 +589,24 @@ async function handleLocacaoPro(ctx) {
     return done(() => redirect(res, '/frota/contratos-modelos'));
   }
 
+  // ---------------- importação do WSYS
+  if (pathname === '/frota/importar' && (method === 'GET' || method === 'POST')) {
+    if (!ger) return done(() => forbidden(res));
+    let relatorio = null;
+    let erroImp = null;
+    let modo = null;
+    if (method === 'POST') {
+      modo = body.modo === 'importar' ? 'importar' : 'simular';
+      try {
+        const dados = JSON.parse(body.dados || '{}');
+        relatorio = require('./importWsys').importar(dados, { simular: modo !== 'importar' });
+      } catch (e) {
+        erroImp = String(e && e.message ? e.message : e);
+      }
+    }
+    return done(() => send(res, 200, V.importarPage({ user, flash: flash(), csrfToken, relatorio, erroImp, modo, dadosTexto: method === 'POST' && modo !== 'importar' ? body.dados || '' : '' })));
+  }
+
   // ---------------- relatórios
   if (pathname === '/frota/relatorios' && method === 'GET') {
     if (!ger) return done(() => forbidden(res));

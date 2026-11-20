@@ -603,7 +603,44 @@ function relatoriosLocacaoPage({ user, flash, porMoto, porMes, filtro }) {
   });
 }
 
+// ---------------------------------------------------------------- IMPORTAÇÃO WSYS
+function importarPage({ user, flash, csrfToken, relatorio, erroImp, modo, dadosTexto }) {
+  const r = relatorio;
+  const linha = (rot, obj) => `<tr><td><strong>${rot}</strong></td><td>${Object.entries(obj).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <strong>${esc(typeof v === 'number' && /valor/.test(k) ? money(v) : v)}</strong>`).join(' · ')}</td></tr>`;
+  const res = r
+    ? `<div class="card" style="border:2px solid ${modo === 'importar' ? '#1b7a43' : '#8a6d00'};">
+        <h2 style="margin-top:0;">${modo === 'importar' ? 'Importação concluída' : 'Simulação (nada foi gravado)'}</h2>
+        <table><tbody>
+          ${linha('Clientes', r.clientes)}${linha('Modelos', r.modelos)}${linha('Motos', r.motos)}${linha('Locações', r.locacoes)}${linha('Parcelas', r.parcelas)}
+          <tr><td><strong>Ocorrências</strong></td><td><strong>${r.ocorrencias}</strong></td></tr>
+        </tbody></table>
+        ${r.avisos.length ? `<h3>Avisos</h3><ul>${r.avisos.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}
+      </div>`
+    : '';
+  return page({
+    title: 'Importar do WSYS',
+    user,
+    flash,
+    ativo: 'frota',
+    header: 'Cole o pacote exportado do WSYS. Rode "Simular" primeiro; dá pra importar de novo sem duplicar (cada registro guarda o id de origem).',
+    children: `
+      ${erroImp ? `<div class="card" style="border:2px solid #a1352a;"><strong>Erro:</strong> ${esc(erroImp)}</div>` : ''}
+      ${res}
+      <div class="card">
+        <form method="POST" action="/frota/importar" enctype="multipart/form-data">${csrfInput(csrfToken)}
+          <div class="field full"><label>Pacote do WSYS (JSON)</label>
+            <textarea name="dados" id="dados" rows="10" style="font-family:monospace;font-size:12px;" placeholder='{"clientes":[...],"veiculos":[...],"locacoes":[...],"recebimentos":[...]}'>${esc(dadosTexto || '')}</textarea></div>
+          <div class="actions-row">
+            <button class="btn btn-secondary" name="modo" value="simular">Simular</button>
+            <button class="btn" name="modo" value="importar" onclick="return confirm('Gravar a importação no sistema?');">Importar de verdade</button>
+          </div>
+        </form>
+      </div>`,
+  });
+}
+
 module.exports = {
+  importarPage,
   painelLocacaoPage,
   unidadesPage,
   unidadeEditarPage,
