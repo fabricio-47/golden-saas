@@ -3743,6 +3743,16 @@ async function handler(req, res) {
         (body.fiador_nome || '').trim() || null, (body.fiador_dados || '').trim() || null,
         body.compra_garantida === '1' || body.compra_garantida === 'on' ? 1 : 0, locId
       );
+      // Entrada é pagamento (não é caução): vira a parcela nº 0, já paga se marcado, e conta como receita.
+      const entrada = toFloatOrNull(body.valor_caucao);
+      if (entrada && entrada > 0) {
+        const entradaPaga = body.entrada_paga === '1' || body.entrada_paga === 'on';
+        const hojeEnt = new Date().toISOString().slice(0, 10);
+        db.prepare(
+          "INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, pago, data_pagamento, forma_pagamento, origem) VALUES (?, 0, ?, ?, ?, ?, ?, 'entrada')"
+        ).run(locId, entrada, hojeEnt, entradaPaga ? 1 : 0, entradaPaga ? hojeEnt : null, entradaPaga ? (body.forma_entrada || '').trim() || null : null);
+        db.prepare('UPDATE locacoes SET valor_combinado = (SELECT SUM(valor) FROM locacao_parcelas WHERE locacao_id=?) WHERE id=?').run(locId, locId);
+      }
       if (unidade && toIntOrNull(body.km_saida) != null) db.prepare('UPDATE frota_unidades SET km_atual=? WHERE id=?').run(toIntOrNull(body.km_saida), unidade.id);
       if (toIntOrNull(body.agendamento_id)) {
         db.prepare("UPDATE locacao_agendamentos SET status='convertido', locacao_id=? WHERE id=? AND status='agendado'").run(locId, toIntOrNull(body.agendamento_id));

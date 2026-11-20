@@ -258,7 +258,10 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                 <input type="date" name="vencimento">
               </div>
               <div class="field"><label>Hora de retorno</label><input type="time" name="hora_retorno"></div>
-              <div class="field"><label>Caução (R$)</label><input type="number" name="valor_caucao" min="0" step="0.01"></div>
+              <div class="field"><label>Entrada (R$)</label><input type="number" name="valor_caucao" min="0" step="0.01" placeholder="Ex.: 600">
+                <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:6px;cursor:pointer;"><input type="checkbox" name="entrada_paga" value="1" checked style="width:auto;"> Entrada já paga na entrega</label>
+                <select name="forma_entrada" style="margin-top:6px;"><option value="PIX">PIX</option><option value="Dinheiro">Dinheiro</option><option value="Cartão">Cartão</option><option value="Outro">Outro</option></select>
+              </div>
               <div class="field"><label>Desconto (R$) — abatido das primeiras parcelas</label><input type="number" name="desconto" min="0" step="0.01" value="0"></div>
             </div>
             <div class="field full">

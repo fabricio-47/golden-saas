@@ -278,7 +278,7 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
       : p.pago
       ? `<form method="POST" action="/parcelas/${p.id}/estornar" style="margin:0;" onsubmit="return confirm('Desfazer o pagamento?');">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="loc${loc.id}"><button class="btn btn-sm btn-secondary">Desfazer</button></form>`
       : `<form method="POST" action="/parcelas/${p.id}/pagar" style="margin:0;display:flex;gap:6px;">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="loc${loc.id}"><select name="forma_pagamento" style="width:auto;">${FORMAS_PGTO.map((f) => `<option>${f}</option>`).join('')}</select><button class="btn btn-sm">Receber</button></form>`;
-    return [String(p.numero) + (p.origem ? ' ' + badge(p.origem.startsWith('ocorrencia:') ? TIPOS_OCORRENCIA[p.origem.slice(11)] || 'ocorrência' : 'avulsa', 'cinza') : ''), dt(p.vencimento), money(p.valor), st + (p.forma_pagamento ? ' ' + esc(p.forma_pagamento) : ''), acao];
+    return [String(p.numero) + (p.origem ? ' ' + badge(p.origem === 'entrada' ? 'entrada' : p.origem.startsWith('ocorrencia:') ? TIPOS_OCORRENCIA[p.origem.slice(11)] || 'ocorrência' : 'avulsa', p.origem === 'entrada' ? 'verde' : 'cinza') : ''), dt(p.vencimento), money(p.valor), st + (p.forma_pagamento ? ' ' + esc(p.forma_pagamento) : ''), acao];
   });
   const linO = ocorrencias.map((o) => [
     esc(TIPOS_OCORRENCIA[o.tipo] || o.tipo),
@@ -307,7 +307,7 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
         <div class="stat-card"><div class="num">${money(total)}</div><div class="label">Total das parcelas</div></div>
         <div class="stat-card"><div class="num" style="color:#1b7a43;">${money(pago)}</div><div class="label">Recebido</div></div>
         <div class="stat-card"><div class="num" style="color:#8a6d00;">${money(total - pago)}</div><div class="label">Em aberto</div></div>
-        <div class="stat-card"><div class="num">${money(loc.valor_caucao)}</div><div class="label">Caução ${loc.valor_caucao ? (loc.caucao_devolvida ? '(devolvida)' : '(retida)') : ''}</div></div>
+        <div class="stat-card"><div class="num">${money(loc.valor_caucao)}</div><div class="label">Entrada ${(() => { const e = parcelas.find((p) => p.origem === 'entrada'); return e ? (e.pago ? '(paga)' : '(pendente)') : ''; })()}</div></div>
       </div>
 
       <div class="card">
@@ -363,7 +363,7 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
           <div class="form-grid">
             ${f('data_saida', 'Data de saída', 'date')}${f('hora_saida', 'Hora de saída', 'time')}
             ${f('devolucao_prevista', 'Retorno previsto', 'date')}${f('hora_retorno', 'Hora de retorno', 'time')}
-            ${f('km_saida', 'Km de saída', 'number')}${f('valor_caucao', 'Caução (R$)', 'number')}
+            ${f('km_saida', 'Km de saída', 'number')}${f('valor_caucao', 'Entrada (R$)', 'number')}
             ${f('testemunha1_nome', 'Testemunha 1')}${f('testemunha1_rg', 'RG testemunha 1')}
             ${f('testemunha2_nome', 'Testemunha 2')}${f('testemunha2_rg', 'RG testemunha 2')}
             ${f('fiador_nome', 'Fiador')}${f('fiador_dados', 'Dados do fiador (CPF, endereço...)')}
@@ -380,7 +380,6 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
         <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar a devolução da moto?');">${csrfInput(csrfToken)}
           <div class="form-grid">
             <div class="field"><label>Km na devolução</label><input type="number" name="km_retorno" min="0"></div>
-            ${loc.valor_caucao ? '<div class="field"><label><input type="checkbox" name="caucao_devolvida" value="1" style="width:auto;"> Caução devolvida ao cliente</label></div>' : ''}
           </div>
           <button class="btn">Registrar devolução</button>
         </form></div>`
@@ -494,7 +493,7 @@ const VARIAVEIS_CONTRATO = [
   ['Empresa', [['logo_raw', 'Logo (use {!! $logo_raw !!})'], ['data_hoje', 'Data de hoje'], ['data_hoje_extenso', 'Data de hoje por extenso']]],
   ['Cliente', [['cliente_nome', 'Nome'], ['cpfCnpj', 'CPF/CNPJ formatado'], ['cliente_cpf_cnpj', 'CPF/CNPJ'], ['cliente_endereco', 'Endereço completo'], ['cliente_cidade', 'Cidade'], ['cliente_estado', 'Estado'], ['cliente_telefone_1', 'Telefone 1'], ['cliente_telefone_2', 'Telefone 2'], ['telefone_1', 'Telefone 1 (alt.)'], ['telefone_2', 'Telefone 2 (alt.)'], ['cliente_email', 'E-mail'], ['cliente_rede_social', 'Rede social'], ['cliente_cnh', 'CNH'], ['cliente_validade_cnh', 'Validade da CNH'], ['cliente_rg', 'RG'], ['cliente_orgao_emissor', 'Órgão emissor'], ['cliente_uf_rg', 'UF do RG'], ['cliente_data_nascimento', 'Nascimento']]],
   ['Veículo', [['veiculo_marca', 'Marca'], ['veiculo_modelo', 'Modelo'], ['veiculo_placa', 'Placa'], ['veiculo_ano', 'Ano'], ['veiculo_cor', 'Cor'], ['veiculo_chassi', 'Chassi'], ['veiculo_renavam', 'Renavam'], ['veiculo_km_saida', 'Km de saída']]],
-  ['Locação', [['data_saida', 'Data de saída'], ['hora_saida', 'Hora de saída'], ['data_retorno', 'Data de retorno'], ['hora_retorno', 'Hora de retorno'], ['qtd_diarias', 'Qtd. de diárias'], ['qtd_semanas', 'Qtd. de semanas'], ['qtd_periodos', 'Qtd. de períodos'], ['periodo', 'Período (diária/semanal/mensal)'], ['valor_total', 'Valor total'], ['valor_desconto', 'Desconto'], ['valor_total_desconto', 'Total com desconto'], ['valor_caucao', 'Caução'], ['parcelas_financeiro', 'Nº de parcelas'], ['valor_parcela_financeiro', 'Valor da parcela'], ['observacoes', 'Observações']]],
+  ['Locação', [['data_saida', 'Data de saída'], ['hora_saida', 'Hora de saída'], ['data_retorno', 'Data de retorno'], ['hora_retorno', 'Hora de retorno'], ['qtd_diarias', 'Qtd. de diárias'], ['qtd_semanas', 'Qtd. de semanas'], ['qtd_periodos', 'Qtd. de períodos'], ['periodo', 'Período (diária/semanal/mensal)'], ['valor_total', 'Valor total'], ['valor_desconto', 'Desconto'], ['valor_total_desconto', 'Total com desconto'], ['valor_caucao', 'Entrada'], ['valor_entrada', 'Entrada (alt.)'], ['parcelas_financeiro', 'Nº de parcelas'], ['valor_parcela_financeiro', 'Valor da parcela'], ['observacoes', 'Observações']]],
   ['Assinaturas', [['testemunha_1', 'Testemunha 1'], ['testemunha_1_rg', 'RG test. 1'], ['testemunha_2', 'Testemunha 2'], ['testemunha_2_rg', 'RG test. 2'], ['fiador', 'Fiador'], ['dados_fiador', 'Dados do fiador']]],
 ];
 

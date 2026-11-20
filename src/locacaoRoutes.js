@@ -112,7 +112,7 @@ function variaveisContrato(locId) {
     qtd_diarias: dias, qtd_semanas: l.periodo === 'semanal' && l.qtd_periodos ? l.qtd_periodos : dias !== null ? Math.round(dias / 7) : null,
     qtd_periodos: l.qtd_periodos, periodo: l.periodo,
     valor_total: valorBR(total), valor_desconto: valorBR(l.desconto || 0), valor_total_desconto: valorBR(total - (Number(l.desconto) || 0)),
-    valor_caucao: valorBR(l.valor_caucao || 0), parcelas_financeiro: ps.length, valor_parcela_financeiro: valorParcela !== undefined ? valorBR(Number(valorParcela)) : '',
+    valor_caucao: valorBR(l.valor_caucao || 0), valor_entrada: valorBR(l.valor_caucao || 0), parcelas_financeiro: ps.length, valor_parcela_financeiro: valorParcela !== undefined ? valorBR(Number(valorParcela)) : '',
     observacoes: l.observacoes,
     testemunha_1: l.testemunha1_nome, testemunha_1_rg: l.testemunha1_rg, testemunha_2: l.testemunha2_nome, testemunha_2_rg: l.testemunha2_rg,
     fiador: l.fiador_nome, dados_fiador: l.fiador_dados,
@@ -331,7 +331,7 @@ async function handleLocacaoPro(ctx) {
         enviarCsv(
           res,
           `locacoes-${hoje()}.csv`,
-          ['ID', 'Cliente', 'Modelo', 'Placa', 'Chassi', 'Saída', 'Retorno previsto', 'Devolução', 'Valor total', 'Em aberto', 'Caução', 'Status'],
+          ['ID', 'Cliente', 'Modelo', 'Placa', 'Chassi', 'Saída', 'Retorno previsto', 'Devolução', 'Valor total', 'Em aberto', 'Entrada', 'Status'],
           locacoes.map((l) => [l.id, l.cliente_nome, l.modelo, l.placa, l.chassi, l.data_saida, l.devolucao_prevista, l.data_devolucao, l.valor_combinado, l.aberto, l.valor_caucao, l.status])
         )
       );
@@ -359,7 +359,21 @@ async function handleLocacaoPro(ctx) {
       txt(body.testemunha1_nome), txt(body.testemunha1_rg), txt(body.testemunha2_nome), txt(body.testemunha2_rg), txt(body.fiador_nome), txt(body.fiador_dados),
       chk(body.compra_garantida), txt(body.observacoes), m.id
     );
-    ok('Dados da locação salvos.');
+    // Mantém a parcela de entrada coerente com o valor informado.
+    const entrada = num(body.valor_caucao) || 0;
+    const pe = db.prepare("SELECT * FROM locacao_parcelas WHERE locacao_id=? AND origem='entrada'").get(m.id);
+    let avisoEntrada = '';
+    if (pe && !pe.pago) {
+      if (entrada > 0) db.prepare('UPDATE locacao_parcelas SET valor=? WHERE id=?').run(entrada, pe.id);
+      else db.prepare('DELETE FROM locacao_parcelas WHERE id=?').run(pe.id);
+    } else if (pe && pe.pago && Math.abs(entrada - pe.valor) > 0.009) {
+      avisoEntrada = ' A entrada já está paga com outro valor: desfaça o pagamento dela na lista de parcelas antes de mudar.';
+      db.prepare('UPDATE locacoes SET valor_caucao=? WHERE id=?').run(pe.valor, m.id);
+    } else if (!pe && entrada > 0) {
+      db.prepare("INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, origem) VALUES (?, 0, ?, date('now'), 'entrada')").run(m.id, entrada);
+    }
+    db.prepare('UPDATE locacoes SET valor_combinado = (SELECT SUM(valor) FROM locacao_parcelas WHERE locacao_id=?) WHERE id=?').run(m.id, m.id);
+    ok('Dados da locação salvos.' + avisoEntrada);
     return done(() => redirect(res, `/locacoes/${m.id}`));
   }
   if ((m = matchRoute('/locacoes/:id/devolver', pathname)) && method === 'POST') {
