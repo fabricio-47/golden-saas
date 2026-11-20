@@ -228,8 +228,38 @@ async function handleLocacaoPro(ctx) {
   if ((m = matchRoute('/frota/:id/unidades', pathname)) && method === 'GET') {
     const modelo = db.prepare('SELECT * FROM frota WHERE id=?').get(m.id);
     if (!modelo) return done(() => notFound(res));
-    return done(() => send(res, 200, V.unidadesPage({ user, flash: flash(), modelo, unidades: unidadesComStatus('u.frota_id=?', [m.id]), csrfToken })));
+    const outros = db.prepare('SELECT id, identificacao FROM frota WHERE id<>? ORDER BY identificacao').all(m.id);
+    return done(() => send(res, 200, V.unidadesPage({ user, flash: flash(), modelo, unidades: unidadesComStatus('u.frota_id=?', [m.id]), csrfToken, outros, podeGerenciar: ger })));
   }
+  // Juntar dois modelos (ex.: "X13" e "X13 GOLD" são a mesma moto): move tudo para o destino e apaga a origem.
+  if ((m = matchRoute('/frota/:id/juntar', pathname)) && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    const origem = db.prepare('SELECT * FROM frota WHERE id=?').get(m.id);
+    const destino = db.prepare('SELECT * FROM frota WHERE id=?').get(int(body.destino));
+    if (!origem || !destino || origem.id === destino.id) {
+      erro('Escolha um modelo de destino diferente.');
+      return done(() => redirect(res, `/frota/${m.id}/unidades`));
+    }
+    db.exec('BEGIN');
+    try {
+      const mov = {};
+      for (const tab of ['frota_unidades', 'locacoes', 'locacao_agendamentos', 'frota_despesas']) {
+        mov[tab] = db.prepare(`UPDATE ${tab} SET frota_id=? WHERE frota_id=?`).run(destino.id, origem.id).changes;
+      }
+      const qtdOrigemSemUnidade = mov.frota_unidades ? 0 : origem.quantidade_total || 0;
+      db.prepare('UPDATE frota SET quantidade_total = quantidade_total + ? WHERE id=?').run(qtdOrigemSemUnidade, destino.id);
+      db.prepare('DELETE FROM frota WHERE id=?').run(origem.id);
+      db.exec('COMMIT');
+      syncModelo(destino.id);
+      ok(`Modelo "${origem.identificacao}" juntado em "${destino.identificacao}": ${mov.frota_unidades} moto(s) e ${mov.locacoes} locação(ões) movidas.`);
+    } catch (e) {
+      db.exec('ROLLBACK');
+      erro('Não foi possível juntar: ' + e.message);
+      return done(() => redirect(res, `/frota/${m.id}/unidades`));
+    }
+    return done(() => redirect(res, `/frota/${destino.id}/unidades`));
+  }
+
   if (pathname === '/frota/unidades' && method === 'POST') {
     if (!ger) return done(() => forbidden(res));
     const vals = unidadeDoBody(body);

@@ -154,7 +154,7 @@ function painelLocacaoPage({ user, flash, k, retornos, receber, ocorrencias, ale
 }
 
 // ---------------------------------------------------------------- UNIDADES
-function unidadesPage({ user, flash, modelo, unidades, csrfToken }) {
+function unidadesPage({ user, flash, modelo, unidades, csrfToken, outros = [], podeGerenciar = false }) {
   const linhas = unidades.map((u) => {
     const st = !u.ativo ? badge('desativada', 'cinza') : u.locacao_id ? badge('locada', 'amarelo') : u.em_manutencao ? badge('manutenção', 'vermelho') : badge('disponível', 'verde');
     return [
@@ -174,7 +174,17 @@ function unidadesPage({ user, flash, modelo, unidades, csrfToken }) {
     header: 'Cada moto física com placa, chassi e km. Com motos cadastradas, a quantidade do modelo passa a ser calculada por elas.',
     children: `
       <div class="card">${tabela(['Placa', 'Chassi', 'Cor', 'Km', 'Situação', ''], linhas, 'Nenhuma moto cadastrada neste modelo (ele segue no modo quantidade).')}</div>
-      <div class="card"><h2 style="margin-top:0;">Cadastrar moto</h2>${unidadeForm({ u: { frota_id: modelo.id, cor: modelo.cor }, csrfToken, action: '/frota/unidades' })}</div>`,
+      <div class="card"><h2 style="margin-top:0;">Cadastrar moto</h2>${unidadeForm({ u: { frota_id: modelo.id, cor: modelo.cor }, csrfToken, action: '/frota/unidades' })}</div>
+      ${
+        podeGerenciar && outros.length
+          ? `<div class="card"><h2 style="margin-top:0;">Juntar com outro modelo</h2>
+        <p class="muted">Use quando dois modelos são a mesma moto (ex.: "X13" e "X13 GOLD"). Motos, locações, agendamentos e despesas deste modelo vão para o escolhido, e este modelo é apagado.</p>
+        <form method="POST" action="/frota/${modelo.id}/juntar" style="display:flex;gap:8px;flex-wrap:wrap;" onsubmit="return confirm('Juntar o modelo ${esc(modelo.identificacao).replace(/'/g, '')} no escolhido? Não dá para desfazer.');">${csrfInput(csrfToken)}
+          <select name="destino" style="width:auto;">${optionList(outros, null, (o) => o.identificacao)}</select>
+          <button class="btn btn-sm">Juntar</button>
+        </form></div>`
+          : ''
+      }`,
   });
 }
 

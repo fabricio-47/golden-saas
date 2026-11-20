@@ -166,6 +166,10 @@ function importar(dados, { simular }) {
       }
       const k = normModelo(v.modelo) || 'SEMMODELO';
       let frotaId = modeloPorChave[k];
+      // Moto já importada antes: usa o modelo em que ela está hoje (o modelo pode ter sido juntado/renomeado).
+      const jaImportada = getMap('veiculo', v.ext);
+      const uAtual = jaImportada ? db.prepare('SELECT frota_id FROM frota_unidades WHERE id=?').get(jaImportada) : null;
+      if (uAtual) frotaId = uAtual.frota_id;
       if (!frotaId) {
         frotaId = Number(
           db
