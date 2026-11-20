@@ -3,6 +3,7 @@
 const { escapeHtml } = require('../utils');
 const { version: APP_VERSION } = require('../../package.json');
 const { hasManagementAccess, nivelNome, userCanAccessModulo } = require('../roles');
+const { somenteCrm } = require('../crmSegmentos');
 
 const STYLE = `
   :root {
@@ -352,6 +353,16 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'backup', href: '/backup', label: 'Backup' },
       ],
     });
+  }
+
+  // Instalação vendida só com o CRM (SOMENTE_CRM=1): mostra apenas CRM, Clientes e o essencial de Configurações.
+  if (somenteCrm()) {
+    const manter = { 'crm-group': null, 'cadastros-group': ['clientes'], 'config-group': ['usuarios', 'niveis', 'auditoria', 'backup'] };
+    for (let i = navEntries.length - 1; i >= 0; i--) {
+      const e = navEntries[i];
+      if (!(e.key in manter)) { navEntries.splice(i, 1); continue; }
+      if (manter[e.key]) e.items = e.items.filter((it) => manter[e.key].includes(it.key));
+    }
   }
 
   const navHtml = navEntries

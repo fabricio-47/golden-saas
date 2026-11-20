@@ -5,7 +5,7 @@
 const { layout } = require('./layout');
 const { escapeHtml, formatMoney } = require('../utils');
 const { hasManagementAccess } = require('../roles');
-const { db } = require('../db');
+const { segmentoAtual, nomeEmpresa } = require('../crmSegmentos');
 
 const esc = escapeHtml;
 const money = (v) => formatMoney(Number(v) || 0);
@@ -79,6 +79,7 @@ function subnav(ativo, gestor) {
     ['followups', '/crm/follow-ups', 'Follow-ups'],
     ['propostas', '/crm/propostas', 'Propostas'],
     ['respostas', '/crm/respostas', 'Respostas rápidas'],
+    ...(gestor && segmentoAtual().usaItensOrcamento ? [['precos', '/crm/precos', 'Tabela de preços']] : []),
     ...(gestor ? [['origens', '/crm/origens', 'Origem e resultados'], ['config', '/crm/config', 'Configurar CRM']] : []),
   ];
   return `<div class="crm-tabs">${itens.map(([k, h, l]) => `<a class="btn btn-sm ${k === ativo ? '' : 'btn-secondary'}" href="${h}">${l}</a>`).join('')}</div>`;
@@ -204,7 +205,7 @@ function negocioFormPage({ user, flash, csrfToken, neg, etapas, vendedores, prod
       <div class="field"><label>Nome do lead *</label><input type="text" name="nome" value="${esc(n.nome || '')}" required></div>
       <div class="field"><label>WhatsApp / telefone</label><input type="tel" name="telefone" value="${esc(n.telefone || '')}" placeholder="(21) 99999-9999"></div>
       <div class="field"><label>E-mail</label><input type="email" name="email" value="${esc(n.email || '')}"></div>
-      <div class="field"><label>Título do negócio</label><input type="text" name="titulo" value="${esc(n.titulo || '')}" placeholder="Ex.: Tank preta à vista"></div>
+      <div class="field"><label>Título do negócio</label><input type="text" name="titulo" value="${esc(n.titulo || '')}" placeholder="Ex.: o que o cliente quer comprar"></div>
       <div class="field"><label>Produto (do estoque)</label><select name="produto_id">${opt('', '—', n.produto_id)}${produtos.map((p) => opt(p.id, p.nome + (p.preco_venda ? ' · ' + money(p.preco_venda) : ''), n.produto_id)).join('')}</select></div>
       <div class="field"><label>Interesse / modelo (texto livre)</label><input type="text" name="produto_texto" value="${esc(n.produto_texto || '')}"></div>
       <div class="field"><label>Valor potencial (R$)</label><input type="number" step="0.01" name="valor" value="${esc(n.valor ?? '')}"></div>
@@ -360,21 +361,56 @@ function propostasPage({ user, flash, rows, status, STATUS_PROPOSTA, hoje }) {
   return page({ title: 'CRM · Propostas', user, flash, gestor: false }, 'propostas', body);
 }
 
-function propostaFormPage({ user, flash, csrfToken, neg, prop, editando, produtos, vendedores, formas, STATUS_PROPOSTA }) {
+function itensOrcamentoHtml(itens, tabela, UNIDADES_ITEM) {
+  const linha = (it) => `<tr class="it-row">
+    <td><input type="text" name="it_desc" value="${esc(it.descricao || '')}" placeholder="Ex.: Lona 440g com ilhós" list="tabela-precos"></td>
+    <td><select name="it_un">${Object.entries(UNIDADES_ITEM).map(([k, l]) => opt(k, l, it.unidade || 'un')).join('')}</select></td>
+    <td><input type="number" step="0.01" name="it_larg" value="${esc(it.largura ?? '')}" placeholder="m" style="width:70px"></td>
+    <td><input type="number" step="0.01" name="it_alt" value="${esc(it.altura ?? '')}" placeholder="m" style="width:70px"></td>
+    <td><input type="number" step="0.01" name="it_qtd" value="${esc(it.quantidade ?? 1)}" style="width:80px"></td>
+    <td><input type="number" step="0.01" name="it_preco" value="${esc(it.preco_unit ?? '')}" style="width:100px"></td>
+    <td><input type="number" step="0.01" name="it_min" value="${esc(it.minimo || '')}" placeholder="0" style="width:80px"></td>
+    <td class="it-tot" style="white-space:nowrap;font-weight:600">—</td>
+    <td><button type="button" class="btn btn-sm btn-secondary" onclick="this.closest('tr').remove();window.__calcIt()">×</button></td></tr>`;
+  return `<div class="field full"><label>Itens do orçamento</label>
+    <datalist id="tabela-precos">${tabela.map((t) => `<option value="${esc(t.nome)}">`).join('')}</datalist>
+    <div style="overflow-x:auto"><table id="it-tab"><thead><tr><th>Material / serviço</th><th>Cobrança</th><th>Largura</th><th>Altura</th><th>Qtd.</th><th>Preço unit.</th><th>Mínimo</th><th>Total</th><th></th></tr></thead>
+    <tbody>${(itens.length ? itens : [{}]).map(linha).join('')}</tbody></table></div>
+    <button type="button" class="btn btn-sm btn-secondary" id="it-add" style="margin-top:8px">+ Item</button>
+    <p class="muted" style="margin:6px 0 0">m² = largura × altura × quantidade × preço do m² (medidas em metros). Cento/milheiro: o preço é por 100/1000 unidades. "Mínimo" é o valor mínimo cobrado pelo item. Escolher um item da tabela de preços preenche cobrança, preço e mínimo.</p>
+    <template id="it-tpl">${linha({})}</template>
+    <script>(function(){
+      var TAB = ${JSON.stringify(tabela.map((t) => ({ n: t.nome, u: t.unidade, p: t.preco, m: t.minimo })))};
+      function tot(r){var g=function(n){return +(r.querySelector('[name='+n+']').value)||0};var u=r.querySelector('[name=it_un]').value,q=g('it_qtd'),p=g('it_preco'),b;
+        if(u==='m2')b=g('it_larg')*g('it_alt')*q*p;else if(u==='cento')b=q/100*p;else if(u==='milheiro')b=q/1000*p;else b=q*p;return Math.round(Math.max(b,g('it_min'))*100)/100;}
+      window.__calcIt=function(){var s=0;document.querySelectorAll('.it-row').forEach(function(r){var t=tot(r);s+=t;r.querySelector('.it-tot').textContent=t.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});});
+        var v=document.getElementById('pv');if(v){v.value=s.toFixed(2);v.dispatchEvent(new Event('input'));}};
+      document.getElementById('it-tab').addEventListener('input',function(e){
+        if(e.target.name==='it_desc'){var t=TAB.find(function(x){return x.n===e.target.value});if(t){var r=e.target.closest('tr');r.querySelector('[name=it_un]').value=t.u;r.querySelector('[name=it_preco]').value=t.p;r.querySelector('[name=it_min]').value=t.m||'';}}
+        window.__calcIt();});
+      document.getElementById('it-tab').addEventListener('change',window.__calcIt);
+      document.getElementById('it-add').addEventListener('click',function(){document.querySelector('#it-tab tbody').appendChild(document.getElementById('it-tpl').content.cloneNode(true));});
+      window.__calcIt();})();</script></div>`;
+}
+
+function propostaFormPage({ user, flash, csrfToken, neg, prop, editando, produtos, vendedores, formas, STATUS_PROPOSTA, seg, tabela, itens, UNIDADES_ITEM }) {
   const p = prop;
+  const usaItens = seg && seg.usaItensOrcamento;
   const body = `<p><a class="link-btn" href="/crm/negocios/${neg.id}">← ${esc(neg.lead_nome)}</a></p>
   <h1>${editando ? 'Editar proposta #' + p.id : 'Nova proposta'}</h1>
   <form method="POST" class="card" action="${editando ? '/crm/propostas/' + p.id : '/crm/negocios/' + neg.id + '/proposta'}">${csrfInput(csrfToken)}
     <div class="form-grid">
-      <div class="field"><label>Produto</label><select name="produto_id" id="pp">${opt('', '—', p.produto_id)}${produtos.map((x) => `<option value="${x.id}" data-preco="${x.preco_venda || ''}" ${String(p.produto_id) === String(x.id) ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>
-      <div class="field"><label>Descrição (se não estiver no estoque)</label><input type="text" name="produto_texto" value="${esc(p.produto_texto || '')}"></div>
-      <div class="field"><label>Valor (R$)</label><input type="number" step="0.01" name="valor" id="pv" value="${esc(p.valor ?? '')}"></div>
+      ${usaItens ? itensOrcamentoHtml(itens || [], tabela || [], UNIDADES_ITEM) : ''}
+      <div class="field" ${usaItens ? 'style="display:none"' : ''}><label>Produto</label><select name="produto_id" id="pp">${opt('', '—', p.produto_id)}${produtos.map((x) => `<option value="${x.id}" data-preco="${x.preco_venda || ''}" ${String(p.produto_id) === String(x.id) ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>
+      <div class="field" ${usaItens ? 'style="display:none"' : ''}><label>Descrição (se não estiver no estoque)</label><input type="text" name="produto_texto" value="${esc(p.produto_texto || '')}"></div>
+      <div class="field"><label>Valor ${usaItens ? '(soma dos itens)' : ''} (R$)</label><input type="number" step="0.01" name="valor" id="pv" value="${esc(p.valor ?? '')}" ${usaItens ? 'readonly' : ''}></div>
       <div class="field"><label>Desconto (R$)</label><input type="number" step="0.01" name="desconto" id="pd" value="${esc(p.desconto || 0)}"></div>
       <div class="field"><label>Forma de pagamento</label><select name="forma_pagamento">${options(formas, p.forma_pagamento, 'Selecionar')}</select></div>
       <div class="field"><label>Entrada (R$)</label><input type="number" step="0.01" name="entrada" id="pe" value="${esc(p.entrada || 0)}"></div>
       <div class="field"><label>Parcelas</label><input type="number" name="parcelas" id="pn" value="${esc(p.parcelas || '')}"></div>
       <div class="field"><label>Valor da parcela (R$)</label><input type="number" step="0.01" name="valor_parcela" id="vp" value="${esc(p.valor_parcela || '')}"><small class="muted">Calculado sem juros; ajuste se tiver juros da maquininha.</small></div>
       <div class="field"><label>Validade</label><input type="date" name="validade" value="${esc(p.validade || '')}"></div>
+      <div class="field"><label>Prazo de entrega</label><input type="text" name="prazo_entrega" value="${esc(p.prazo_entrega || '')}" placeholder="${usaItens ? 'Ex.: 3 dias úteis após aprovação da arte' : 'Ex.: pronta entrega'}"></div>
       <div class="field"><label>Status</label><select name="status">${Object.entries(STATUS_PROPOSTA).map(([k, l]) => opt(k, l, p.status)).join('')}</select></div>
       <div class="field"><label>Vendedor</label><select name="vendedor_id">${vendedores.map((v) => opt(v.id, v.name, p.vendedor_id)).join('')}</select></div>
       <div class="field full"><label>Observações (aparecem na proposta)</label><textarea name="observacoes">${esc(p.observacoes || '')}</textarea></div>
@@ -387,34 +423,28 @@ function propostaFormPage({ user, flash, csrfToken, neg, prop, editando, produto
   return page({ title: 'CRM · Proposta', user, flash, gestor: false }, 'propostas', body);
 }
 
-// Nome da empresa vem do título do catálogo (Configurações → Catálogo), pra servir a qualquer cliente do SaaS.
-function nomeEmpresa() {
-  try {
-    const r = db.prepare('SELECT catalogo_titulo FROM config_geral WHERE id = 1').get();
-    return r && r.catalogo_titulo ? String(r.catalogo_titulo).trim() : '';
-  } catch (e) {
-    return '';
-  }
-}
-
-function propostaTextoWhatsApp(p, neg) {
+function propostaTextoWhatsApp(p, neg, itens) {
+  const seg = segmentoAtual();
   const primeiro = String(neg.lead_nome || '').split(/\s+/)[0];
   const linhas = [
     `Olá, ${primeiro}! Segue sua proposta${nomeEmpresa() ? ' da ' + nomeEmpresa() : ''}:`,
     '',
-    `🛵 ${p.produto || 'Produto'}`,
+    ...(itens && itens.length
+      ? itens.map((i) => `• ${i.descricao}${i.unidade === 'm2' && i.largura ? ` (${String(i.largura).replace('.', ',')} × ${String(i.altura).replace('.', ',')} m)` : ''} — ${i.unidade === 'servico' ? '' : Number(i.quantidade).toLocaleString('pt-BR') + ' un.: '}${money(i.total)}`)
+      : [`${seg.emoji} ${p.produto || 'Produto'}`]),
     `💰 Valor: ${money(p.valor - p.desconto)}${p.desconto ? ` (desconto de ${money(p.desconto)})` : ''}`,
   ];
   if (p.forma_pagamento) linhas.push(`💳 Pagamento: ${p.forma_pagamento}`);
   if (p.entrada) linhas.push(`Entrada: ${money(p.entrada)}`);
   if (p.parcelas) linhas.push(`${p.parcelas}x de ${money(p.valor_parcela)}`);
+  if (p.prazo_entrega) linhas.push(`⏱️ Prazo: ${p.prazo_entrega}`);
   if (p.validade) linhas.push(`Válida até ${dt(p.validade)}`);
   if (p.observacoes) linhas.push('', p.observacoes);
   linhas.push('', 'Qualquer dúvida, é só me chamar!');
   return linhas.join('\n');
 }
 
-function propostaVerPage({ user, flash, prop, neg, STATUS_PROPOSTA, wa }) {
+function propostaVerPage({ user, flash, prop, neg, itens, STATUS_PROPOSTA, UNIDADES_ITEM, wa }) {
   const p = prop;
   const body = `<p><a class="link-btn" href="/crm/negocios/${neg.id}">← ${esc(neg.lead_nome)}</a></p>
   <div class="page-header"><h1>Proposta #${p.id}</h1><div class="actions-row" style="margin:0">
@@ -422,14 +452,18 @@ function propostaVerPage({ user, flash, prop, neg, STATUS_PROPOSTA, wa }) {
     ${wa ? `<a class="btn" href="${esc(wa)}" target="_blank">Enviar no WhatsApp ↗</a>` : ''}</div></div>
   <div class="card"><dl class="dl">
     <dt>Cliente</dt><dd>${esc(neg.lead_nome)} ${esc(neg.telefone || '')}</dd>
-    <dt>Produto</dt><dd>${esc(p.produto || '—')}</dd>
+    ${itens && itens.length ? '' : `<dt>Produto</dt><dd>${esc(p.produto || '—')}</dd>`}
     <dt>Valor</dt><dd>${money(p.valor)}${p.desconto ? ' − desconto ' + money(p.desconto) + ' = <b>' + money(p.valor - p.desconto) + '</b>' : ''}</dd>
     <dt>Pagamento</dt><dd>${esc(p.forma_pagamento || '—')}</dd>
     ${p.entrada ? `<dt>Entrada</dt><dd>${money(p.entrada)}</dd>` : ''}
     ${p.parcelas ? `<dt>Parcelamento</dt><dd>${p.parcelas}x de ${money(p.valor_parcela)}</dd>` : ''}
+    ${p.prazo_entrega ? `<dt>Prazo</dt><dd>${esc(p.prazo_entrega)}</dd>` : ''}
     <dt>Validade</dt><dd>${dt(p.validade)}</dd><dt>Vendedor</dt><dd>${esc(p.vendedor || '')}</dd><dt>Status</dt><dd>${esc(STATUS_PROPOSTA[p.status] || p.status)}</dd>
     ${p.observacoes ? `<dt>Observações</dt><dd style="white-space:pre-wrap">${esc(p.observacoes)}</dd>` : ''}
-  </dl></div>`;
+  </dl></div>
+  ${itens && itens.length ? `<div class="card" style="padding:0"><table><thead><tr><th>Item</th><th>Medida</th><th>Qtd.</th><th>Preço</th><th>Total</th></tr></thead><tbody>
+    ${itens.map((i) => `<tr><td>${esc(i.descricao)}</td><td>${i.unidade === 'm2' ? `${i.largura} × ${i.altura} m` : '—'}</td><td>${i.quantidade}</td><td>${money(i.preco_unit)} / ${esc(UNIDADES_ITEM[i.unidade] || i.unidade)}</td><td><b>${money(i.total)}</b></td></tr>`).join('')}
+  </tbody></table></div>` : ''}`;
   return page({ title: 'Proposta #' + p.id, user, flash, gestor: false }, 'propostas', body);
 }
 
@@ -473,11 +507,20 @@ function origensPage({ user, flash, rows, per, por }) {
 }
 
 // ------------------------------------------------------------------ Configurar CRM
-function configPage({ user, flash, csrfToken, etapas, dist, metas, mes, webhook }) {
+function configPage({ user, flash, csrfToken, segInfo, etapas, dist, metas, mes, webhook }) {
   const c = csrfInput(csrfToken);
   const meta = (uid) => metas.find((m) => m.user_id === uid) || {};
   const tipos = [['aberta', 'Em aberto'], ['ganho', 'Ganho'], ['perdido', 'Perdido'], ['desqualificado', 'Desqualificado']];
   const body = `<h1>Configurar CRM</h1>
+  <form method="POST" class="card">${c}<input type="hidden" name="secao" value="segmento"><h2>Empresa e segmento</h2>
+    <div class="form-grid">
+      <div class="field"><label>Nome da empresa (vai nas propostas)</label><input type="text" name="empresa_nome" value="${esc(segInfo.empresa)}" placeholder="Se vazio, usa o título do catálogo"></div>
+      <div class="field"><label>Segmento</label><select name="segmento">${segInfo.opcoes.map((o) => opt(o.id, o.nome, segInfo.atual)).join('')}</select></div>
+    </div>
+    <p class="muted">O segmento define formas de pagamento, motivos de follow-up/perda, categorias de resposta e, na gráfica, o orçamento por itens (m², unidade, cento, milheiro) com tabela de preços.</p>
+    <label style="font-weight:400"><input type="checkbox" name="aplicar_etapas" value="1" style="width:auto"> Trocar as etapas do funil pelas do segmento (os negócios vão para a etapa equivalente)</label>
+    <label style="font-weight:400"><input type="checkbox" name="respostas_modelo" value="1" style="width:auto"> Adicionar respostas rápidas de exemplo do segmento</label>
+    <div class="actions-row"><button class="btn" type="submit">Salvar</button></div></form>
   <form method="POST" class="card">${c}<input type="hidden" name="secao" value="etapas"><h2>Etapas do funil</h2>
     <p class="muted">Etapas do tipo "Ganho" contam como venda; "Perdido"/"Desqualificado" fecham o negócio.</p>
     <table><thead><tr><th>Ordem</th><th>Nome</th><th>Cor</th><th>Tipo</th><th>Ativa</th></tr></thead><tbody>
@@ -508,7 +551,24 @@ function configPage({ user, flash, csrfToken, etapas, dist, metas, mes, webhook 
   return page({ title: 'CRM · Configurar', user, flash, gestor: true }, 'config', body);
 }
 
+function precosPage({ user, flash, csrfToken, rows, edit, UNIDADES_ITEM }) {
+  const e = edit || {};
+  const body = `<div class="page-header"><div><h1>Tabela de preços</h1><p class="subtitle">Materiais e serviços usados no orçamento. Ao digitar o nome do item na proposta, cobrança, preço e mínimo são preenchidos.</p></div></div>
+  <div class="duas"><div class="card" style="padding:0">${rows.length ? `<table><thead><tr><th>Material / serviço</th><th>Cobrança</th><th>Preço</th><th>Mínimo</th><th></th></tr></thead><tbody>
+    ${rows.map((r) => `<tr style="${r.ativo ? '' : 'opacity:.5'}"><td>${esc(r.nome)}</td><td>${esc(UNIDADES_ITEM[r.unidade] || r.unidade)}</td><td>${money(r.preco)}</td><td>${r.minimo ? money(r.minimo) : '—'}</td><td><a class="link-btn" href="/crm/precos?editar=${r.id}">editar</a></td></tr>`).join('')}
+  </tbody></table>` : '<p class="empty">Nenhum preço cadastrado. Ex.: Lona 440g (m²) R$ 45 · Adesivo vinil (m²) R$ 60 · Cartão de visita 4x4 (milheiro) R$ 120 · Criação de arte (serviço) R$ 50.</p>'}</div>
+  <form method="POST" class="card" action="/crm/precos">${csrfInput(csrfToken)}<h2>${e.id ? 'Editar' : 'Novo item'}</h2>${e.id ? `<input type="hidden" name="id" value="${e.id}">` : ''}
+    <div class="field"><label>Material / serviço *</label><input type="text" name="nome" value="${esc(e.nome || '')}" required></div>
+    <div class="field"><label>Cobrança por</label><select name="unidade">${Object.entries(UNIDADES_ITEM).map(([k, l]) => opt(k, l, e.unidade || 'm2')).join('')}</select></div>
+    <div class="field"><label>Preço (R$)</label><input type="number" step="0.01" name="preco" value="${esc(e.preco ?? '')}"></div>
+    <div class="field"><label>Valor mínimo do item (R$)</label><input type="number" step="0.01" name="minimo" value="${esc(e.minimo || '')}"></div>
+    ${e.id ? `<div class="field"><label>Situação</label><select name="ativo">${opt('1', 'Ativo', e.ativo)}${opt('0', 'Inativo', e.ativo)}</select></div>` : ''}
+    <button class="btn" type="submit">Salvar</button> ${e.id ? '<a class="link-btn" href="/crm/precos">cancelar</a>' : ''}</form></div>`;
+  return page({ title: 'CRM · Tabela de preços', user, flash }, 'precos', body);
+}
+
 module.exports = {
+  precosPage,
   meuDiaPage, funilPage, negocioFormPage, negocioShowPage, leadsPage, importarPage, followupsPage,
   propostasPage, propostaFormPage, propostaVerPage, propostaTextoWhatsApp, respostasPage, origensPage, configPage,
 };

@@ -7,6 +7,7 @@
 
 const { db } = require('./db');
 const V = require('./views/crm');
+const { SEGMENTOS, UNIDADES_ITEM, totalItem, segmentoAtual } = require('./crmSegmentos');
 
 // ----------------------------------------------------------------- helpers
 const txt = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
@@ -36,11 +37,7 @@ const LOCAL = (col) => `datetime(${col}, '-3 hours')`;
 
 const ORIGENS = ['Meta Ads', 'Google Ads', 'TikTok', 'Instagram', 'Facebook', 'WhatsApp', 'Site', 'Indicação', 'Loja física', 'Feira / evento', 'Outro'];
 const CANAIS = ['WhatsApp', 'Instagram', 'Facebook', 'Site', 'Telefone', 'Indicação', 'Loja física', 'Outro'];
-const MOTIVOS_FOLLOWUP = ['Retorno de proposta', 'Cliente pediu para chamar depois', 'Negociação', 'Financiamento / crediário', 'Test ride / visita', 'Pós-atendimento', 'Outro'];
-const FORMAS_PGTO = ['PIX', 'Dinheiro', 'Cartão', 'Crediário próprio', 'Locação com compra garantida', 'Outra'];
 const STATUS_PROPOSTA = { rascunho: 'Rascunho', enviada: 'Enviada', negociacao: 'Em negociação', aceita: 'Aceita', recusada: 'Recusada', expirada: 'Expirada' };
-const CATEGORIAS_RESPOSTA = ['Apresentação', 'Preço', 'Parcelamento', 'Locação', 'Disponibilidade', 'Localização', 'Test ride', 'Follow-up', 'Pós-venda', 'Personalizado'];
-const MOTIVOS_PERDA = ['Preço', 'Comprou em outro lugar', 'Sem crédito / reprovado', 'Desistiu', 'Sem resposta', 'Sem estoque do modelo', 'Outro'];
 const TIPOS_INTERACAO = { observacao: 'Observação', ligacao: 'Ligação', mensagem: 'Mensagem', reuniao: 'Reunião / visita' };
 
 function periodo(p) {
@@ -132,6 +129,44 @@ function entradaDeLead(d, userId) {
     db.prepare('INSERT INTO crm_followups (negocio_id, responsavel_id, data_hora, motivo) VALUES (?, ?, ?, ?)').run(negocioId, resp, d.proximo_followup, 'Primeiro contato');
   }
   return { leadId: lead.id, negocioId, duplicado: false };
+}
+
+const tabelaPrecos = () => db.prepare('SELECT * FROM crm_tabela_precos WHERE ativo = 1 ORDER BY nome').all();
+const itensDaProposta = (id) => db.prepare('SELECT * FROM crm_proposta_itens WHERE proposta_id = ? ORDER BY id').all(id);
+const arr = (v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+
+// Itens do orçamento vindos do formulário (campos repetidos it_*).
+function itensDoBody(body) {
+  const desc = arr(body.it_desc);
+  const out = [];
+  desc.forEach((d, i) => {
+    const it = {
+      descricao: txt(d),
+      unidade: UNIDADES_ITEM[arr(body.it_un)[i]] ? arr(body.it_un)[i] : 'un',
+      largura: num(arr(body.it_larg)[i]),
+      altura: num(arr(body.it_alt)[i]),
+      quantidade: num(arr(body.it_qtd)[i]) || 0,
+      preco_unit: num(arr(body.it_preco)[i]) || 0,
+      minimo: num(arr(body.it_min)[i]) || 0,
+    };
+    if (!it.descricao || !it.quantidade) return;
+    it.total = totalItem(it);
+    out.push(it);
+  });
+  return out;
+}
+
+// Troca as etapas do funil pelas do segmento, levando os negócios para a etapa equivalente.
+function aplicarEtapasSegmento(segKey) {
+  const seg = SEGMENTOS[segKey];
+  if (!seg) return;
+  const antigas = db.prepare('SELECT * FROM crm_etapas WHERE ativo = 1').all();
+  db.prepare('UPDATE crm_etapas SET ativo = 0').run();
+  const ins = db.prepare('INSERT INTO crm_etapas (nome, ordem, cor, tipo) VALUES (?, ?, ?, ?)');
+  const novas = seg.etapas.map(([nome, cor, tipo], i) => ({ id: Number(ins.run(nome, i + 1, cor, tipo).lastInsertRowid), tipo }));
+  const primeira = (tipo) => (novas.find((e) => e.tipo === tipo) || novas.find((e) => e.tipo === 'perdido') || novas[0]).id;
+  const mover = db.prepare('UPDATE crm_negocios SET etapa_id = ? WHERE etapa_id = ?');
+  for (const a of antigas) mover.run(primeira(a.tipo === 'desqualificado' ? 'perdido' : a.tipo), a.id);
 }
 
 function negocioCompleto(id) {
@@ -343,7 +378,7 @@ async function handleCrm(ctx) {
     const propostas = db.prepare('SELECT * FROM crm_propostas WHERE negocio_id = ? ORDER BY id DESC').all(neg.id);
     const outros = db.prepare('SELECT n.id, n.status, n.created_at, e.nome etapa FROM crm_negocios n LEFT JOIN crm_etapas e ON e.id=n.etapa_id WHERE n.lead_id = ? AND n.id != ? ORDER BY n.id DESC').all(neg.lead_id, neg.id);
     const respostas = db.prepare('SELECT * FROM crm_respostas ORDER BY categoria, titulo').all();
-    return send(res, 200, V.negocioShowPage({ ...base, flash: flash(), neg, atividades, followups, propostas, outros, respostas, etapas: etapas(), vendedores: vendedores(), tipos: TIPOS_INTERACAO, motivosFollowup: MOTIVOS_FOLLOWUP, motivosPerda: MOTIVOS_PERDA, wa: waLink(neg.telefone), hoje: hojeLocal() })), true;
+    return send(res, 200, V.negocioShowPage({ ...base, flash: flash(), neg, atividades, followups, propostas, outros, respostas, etapas: etapas(), vendedores: vendedores(), tipos: TIPOS_INTERACAO, motivosFollowup: segmentoAtual().motivosFollowup, motivosPerda: segmentoAtual().motivosPerda, wa: waLink(neg.telefone), hoje: hojeLocal() })), true;
   }
 
   if ((m = matchRoute('/crm/negocios/:id/editar', pathname))) {
@@ -564,10 +599,12 @@ async function handleCrm(ctx) {
     if (!neg) return notFound(res), true;
     if (method === 'GET') {
       const vazio = { produto_id: neg.produto_id, produto_texto: neg.produto_texto, valor: neg.valor || '', status: 'rascunho', vendedor_id: neg.responsavel_id || user.id, validade: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) };
-      return send(res, 200, V.propostaFormPage({ ...base, flash: flash(), neg, prop: prop || vazio, editando: !!prop, produtos: produtos(), vendedores: vendedores(), formas: FORMAS_PGTO, STATUS_PROPOSTA })), true;
+      return send(res, 200, V.propostaFormPage({ ...base, flash: flash(), neg, prop: prop || vazio, editando: !!prop, produtos: produtos(), vendedores: vendedores(), formas: segmentoAtual().formasPgto, seg: segmentoAtual(), tabela: tabelaPrecos(), itens: prop ? itensDaProposta(prop.id) : [], UNIDADES_ITEM, STATUS_PROPOSTA })), true;
     }
     if (method === 'POST') {
-      const vals = [int(body.produto_id), txt(body.produto_texto), num(body.valor) || 0, num(body.desconto) || 0, num(body.entrada) || 0, int(body.parcelas), num(body.valor_parcela), txt(body.forma_pagamento), txt(body.validade), STATUS_PROPOSTA[body.status] ? body.status : 'rascunho', int(body.vendedor_id), txt(body.observacoes)];
+      const itens = segmentoAtual().usaItensOrcamento ? itensDoBody(body) : [];
+      if (itens.length) body.valor = itens.reduce((t, i) => t + i.total, 0).toFixed(2);
+      const vals = [int(body.produto_id), txt(body.produto_texto) || (itens.length ? itens.map((i) => i.descricao).join(', ').slice(0, 200) : null), num(body.valor) || 0, num(body.desconto) || 0, num(body.entrada) || 0, int(body.parcelas), num(body.valor_parcela), txt(body.forma_pagamento), txt(body.validade), STATUS_PROPOSTA[body.status] ? body.status : 'rascunho', int(body.vendedor_id), txt(body.observacoes)];
       let id = prop && prop.id;
       if (prop) {
         db.prepare('UPDATE crm_propostas SET produto_id=?, produto_texto=?, valor=?, desconto=?, entrada=?, parcelas=?, valor_parcela=?, forma_pagamento=?, validade=?, status=?, vendedor_id=?, observacoes=? WHERE id=?').run(...vals, prop.id);
@@ -575,6 +612,12 @@ async function handleCrm(ctx) {
       } else {
         id = db.prepare('INSERT INTO crm_propostas (negocio_id, produto_id, produto_texto, valor, desconto, entrada, parcelas, valor_parcela, forma_pagamento, validade, status, vendedor_id, observacoes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(neg.id, ...vals).lastInsertRowid;
         registrar(neg.id, user.id, 'proposta', `Proposta #${id} criada · R$ ${(vals[2] - vals[3]).toFixed(2)}`, { contaComoContato: true });
+      }
+      db.prepare('UPDATE crm_propostas SET prazo_entrega = ? WHERE id = ?').run(txt(body.prazo_entrega), id);
+      if (segmentoAtual().usaItensOrcamento) {
+        db.prepare('DELETE FROM crm_proposta_itens WHERE proposta_id = ?').run(id);
+        const insI = db.prepare('INSERT INTO crm_proposta_itens (proposta_id, descricao, unidade, largura, altura, quantidade, preco_unit, minimo, total) VALUES (?,?,?,?,?,?,?,?,?)');
+        for (const i of itens) insI.run(id, i.descricao, i.unidade, i.largura, i.altura, i.quantidade, i.preco_unit, i.minimo, i.total);
       }
       // valor do negócio acompanha a última proposta
       db.prepare('UPDATE crm_negocios SET valor = ? WHERE id = ?').run(Math.max(0, vals[2] - vals[3]), neg.id);
@@ -586,15 +629,16 @@ async function handleCrm(ctx) {
     const prop = db.prepare('SELECT pr.*, COALESCE(p.nome, pr.produto_texto) produto, u.name vendedor FROM crm_propostas pr LEFT JOIN pecas p ON p.id=pr.produto_id LEFT JOIN users u ON u.id=pr.vendedor_id WHERE pr.id = ?').get(Number(m.id));
     if (!prop) return notFound(res), true;
     const neg = negocioCompleto(prop.negocio_id);
-    const textoWa = V.propostaTextoWhatsApp(prop, neg);
-    return send(res, 200, V.propostaVerPage({ ...base, flash: flash(), prop, neg, STATUS_PROPOSTA, wa: waLink(neg.telefone, textoWa) })), true;
+    const itens = itensDaProposta(prop.id);
+    const textoWa = V.propostaTextoWhatsApp(prop, neg, itens);
+    return send(res, 200, V.propostaVerPage({ ...base, flash: flash(), prop, neg, itens, STATUS_PROPOSTA, UNIDADES_ITEM, wa: waLink(neg.telefone, textoWa) })), true;
   }
 
   // ---------------------------------------------------------- Respostas rápidas
   if (pathname === '/crm/respostas' && method === 'GET') {
     const rows = db.prepare('SELECT * FROM crm_respostas ORDER BY categoria, titulo').all();
     const edit = q('editar') ? db.prepare('SELECT * FROM crm_respostas WHERE id = ?').get(Number(q('editar'))) : null;
-    return send(res, 200, V.respostasPage({ ...base, flash: flash(), rows, edit, categorias: CATEGORIAS_RESPOSTA })), true;
+    return send(res, 200, V.respostasPage({ ...base, flash: flash(), rows, edit, categorias: segmentoAtual().categoriasResposta })), true;
   }
   if (pathname === '/crm/respostas' && method === 'POST') {
     if (!txt(body.titulo) || !txt(body.mensagem)) { erro('Título e mensagem são obrigatórios.'); return redirect(res, '/crm/respostas'), true; }
@@ -630,6 +674,24 @@ async function handleCrm(ctx) {
     return send(res, 200, V.origensPage({ ...base, flash: flash(), rows, per, por: q('por') || 'origem' })), true;
   }
 
+  // ---------------------------------------------------------- Tabela de preços (orçamento)
+  if (pathname === '/crm/precos') {
+    if (!gestor) return forbidden(res), true;
+    if (method === 'GET') {
+      const rows = db.prepare('SELECT * FROM crm_tabela_precos ORDER BY ativo DESC, nome').all();
+      const edit = q('editar') ? db.prepare('SELECT * FROM crm_tabela_precos WHERE id = ?').get(Number(q('editar'))) : null;
+      return send(res, 200, V.precosPage({ ...base, flash: flash(), rows, edit, UNIDADES_ITEM })), true;
+    }
+    if (method === 'POST') {
+      if (!txt(body.nome)) { erro('Informe o nome do material/serviço.'); return redirect(res, '/crm/precos'), true; }
+      const v = [txt(body.nome), UNIDADES_ITEM[body.unidade] ? body.unidade : 'un', num(body.preco) || 0, num(body.minimo) || 0, body.ativo === '0' ? 0 : 1];
+      if (int(body.id)) db.prepare('UPDATE crm_tabela_precos SET nome=?, unidade=?, preco=?, minimo=?, ativo=? WHERE id=?').run(...v, int(body.id));
+      else db.prepare('INSERT INTO crm_tabela_precos (nome, unidade, preco, minimo, ativo) VALUES (?,?,?,?,?)').run(...v);
+      ok('Preço salvo.');
+      return redirect(res, '/crm/precos'), true;
+    }
+  }
+
   // ---------------------------------------------------------- Configurações do CRM
   if (pathname === '/crm/config') {
     if (!gestor) return forbidden(res), true;
@@ -640,11 +702,30 @@ async function handleCrm(ctx) {
       const mes = mesLocal();
       const metas = db.prepare('SELECT * FROM crm_metas WHERE mes = ?').all(mes);
       const origin = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`;
-      return send(res, 200, V.configPage({ ...base, flash: flash(), etapas: db.prepare('SELECT * FROM crm_etapas ORDER BY ativo DESC, ordem, id').all(), dist, metas, mes, webhook: origin + '/api/crm/lead?token=' + getConfig('webhook_token') })), true;
+      const segInfo = { atual: segmentoAtual().key, opcoes: Object.entries(SEGMENTOS).map(([k, v]) => ({ id: k, nome: v.nome })), empresa: getConfig('empresa_nome') || '' };
+      return send(res, 200, V.configPage({ ...base, flash: flash(), segInfo, etapas: db.prepare('SELECT * FROM crm_etapas ORDER BY ativo DESC, ordem, id').all(), dist, metas, mes, webhook: origin + '/api/crm/lead?token=' + getConfig('webhook_token') })), true;
     }
     if (method === 'POST') {
       const sec = body.secao;
-      if (sec === 'etapas') {
+      if (sec === 'segmento') {
+        const novo = SEGMENTOS[body.segmento] ? body.segmento : 'moto';
+        setConfig('segmento', novo);
+        setConfig('empresa_nome', txt(body.empresa_nome) || '');
+        let msg = 'Segmento e nome da empresa salvos.';
+        if (body.aplicar_etapas) {
+          aplicarEtapasSegmento(novo);
+          msg += ' Etapas do funil trocadas (negócios levados para a etapa equivalente).';
+        }
+        if (body.respostas_modelo) {
+          const ins = db.prepare('INSERT INTO crm_respostas (titulo, categoria, atalho, mensagem) VALUES (?, ?, ?, ?)');
+          let n = 0;
+          for (const r of SEGMENTOS[novo].respostasIniciais) {
+            if (!db.prepare('SELECT 1 FROM crm_respostas WHERE atalho = ?').get(r[2])) { ins.run(...r); n++; }
+          }
+          msg += ` ${n} respostas rápidas de exemplo adicionadas.`;
+        }
+        ok(msg);
+      } else if (sec === 'etapas') {
         for (const e of db.prepare('SELECT id FROM crm_etapas').all()) {
           if (body['nome_' + e.id] === undefined) continue;
           db.prepare('UPDATE crm_etapas SET nome=?, ordem=?, cor=?, tipo=?, ativo=? WHERE id=?').run(

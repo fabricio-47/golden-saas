@@ -76,6 +76,7 @@ const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalog
 const { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage } = require('./src/views/frota');
 const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE } = require('./src/locacaoRoutes');
 const { handleCrm, handleCrmWebhook } = require('./src/crmRoutes');
+const { somenteCrm } = require('./src/crmSegmentos');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -963,6 +964,14 @@ async function handler(req, res) {
         if (pathname.startsWith(prefixo) && !userCanAccessModulo(user, modulo)) {
           return forbidden(res);
         }
+      }
+    }
+
+    // Modo "só CRM": qualquer tela fora do CRM/clientes/administração volta para o CRM.
+    if (user && somenteCrm()) {
+      const PERMITIDO = ['/crm', '/clientes', '/usuarios', '/niveis', '/auditoria', '/backup', '/logout', '/licenca', '/convite', '/minha-senha', '/uploads', '/manifest.webmanifest', '/sw.js', '/icon-'];
+      if (pathname === '/' || !PERMITIDO.some((p) => pathname.startsWith(p))) {
+        return method === 'GET' ? redirect(res, '/crm') : forbidden(res);
       }
     }
 

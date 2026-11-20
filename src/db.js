@@ -1148,6 +1148,29 @@ db.exec(`
     valor TEXT
   );
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS crm_tabela_precos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    unidade TEXT NOT NULL DEFAULT 'un', -- m2 | un | cento | milheiro | ml | servico
+    preco REAL NOT NULL DEFAULT 0,
+    minimo REAL NOT NULL DEFAULT 0,
+    ativo INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS crm_proposta_itens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposta_id INTEGER NOT NULL REFERENCES crm_propostas(id) ON DELETE CASCADE,
+    descricao TEXT NOT NULL,
+    unidade TEXT NOT NULL DEFAULT 'un',
+    largura REAL,
+    altura REAL,
+    quantidade REAL NOT NULL DEFAULT 1,
+    preco_unit REAL NOT NULL DEFAULT 0,
+    minimo REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0
+  );
+`);
+ensureColumn('crm_propostas', 'prazo_entrega', 'TEXT');
 if (db.prepare('SELECT COUNT(*) c FROM crm_etapas').get().c === 0) {
   const ins = db.prepare('INSERT INTO crm_etapas (nome, ordem, cor, tipo) VALUES (?, ?, ?, ?)');
   [
