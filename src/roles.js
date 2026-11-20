@@ -10,6 +10,7 @@ const MODULOS = [
   { key: 'bicicletas', label: 'Veículos' },
   { key: 'os', label: 'Ordens de Serviço' },
   { key: 'vendas', label: 'Venda Direto' },
+  { key: 'crm', label: 'CRM (funil comercial)' },
   { key: 'estoque', label: 'Estoque' },
   { key: 'financeiro', label: 'Financeiro' },
   { key: 'configuracoes', label: 'Configurações' },

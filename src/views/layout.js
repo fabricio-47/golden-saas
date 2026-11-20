@@ -249,6 +249,22 @@ function layout({ title, activeNav, user, flash, children }) {
   // a ordem deste array é exatamente a ordem exibida na barra lateral.
   const navEntries = [
     { type: 'link', key: 'dashboard', href: '/', label: 'Dashboard', modulo: 'painel' },
+    ...(podeVer('crm')
+      ? [{
+          type: 'group',
+          key: 'crm-group',
+          label: 'CRM',
+          items: [
+            { key: 'crm-dia', href: '/crm', label: 'Meu dia' },
+            { key: 'crm-funil', href: '/crm/funil', label: 'Funil' },
+            { key: 'crm-leads', href: '/crm/leads', label: 'Leads' },
+            { key: 'crm-followups', href: '/crm/follow-ups', label: 'Follow-ups' },
+            { key: 'crm-propostas', href: '/crm/propostas', label: 'Propostas' },
+            { key: 'crm-respostas', href: '/crm/respostas', label: 'Respostas rápidas' },
+            ...(canManage ? [{ key: 'crm-origens', href: '/crm/origens', label: 'Origem e resultados' }, { key: 'crm-config', href: '/crm/config', label: 'Configurar CRM' }] : []),
+          ],
+        }]
+      : []),
     {
       type: 'group',
       key: 'cadastros-group',

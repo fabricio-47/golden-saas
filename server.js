@@ -75,6 +75,7 @@ const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('
 const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
 const { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage } = require('./src/views/frota');
 const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE } = require('./src/locacaoRoutes');
+const { handleCrm, handleCrmWebhook } = require('./src/crmRoutes');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -872,7 +873,7 @@ function buildOsEmailContent(os, clienteNome, tipo) {
 
 // ---------- request handler ----------
 
-const PUBLIC_PATHS = new Set(['/login', '/licenca', '/catalogo', '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png']);
+const PUBLIC_PATHS = new Set(['/api/crm/lead', '/login', '/licenca', '/catalogo', '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png']);
 const pwa = require('./src/assets/pwa');
 
 async function handler(req, res) {
@@ -952,6 +953,7 @@ async function handler(req, res) {
       ['/contas-pagar', 'financeiro'],
       ['/contas-receber', 'financeiro'],
       ['/financeiro', 'financeiro'],
+      ['/crm', 'crm'],
     ];
     if (user && !isContratoPublico) {
       if (pathname === '/' && !userCanAccessModulo(user, 'painel')) {
@@ -963,6 +965,9 @@ async function handler(req, res) {
         }
       }
     }
+
+    // Entrada de leads externos no CRM (Zapier, site, Lead Ads) — lê o corpo cru.
+    if (pathname === '/api/crm/lead') return handleCrmWebhook(req, res, url, send);
 
     let body = {};
     let files = [];
@@ -3516,6 +3521,14 @@ async function handler(req, res) {
       setFlash(session.sessionId, 'success', 'Catálogo salvo.');
       return redirect(res, '/catalogo/config');
     }
+
+    // CRM comercial (funil, leads, follow-ups, propostas).
+    if (
+      await handleCrm({
+        req, res, url, pathname, method, body, user, session,
+        h: { send, redirect, setFlash, takeFlash, hasManagementAccess, forbidden, notFound, matchRoute, enviarCsv },
+      })
+    ) return;
 
     // Locação Pro (rotas novas). Responde antes do bloco antigo de /frota.
     if (

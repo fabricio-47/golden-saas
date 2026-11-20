@@ -1041,7 +1041,134 @@ ensureColumn('clientes', 'rg_orgao', 'TEXT');
 ensureColumn('clientes', 'rg_uf', 'TEXT');
 ensureColumn('clientes', 'data_nascimento', 'TEXT');
 
+// ---------------- CRM (funil comercial, leads, follow-ups, propostas) ----------------
+db.exec(`
+  CREATE TABLE IF NOT EXISTS crm_etapas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    ordem INTEGER NOT NULL DEFAULT 0,
+    cor TEXT NOT NULL DEFAULT '#2c6ea8',
+    tipo TEXT NOT NULL DEFAULT 'aberta', -- aberta | ganho | perdido | desqualificado
+    ativo INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS crm_leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    telefone TEXT,
+    telefone_norm TEXT,
+    email TEXT,
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    observacoes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_crm_leads_tel ON crm_leads(telefone_norm);
+  CREATE TABLE IF NOT EXISTS crm_negocios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL REFERENCES crm_leads(id) ON DELETE CASCADE,
+    titulo TEXT NOT NULL,
+    valor REAL NOT NULL DEFAULT 0,
+    etapa_id INTEGER REFERENCES crm_etapas(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'aberto', -- aberto | ganho | perdido
+    responsavel_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    produto_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    produto_texto TEXT,
+    origem TEXT,
+    origem_detalhe TEXT,
+    canal TEXT,
+    campanha TEXT,
+    motivo_perda TEXT,
+    venda_id INTEGER REFERENCES vendas(id) ON DELETE SET NULL,
+    observacoes TEXT,
+    primeiro_contato_at TEXT,
+    ultima_acao_at TEXT NOT NULL DEFAULT (datetime('now')),
+    fechado_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_crm_neg_etapa ON crm_negocios(etapa_id, status);
+  CREATE TABLE IF NOT EXISTS crm_atividades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    negocio_id INTEGER REFERENCES crm_negocios(id) ON DELETE CASCADE,
+    lead_id INTEGER REFERENCES crm_leads(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    tipo TEXT NOT NULL, -- sistema | etapa | observacao | ligacao | mensagem | reuniao | followup | proposta | venda
+    texto TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_crm_ativ_neg ON crm_atividades(negocio_id);
+  CREATE TABLE IF NOT EXISTS crm_followups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    negocio_id INTEGER REFERENCES crm_negocios(id) ON DELETE CASCADE,
+    responsavel_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    data_hora TEXT NOT NULL, -- 'YYYY-MM-DDTHH:MM' horário local
+    motivo TEXT,
+    observacao TEXT,
+    concluido INTEGER NOT NULL DEFAULT 0,
+    concluido_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS crm_propostas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    negocio_id INTEGER REFERENCES crm_negocios(id) ON DELETE CASCADE,
+    produto_id INTEGER REFERENCES pecas(id) ON DELETE SET NULL,
+    produto_texto TEXT,
+    valor REAL NOT NULL DEFAULT 0,
+    desconto REAL NOT NULL DEFAULT 0,
+    entrada REAL NOT NULL DEFAULT 0,
+    parcelas INTEGER,
+    valor_parcela REAL,
+    forma_pagamento TEXT,
+    validade TEXT,
+    status TEXT NOT NULL DEFAULT 'rascunho',
+    vendedor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    observacoes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS crm_respostas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titulo TEXT NOT NULL,
+    categoria TEXT,
+    atalho TEXT,
+    mensagem TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS crm_distribuicao (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    ordem INTEGER NOT NULL DEFAULT 0,
+    ativo INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS crm_metas (
+    mes TEXT NOT NULL,          -- 'YYYY-MM'
+    user_id INTEGER NOT NULL DEFAULT 0, -- 0 = meta da loja
+    meta_vendas INTEGER,
+    meta_faturamento REAL,
+    PRIMARY KEY (mes, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS crm_config (
+    chave TEXT PRIMARY KEY,
+    valor TEXT
+  );
+`);
+if (db.prepare('SELECT COUNT(*) c FROM crm_etapas').get().c === 0) {
+  const ins = db.prepare('INSERT INTO crm_etapas (nome, ordem, cor, tipo) VALUES (?, ?, ?, ?)');
+  [
+    ['Novo Lead', 1, '#2f5fd0', 'aberta'],
+    ['Abordado', 2, '#e0662f', 'aberta'],
+    ['Qualificado', 3, '#d4931f', 'aberta'],
+    ['Follow-Up', 4, '#1f8a9a', 'aberta'],
+    ['Chamar mais para frente', 5, '#6b6558', 'aberta'],
+    ['Ganho (pago)', 6, '#2f8a4f', 'ganho'],
+    ['Perdido', 7, '#a1352a', 'perdido'],
+    ['Desqualificado', 8, '#8a4a8a', 'desqualificado'],
+  ].forEach((e) => ins.run(...e));
+}
+if (!db.prepare("SELECT 1 FROM crm_config WHERE chave='webhook_token'").get()) {
+  db.prepare("INSERT INTO crm_config (chave, valor) VALUES ('webhook_token', ?)").run(crypto.randomBytes(18).toString('hex'));
+}
+
 
 seed();
+// Libera o módulo CRM para quem já vê Vendas (uma vez só; depois vale o que estiver na tela de Níveis).
+db.exec(`INSERT OR IGNORE INTO nivel_permissoes (nivel_id, modulo, pode_ver)
+  SELECT nivel_id, 'crm', 1 FROM nivel_permissoes WHERE modulo = 'vendas' AND pode_ver = 1`);
 
 module.exports = { db, hashPassword };
