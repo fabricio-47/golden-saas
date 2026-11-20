@@ -151,8 +151,15 @@ function importar(dados, { simular }) {
       if (!modeloPorChave[k]) modeloPorChave[k] = m.id;
     }
     const unidadePorExt = {};
+    const chassiUsado = {}; // chassi -> ext que já usou nesta importação
     for (const v of dados.veiculos || []) {
-      const chassi = (t(v.chassi) || t(v.placa) || '').toUpperCase();
+      let chassi = (t(v.chassi) || t(v.placa) || '').toUpperCase();
+      // Chassi repetido no WSYS (erro de cadastro): mantém motos separadas e avisa.
+      if (chassi && chassiUsado[chassi] && chassiUsado[chassi] !== String(v.ext)) {
+        aviso(`Chassi ${chassi} repetido no WSYS (motos ${chassiUsado[chassi]} e ${v.ext}) — importada como "${chassi} #${v.ext}". Corrija o chassi certo na tela da moto.`);
+        chassi = `${chassi} #${v.ext}`;
+      }
+      if (chassi) chassiUsado[chassi.split(' #')[0]] = chassiUsado[chassi.split(' #')[0]] || String(v.ext);
       if (!chassi) {
         aviso(`Moto ${v.ext} sem chassi e sem placa — ignorada.`);
         continue;
@@ -241,6 +248,14 @@ function importar(dados, { simular }) {
               ).lastInsertRowid
           );
           r.locacoes.novas++;
+          // Entrada (o WSYS guarda em "caução"): vira a parcela nº 0, paga na data de saída.
+          const entrada = n(l.valor_caucao);
+          if (entrada && entrada > 0) {
+            const ds = data(l.data_saida) || new Date().toISOString().slice(0, 10);
+            db.prepare("INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, pago, data_pagamento, origem) VALUES (?, 0, ?, ?, 1, ?, 'entrada')").run(locId, entrada, ds, ds);
+            r.parcelas.entradas = (r.parcelas.entradas || 0) + 1;
+            r.parcelas.valor_entradas = Math.round(((r.parcelas.valor_entradas || 0) + entrada) * 100) / 100;
+          }
           if (ativa) r.locacoes.ativas++;
           else r.locacoes.encerradas++;
           for (const o of l.ocorrencias || []) {
@@ -294,7 +309,7 @@ function importar(dados, { simular }) {
     for (const lista of Object.values(locsPorCliente)) {
       for (const a of lista) {
         if (a.semParcelas || a.temParcela) continue;
-        if (db.prepare('SELECT COUNT(*) c FROM locacao_parcelas WHERE locacao_id=?').get(a.id).c > 0) continue;
+        if (db.prepare("SELECT COUNT(*) c FROM locacao_parcelas WHERE locacao_id=? AND origem IS NULL").get(a.id).c > 0) continue;
         const qtd = n(a.plano.parcelas_financeiro);
         const valor = n(a.plano.valor_parcela_financeiro);
         const ini = data(a.plano.data_vencimento_financeiro);

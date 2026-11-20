@@ -237,7 +237,7 @@ async function handleLocacaoPro(ctx) {
       erro('Informe o modelo e o chassi.');
       return done(() => redirect(res, vals[0] ? `/frota/${vals[0]}/unidades` : '/frota'));
     }
-    const dup = db.prepare('SELECT id FROM frota_unidades WHERE UPPER(chassi)=?').get(vals[2]);
+    const dup = db.prepare('SELECT id FROM frota_unidades WHERE UPPER(TRIM(chassi))=?').get(vals[2]);
     if (dup) {
       erro('Já existe moto com esse chassi.');
       return done(() => redirect(res, `/frota/${vals[0]}/unidades`));
@@ -279,6 +279,10 @@ async function handleLocacaoPro(ctx) {
     const vals = unidadeDoBody(body);
     if (!vals[0] || !vals[2]) {
       erro('Informe o modelo e o chassi.');
+      return done(() => redirect(res, `/frota/unidades/${m.id}/editar`));
+    }
+    if (db.prepare('SELECT id FROM frota_unidades WHERE UPPER(TRIM(chassi))=? AND id<>?').get(vals[2], m.id)) {
+      erro('Já existe outra moto com esse chassi.');
       return done(() => redirect(res, `/frota/unidades/${m.id}/editar`));
     }
     db.prepare(

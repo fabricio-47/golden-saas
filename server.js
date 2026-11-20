@@ -399,6 +399,14 @@ function salvarValoresCliente(clienteId, body) {
 }
 
 // Busca garantias cujo chassi ou qualquer número de série bate (parcial) com o termo.
+// CPF/CNPJ não pode repetir entre clientes (compara só os dígitos).
+function clienteComMesmoCpf(cpf, ignorarId) {
+  const d = String(cpf || '').replace(/\D/g, '');
+  if (d.length < 11) return null;
+  return db
+    .prepare("SELECT id, nome FROM clientes WHERE REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cpf_cnpj,''),'.',''),'-',''),'/',''),' ','') = ? AND id <> ?")
+    .get(d, ignorarId || 0) || null;
+}
 function salvarDocsCliente(clienteId, body) {
   const t = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
   db.prepare(
@@ -1173,6 +1181,10 @@ async function handler(req, res) {
       if (!body.nome || !body.nome.trim()) {
         return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: body, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: valoresDoBody(body) }));
       }
+      const dupCpf = clienteComMesmoCpf(body.cpf_cnpj, 0);
+      if (dupCpf) {
+        return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: `Já existe cliente com esse CPF/CNPJ: ${dupCpf.nome} (#${dupCpf.id}).` }, cliente: body, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: valoresDoBody(body) }));
+      }
       const info = db
         .prepare(
           `INSERT INTO clientes
@@ -1210,6 +1222,10 @@ async function handler(req, res) {
       if (!cliente) return notFound(res);
       if (!body.nome || !body.nome.trim()) {
         return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: 'Nome é obrigatório.' }, cliente: { ...cliente, ...body }, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: valoresDoBody(body) }));
+      }
+      const dupCpf2 = clienteComMesmoCpf(body.cpf_cnpj, cliente.id);
+      if (dupCpf2) {
+        return send(res, 400, clienteFormPage({ user, flash: { type: 'error', message: `Já existe cliente com esse CPF/CNPJ: ${dupCpf2.nome} (#${dupCpf2.id}).` }, cliente: { ...cliente, ...body }, csrfToken: session.csrfToken, camposExtras: getCamposExtras('cliente'), valores: valoresDoBody(body) }));
       }
       db.prepare(
         `UPDATE clientes SET
