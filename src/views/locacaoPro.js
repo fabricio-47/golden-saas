@@ -1,0 +1,620 @@
+'use strict';
+
+// Telas da "Locação Pro": painel gerencial, motos individuais (unidades),
+// detalhe da locação (parcelas, ocorrências, devolução, contrato), despesas
+// por moto, agendamentos, modelos de contrato e relatórios de lucratividade.
+
+const { layout } = require('./layout');
+const { escapeHtml, formatMoney, formatDateOnly } = require('../utils');
+
+const esc = escapeHtml;
+const money = (v) => formatMoney(Number(v) || 0);
+const dt = (v) => (v ? formatDateOnly(v) : '—');
+const hojeISO = () => new Date().toISOString().slice(0, 10);
+
+function diasAte(iso) {
+  if (!iso) return null;
+  const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  const h = new Date();
+  h.setHours(0, 0, 0, 0);
+  return Math.round((d - h) / 86400000);
+}
+
+const csrfInput = (t) => `<input type="hidden" name="csrf" value="${esc(t)}">`;
+const badge = (txt, cor) => {
+  const cores = {
+    verde: 'background:rgba(27,122,67,0.12);color:#1b7a43;',
+    vermelho: 'background:rgba(161,53,42,0.12);color:#a1352a;',
+    amarelo: 'background:rgba(176,137,0,0.16);color:#8a6d00;',
+    cinza: 'background:rgba(0,0,0,0.06);color:#555;',
+  };
+  return `<span style="font-size:12px;padding:2px 8px;border-radius:10px;white-space:nowrap;${cores[cor] || cores.cinza}">${esc(txt)}</span>`;
+};
+
+const TIPOS_OCORRENCIA = {
+  multa: 'Multa',
+  colisao: 'Colisão',
+  avaria: 'Avaria',
+  danos_terceiros: 'Danos a terceiros',
+  parada_tecnica: 'Moto parada (problema técnico)',
+  outros: 'Outros',
+};
+const CATEGORIAS_DESPESA = ['Revisão', 'Peças', 'Pneu', 'Freio/pastilha', 'Bateria', 'Elétrica', 'Funilaria', 'Seguro', 'Rastreador', 'Reboque', 'Documentação/IPVA', 'Outros'];
+const FORMAS_PGTO = ['PIX', 'Dinheiro', 'Cartão', 'Boleto', 'Outro'];
+
+function subnav(ativo) {
+  const itens = [
+    ['painel', '/locacao', 'Painel'],
+    ['frota', '/frota', 'Frota / alugar'],
+    ['locacoes', '/locacoes', 'Locações'],
+    ['agendamentos', '/frota/agendamentos', 'Agendamentos'],
+    ['cobranca', '/frota/cobranca', 'Cobrança'],
+    ['despesas', '/frota/despesas', 'Despesas'],
+    ['relatorios', '/frota/relatorios', 'Lucratividade'],
+    ['contratos', '/frota/contratos-modelos', 'Modelos de contrato'],
+  ];
+  return `<div class="actions-row" style="flex-wrap:wrap;gap:6px;margin:0 0 14px;">${itens
+    .map(([k, h, l]) => `<a class="btn btn-sm ${k === ativo ? '' : 'btn-secondary'}" href="${h}">${l}</a>`)
+    .join('')}</div>`;
+}
+
+function page({ title, user, flash, ativo, header, children }) {
+  return layout({
+    title,
+    activeNav: { painel: 'locacao-painel', despesas: 'despesas-frota', relatorios: 'lucratividade', contratos: 'contratos-modelos' }[ativo] || ativo,
+    user,
+    flash,
+    children: `
+      <div class="page-header"><div><h1>${esc(title)}</h1>${header ? `<p class="subtitle">${header}</p>` : ''}</div></div>
+      ${subnav(ativo)}
+      ${children}`,
+  });
+}
+
+function tabela(cabecalho, linhas, vazio) {
+  if (!linhas.length) return `<div class="empty">${esc(vazio || 'Nada por aqui.')}</div>`;
+  return `<div style="overflow-x:auto;"><table><thead><tr>${cabecalho.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${linhas
+    .map((l) => `<tr>${l.map((c) => `<td>${c}</td>`).join('')}</tr>`)
+    .join('')}</tbody></table></div>`;
+}
+
+function optionList(lista, selecionado, labelFn, valorFn = (x) => x.id) {
+  return lista
+    .map((x) => {
+      const v = valorFn(x);
+      return `<option value="${esc(v)}" ${String(v) === String(selecionado ?? '') ? 'selected' : ''}>${esc(labelFn(x))}</option>`;
+    })
+    .join('');
+}
+
+// ---------------------------------------------------------------- PAINEL
+function painelLocacaoPage({ user, flash, k, retornos, receber, ocorrencias, alertas, podeGerenciar }) {
+  const stat = (num, label, cor, href) =>
+    `<${href ? `a href="${href}" style="text-decoration:none;color:inherit;"` : 'div'} class="stat-card"><div class="num" style="${cor ? 'color:' + cor + ';' : ''}">${num}</div><div class="label">${label}</div></${href ? 'a' : 'div'}>`;
+
+  const linRet = retornos.map((r) => {
+    const d = diasAte(r.devolucao_prevista);
+    const st = d === null ? badge('sem data', 'cinza') : d < 0 ? badge(`atrasada ${-d}d`, 'vermelho') : d === 0 ? badge('hoje', 'amarelo') : badge(`em ${d}d`, 'verde');
+    return [`<a href="/locacoes/${r.id}">#${r.id}</a>`, esc(r.cliente_nome || '—'), esc(r.modelo || ''), esc(r.placa || r.chassi || ''), dt(r.devolucao_prevista), st];
+  });
+  const linRec = receber.map((p) => {
+    const d = diasAte(p.vencimento);
+    return [
+      esc(p.cliente_nome || '—'),
+      `<a href="/locacoes/${p.locacao_id}">#${p.locacao_id}</a> · ${p.numero}/${p.total}`,
+      `${dt(p.vencimento)} ${d < 0 ? badge(`${-d}d atraso`, 'vermelho') : badge('hoje', 'amarelo')}`,
+      money(p.valor),
+      podeGerenciar
+        ? `<form method="POST" action="/parcelas/${p.id}/pagar" style="margin:0;display:flex;gap:6px;">${csrfInput(k.csrf)}<input type="hidden" name="voltar" value="cobranca"><select name="forma_pagamento" style="width:auto;">${FORMAS_PGTO.map((f) => `<option>${f}</option>`).join('')}</select><button class="btn btn-sm" type="submit">Receber</button></form>`
+        : '',
+    ];
+  });
+  const linOc = ocorrencias.map((o) => [
+    `<a href="/locacoes/${o.locacao_id}">#${o.locacao_id}</a>`,
+    esc(o.cliente_nome || '—'),
+    esc(TIPOS_OCORRENCIA[o.tipo] || o.tipo),
+    o.data_hora ? esc(String(o.data_hora).replace('T', ' ')) : '—',
+    o.valor != null ? money(o.valor) : '—',
+  ]);
+  const linAl = alertas.map((a) => [esc(a.modelo), esc(a.placa || a.chassi), a.motivos.map((m) => badge(m, 'amarelo')).join(' '), `<a class="btn btn-sm btn-secondary" href="/frota/unidades/${a.id}/editar">Abrir</a>`]);
+
+  return page({
+    title: 'Painel da locação',
+    user,
+    flash,
+    ativo: 'painel',
+    header: 'Visão geral: motos, retornos, cobrança e resultado do mês (em dinheiro que entrou de verdade).',
+    children: `
+      <div class="stat-grid">
+        ${stat(k.ativas, 'Motos ativas')}
+        ${stat(k.locadas, 'Locadas')}
+        ${stat(k.disponiveis, 'Disponíveis', k.disponiveis ? '#1b7a43' : '', '/frota')}
+        ${stat(k.manutencao, 'Em manutenção')}
+        ${stat(k.atrasadas, 'Devolução atrasada', k.atrasadas ? '#a1352a' : '')}
+        ${stat(k.ocupacao + '%', 'Taxa de ocupação')}
+      </div>
+      ${
+        podeGerenciar
+          ? `<div class="stat-grid">
+        ${stat(money(k.recebidoHoje), 'Recebido hoje')}
+        ${stat(money(k.recebidoMes), 'Recebido no mês')}
+        ${stat(money(k.vencido), `Vencido (${k.qtdVencido})`, k.vencido ? '#a1352a' : '', '/frota/cobranca')}
+        ${stat(money(k.despesasMes), 'Despesas do mês', '', '/frota/despesas')}
+        ${stat(money(k.resultadoMes), 'Resultado do mês', k.resultadoMes < 0 ? '#a1352a' : '#1b7a43', '/frota/relatorios')}
+        ${stat(money(k.carteira), 'Carteira a receber')}
+      </div>`
+          : ''
+      }
+      <div class="card"><h2 style="margin-top:0;">A receber hoje / vencidas</h2>${tabela(['Cliente', 'Locação', 'Vencimento', 'Valor', ''], linRec, 'Nenhuma parcela vencida ou vencendo hoje.')}</div>
+      <div class="card"><h2 style="margin-top:0;">Próximos retornos</h2>${tabela(['Locação', 'Cliente', 'Modelo', 'Placa/chassi', 'Retorno', ''], linRet, 'Nenhuma locação ativa.')}</div>
+      <div class="card"><h2 style="margin-top:0;">Ocorrências pendentes</h2>${tabela(['Locação', 'Cliente', 'Tipo', 'Quando', 'Valor'], linOc, 'Nenhuma ocorrência pendente.')}</div>
+      <div class="card"><h2 style="margin-top:0;">Alertas de manutenção</h2>${tabela(['Modelo', 'Placa/chassi', 'Motivo', ''], linAl, 'Nenhuma moto com revisão ou troca pendente.')}</div>`,
+  });
+}
+
+// ---------------------------------------------------------------- UNIDADES
+function unidadesPage({ user, flash, modelo, unidades, csrfToken }) {
+  const linhas = unidades.map((u) => {
+    const st = !u.ativo ? badge('desativada', 'cinza') : u.locacao_id ? badge('locada', 'amarelo') : u.em_manutencao ? badge('manutenção', 'vermelho') : badge('disponível', 'verde');
+    return [
+      esc(u.placa || '—'),
+      esc(u.chassi),
+      esc(u.cor || ''),
+      u.km_atual != null ? esc(String(u.km_atual)) : '—',
+      st + (u.locacao_id ? ` <a href="/locacoes/${u.locacao_id}">${esc(u.cliente_nome || '#' + u.locacao_id)}</a>` : ''),
+      `<a class="btn btn-sm btn-secondary" href="/frota/unidades/${u.id}/editar">Editar</a>`,
+    ];
+  });
+  return page({
+    title: `Motos do modelo ${modelo.identificacao}`,
+    user,
+    flash,
+    ativo: 'frota',
+    header: 'Cada moto física com placa, chassi e km. Com motos cadastradas, a quantidade do modelo passa a ser calculada por elas.',
+    children: `
+      <div class="card">${tabela(['Placa', 'Chassi', 'Cor', 'Km', 'Situação', ''], linhas, 'Nenhuma moto cadastrada neste modelo (ele segue no modo quantidade).')}</div>
+      <div class="card"><h2 style="margin-top:0;">Cadastrar moto</h2>${unidadeForm({ u: { frota_id: modelo.id, cor: modelo.cor }, csrfToken, action: '/frota/unidades' })}</div>`,
+  });
+}
+
+function unidadeForm({ u, csrfToken, action, modelos }) {
+  const f = (name, label, type = 'text', extra = '') =>
+    `<div class="field"><label>${label}</label><input type="${type}" name="${name}" value="${esc(u[name] ?? '')}" ${extra}></div>`;
+  return `
+    <form method="POST" action="${action}">
+      ${csrfInput(csrfToken)}
+      ${modelos ? `<div class="field"><label>Modelo *</label><select name="frota_id" required>${optionList(modelos, u.frota_id, (m) => m.identificacao)}</select></div>` : `<input type="hidden" name="frota_id" value="${esc(u.frota_id)}">`}
+      <div class="form-grid">
+        ${f('chassi', 'Chassi *', 'text', 'required')}
+        ${f('placa', 'Placa')}
+        ${f('renavam', 'Renavam')}
+        ${f('cor', 'Cor')}
+        ${f('ano', 'Ano', 'number', 'min="1990" max="2100"')}
+        ${f('km_atual', 'Km atual', 'number', 'min="0"')}
+        ${f('data_compra', 'Data da compra', 'date')}
+        ${f('valor_compra', 'Valor de compra (R$) — usado no payback', 'number', 'min="0" step="0.01"')}
+      </div>
+      <h3>Manutenção (moto elétrica)</h3>
+      <div class="form-grid">
+        ${f('data_ultima_revisao', 'Última revisão', 'date')}
+        ${f('intervalo_revisao_dias', 'Revisão a cada (dias)', 'number', 'min="1"')}
+        ${f('km_prox_pastilha', 'Próxima troca de pastilha (km)', 'number', 'min="0"')}
+        ${f('km_prox_pneu', 'Próxima troca de pneu (km)', 'number', 'min="0"')}
+      </div>
+      <div class="form-grid">
+        <div class="field"><label><input type="checkbox" name="em_manutencao" value="1" style="width:auto;" ${u.em_manutencao ? 'checked' : ''}> Em manutenção (fora da locação)</label></div>
+        <div class="field"><label><input type="checkbox" name="ativo" value="1" style="width:auto;" ${u.ativo === 0 ? '' : 'checked'}> Ativa na frota</label></div>
+      </div>
+      <div class="field full"><label>Observações</label><textarea name="observacoes" rows="2">${esc(u.observacoes || '')}</textarea></div>
+      <div class="actions-row"><button class="btn" type="submit">Salvar moto</button></div>
+    </form>`;
+}
+
+function unidadeEditarPage({ user, flash, u, modelos, despesas, locacoes, csrfToken }) {
+  const linD = despesas.map((d) => [dt(d.data), esc(d.categoria || ''), esc(d.descricao || ''), money(d.valor)]);
+  const linL = locacoes.map((l) => [`<a href="/locacoes/${l.id}">#${l.id}</a>`, esc(l.cliente_nome || '—'), dt(l.data_saida), dt(l.data_devolucao || l.devolucao_prevista), esc(l.status)]);
+  return page({
+    title: `Moto ${u.placa || u.chassi}`,
+    user,
+    flash,
+    ativo: 'frota',
+    children: `
+      <div class="card">${unidadeForm({ u, csrfToken, action: `/frota/unidades/${u.id}`, modelos })}</div>
+      <div class="card"><h2 style="margin-top:0;">Histórico de locações</h2>${tabela(['Locação', 'Cliente', 'Saída', 'Retorno', 'Status'], linL, 'Sem locações.')}</div>
+      <div class="card"><h2 style="margin-top:0;">Despesas desta moto</h2>${tabela(['Data', 'Categoria', 'Descrição', 'Valor'], linD, 'Sem despesas.')}
+        <div class="actions-row"><a class="btn btn-sm btn-secondary" href="/frota/despesas?unidade=${u.id}">+ Lançar despesa</a></div></div>
+      <form method="POST" action="/frota/unidades/${u.id}/excluir" onsubmit="return confirm('Excluir esta moto? O histórico de locações fica, sem o vínculo.');">${csrfInput(csrfToken)}<button class="btn btn-sm btn-secondary" type="submit">Excluir moto</button></form>`,
+  });
+}
+
+// ---------------------------------------------------------------- LOCAÇÕES (lista)
+function locacoesListPage({ user, flash, locacoes, filtro }) {
+  const linhas = locacoes.map((l) => {
+    const d = diasAte(l.devolucao_prevista);
+    let st = l.status === 'ativa' ? badge('locada', 'amarelo') : badge(l.status, 'cinza');
+    if (l.status === 'ativa' && d !== null && d < 0) st = badge('atrasada', 'vermelho');
+    return [
+      `<a href="/locacoes/${l.id}">#${l.id}</a>`,
+      l.oc_pendentes ? badge(String(l.oc_pendentes), 'vermelho') : '0',
+      esc(l.cliente_nome || '—'),
+      esc(l.modelo || ''),
+      esc(l.placa || l.chassi || ''),
+      `${dt(l.data_saida)} ${esc(l.hora_saida || '')}`,
+      `${dt(l.devolucao_prevista)} ${esc(l.hora_retorno || '')}`,
+      money(l.valor_combinado),
+      `${money(l.aberto)}`,
+      st,
+    ];
+  });
+  const opt = (v, l) => `<option value="${v}" ${filtro.status === v ? 'selected' : ''}>${l}</option>`;
+  return page({
+    title: 'Locações',
+    user,
+    flash,
+    ativo: 'locacoes',
+    children: `
+      <form method="GET" action="/locacoes" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin:0;"><label>Status</label><select name="status">${opt('ativa', 'Locadas')}${opt('devolvida', 'Devolvidas')}${opt('quitada', 'Quitadas (compra garantida)')}${opt('todas', 'Todas')}</select></div>
+        <div class="field" style="margin:0;"><label>Busca</label><input type="text" name="q" value="${esc(filtro.q || '')}" placeholder="cliente, placa, chassi"></div>
+        <div class="field" style="margin:0;"><label>Saída de</label><input type="date" name="de" value="${esc(filtro.de || '')}"></div>
+        <div class="field" style="margin:0;"><label>até</label><input type="date" name="ate" value="${esc(filtro.ate || '')}"></div>
+        <button class="btn btn-sm" type="submit">Filtrar</button>
+        <a class="btn btn-sm btn-secondary" href="/locacoes/exportar.csv?${new URLSearchParams(filtro).toString()}">Exportar CSV</a>
+      </form>
+      <div class="card">${tabela(['ID', 'Ocorr.', 'Cliente', 'Modelo', 'Placa/chassi', 'Saída', 'Retorno', 'Valor total', 'Em aberto', 'Status'], linhas, 'Nenhuma locação encontrada.')}</div>`,
+  });
+}
+
+// ---------------------------------------------------------------- LOCAÇÃO (detalhe)
+function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar }) {
+  const total = parcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  const pago = parcelas.filter((p) => p.pago).reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  const linP = parcelas.map((p) => {
+    const d = diasAte(p.vencimento);
+    const st = p.pago ? badge('pago ' + dt(p.data_pagamento), 'verde') : d !== null && d < 0 ? badge('vencida', 'vermelho') : badge('pendente', 'amarelo');
+    const acao = !podeGerenciar
+      ? ''
+      : p.pago
+      ? `<form method="POST" action="/parcelas/${p.id}/estornar" style="margin:0;" onsubmit="return confirm('Desfazer o pagamento?');">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="loc${loc.id}"><button class="btn btn-sm btn-secondary">Desfazer</button></form>`
+      : `<form method="POST" action="/parcelas/${p.id}/pagar" style="margin:0;display:flex;gap:6px;">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="loc${loc.id}"><select name="forma_pagamento" style="width:auto;">${FORMAS_PGTO.map((f) => `<option>${f}</option>`).join('')}</select><button class="btn btn-sm">Receber</button></form>`;
+    return [String(p.numero) + (p.origem ? ' ' + badge(p.origem.startsWith('ocorrencia:') ? TIPOS_OCORRENCIA[p.origem.slice(11)] || 'ocorrência' : 'avulsa', 'cinza') : ''), dt(p.vencimento), money(p.valor), st + (p.forma_pagamento ? ' ' + esc(p.forma_pagamento) : ''), acao];
+  });
+  const linO = ocorrencias.map((o) => [
+    esc(TIPOS_OCORRENCIA[o.tipo] || o.tipo),
+    o.data_hora ? esc(String(o.data_hora).replace('T', ' ')) : '—',
+    o.valor != null ? money(o.valor) : '—',
+    esc(o.descricao || ''),
+    o.concluido
+      ? badge('concluída', 'verde')
+      : `<form method="POST" action="/locacoes/ocorrencias/${o.id}/concluir" style="margin:0;">${csrfInput(csrfToken)}<button class="btn btn-sm btn-secondary">Concluir</button></form>`,
+  ]);
+  const ativa = loc.status === 'ativa';
+  const fotos = ['foto_moto_caminho', 'foto_moto2_caminho', 'foto_moto3_caminho', 'foto_moto4_caminho', 'foto_cnh_caminho']
+    .filter((c) => loc[c])
+    .map((c) => `<a href="/uploads/${esc(loc[c])}" target="_blank"><img src="/uploads/${esc(loc[c])}" style="height:90px;border-radius:6px;border:1px solid var(--border);"></a>`)
+    .join(' ');
+  const f = (name, label, type = 'text') => `<div class="field"><label>${label}</label><input type="${type}" name="${name}" value="${esc(loc[name] ?? '')}" ${type === 'number' ? 'step="0.01" min="0"' : ''}></div>`;
+
+  return page({
+    title: `Locação #${loc.id}`,
+    user,
+    flash,
+    ativo: 'locacoes',
+    header: `${esc(loc.cliente_nome || 'Cliente')} · ${esc(loc.modelo || '')} ${esc(loc.placa || loc.chassi || '')} · ${ativa ? 'em andamento' : esc(loc.status)}${loc.compra_garantida ? ' · compra garantida' : ''}`,
+    children: `
+      <div class="stat-grid">
+        <div class="stat-card"><div class="num">${money(total)}</div><div class="label">Total das parcelas</div></div>
+        <div class="stat-card"><div class="num" style="color:#1b7a43;">${money(pago)}</div><div class="label">Recebido</div></div>
+        <div class="stat-card"><div class="num" style="color:#8a6d00;">${money(total - pago)}</div><div class="label">Em aberto</div></div>
+        <div class="stat-card"><div class="num">${money(loc.valor_caucao)}</div><div class="label">Caução ${loc.valor_caucao ? (loc.caucao_devolvida ? '(devolvida)' : '(retida)') : ''}</div></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Contrato</h2>
+        ${
+          modelosContrato.length
+            ? `<form method="GET" action="/locacoes/${loc.id}/contrato" target="_blank" style="display:flex;gap:8px;flex-wrap:wrap;">
+                 <select name="modelo" style="width:auto;">${optionList(modelosContrato, null, (m) => m.titulo)}</select>
+                 <button class="btn btn-sm" type="submit">Gerar documento</button>
+               </form><p class="muted" style="margin:6px 0 0;">Abre pronto pra imprimir ou salvar em PDF. Pra assinatura digital, salve o PDF e envie em Contratos.</p>`
+            : '<p class="muted">Nenhum modelo de contrato. <a href="/frota/contratos-modelos/novo">Cadastrar modelo</a>.</p>'
+        }
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Parcelas</h2>
+        ${tabela(['Nº', 'Vencimento', 'Valor', 'Situação', ''], linP, 'Sem parcelas.')}
+        ${
+          podeGerenciar
+            ? `<details style="margin-top:10px;"><summary>+ Adicionar cobrança avulsa</summary>
+          <form method="POST" action="/locacoes/${loc.id}/parcela-avulsa" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">${csrfInput(csrfToken)}
+            <input type="number" name="valor" step="0.01" min="0.01" required placeholder="Valor" style="width:140px;">
+            <input type="date" name="vencimento" value="${hojeISO()}" style="width:auto;">
+            <button class="btn btn-sm">Adicionar</button></form></details>`
+            : ''
+        }
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Ocorrências</h2>
+        ${tabela(['Tipo', 'Quando', 'Valor', 'Descrição', ''], linO, 'Nenhuma ocorrência.')}
+        <details style="margin-top:10px;"><summary>+ Registrar ocorrência</summary>
+          <form method="POST" action="/locacoes/${loc.id}/ocorrencias" style="margin-top:8px;">${csrfInput(csrfToken)}
+            <div class="form-grid">
+              <div class="field"><label>Tipo</label><select name="tipo">${Object.entries(TIPOS_OCORRENCIA).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
+              <div class="field"><label>Data e hora</label><input type="datetime-local" name="data_hora"></div>
+              <div class="field"><label>Valor (R$)</label><input type="number" name="valor" step="0.01" min="0"></div>
+              <div class="field"><label>O que fazer com o valor</label><select name="acao_valor">
+                <option value="">Só registrar</option>
+                <option value="cobrar">Cobrar do cliente (vira parcela)</option>
+                <option value="abater">Abater da próxima parcela (ex.: dias parados)</option>
+              </select></div>
+            </div>
+            <div class="field full"><label>Descrição</label><textarea name="descricao" rows="2"></textarea></div>
+            <button class="btn btn-sm">Salvar ocorrência</button>
+          </form>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Dados do contrato</h2>
+        <form method="POST" action="/locacoes/${loc.id}/dados">${csrfInput(csrfToken)}
+          <div class="form-grid">
+            ${f('data_saida', 'Data de saída', 'date')}${f('hora_saida', 'Hora de saída', 'time')}
+            ${f('devolucao_prevista', 'Retorno previsto', 'date')}${f('hora_retorno', 'Hora de retorno', 'time')}
+            ${f('km_saida', 'Km de saída', 'number')}${f('valor_caucao', 'Caução (R$)', 'number')}
+            ${f('testemunha1_nome', 'Testemunha 1')}${f('testemunha1_rg', 'RG testemunha 1')}
+            ${f('testemunha2_nome', 'Testemunha 2')}${f('testemunha2_rg', 'RG testemunha 2')}
+            ${f('fiador_nome', 'Fiador')}${f('fiador_dados', 'Dados do fiador (CPF, endereço...)')}
+          </div>
+          <div class="field"><label><input type="checkbox" name="compra_garantida" value="1" style="width:auto;" ${loc.compra_garantida ? 'checked' : ''}> Locação com compra garantida (moto vira do cliente ao quitar)</label></div>
+          <div class="field full"><label>Observações</label><textarea name="observacoes" rows="2">${esc(loc.observacoes || '')}</textarea></div>
+          <button class="btn btn-sm">Salvar dados</button>
+        </form>
+      </div>
+
+      ${
+        ativa
+          ? `<div class="card"><h2 style="margin-top:0;">Devolução</h2>
+        <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar a devolução da moto?');">${csrfInput(csrfToken)}
+          <div class="form-grid">
+            <div class="field"><label>Km na devolução</label><input type="number" name="km_retorno" min="0"></div>
+            ${loc.valor_caucao ? '<div class="field"><label><input type="checkbox" name="caucao_devolvida" value="1" style="width:auto;"> Caução devolvida ao cliente</label></div>' : ''}
+          </div>
+          <button class="btn">Registrar devolução</button>
+        </form></div>`
+          : ''
+      }
+      ${fotos ? `<div class="card"><h2 style="margin-top:0;">Fotos da entrega</h2>${fotos}</div>` : ''}`,
+  });
+}
+
+// ---------------------------------------------------------------- DESPESAS
+function despesasPage({ user, flash, despesas, unidades, fornecedores, filtro, total, csrfToken, preUnidade }) {
+  const linhas = despesas.map((d) => [
+    dt(d.data),
+    esc(d.modelo || ''),
+    esc(d.placa || d.chassi || '(geral)'),
+    esc(d.categoria || ''),
+    esc(d.fornecedor_nome || ''),
+    esc(d.descricao || ''),
+    money(d.valor),
+    d.conta_pagar_id ? badge('no financeiro', 'verde') : '',
+    `<form method="POST" action="/frota/despesas/${d.id}/excluir" style="margin:0;" onsubmit="return confirm('Excluir despesa?');">${csrfInput(csrfToken)}<button class="btn btn-sm btn-secondary">Excluir</button></form>`,
+  ]);
+  return page({
+    title: 'Despesas e manutenções da frota',
+    user,
+    flash,
+    ativo: 'despesas',
+    header: 'Tudo que a frota custa. Entra no cálculo de lucratividade por moto.',
+    children: `
+      <div class="card"><h2 style="margin-top:0;">Lançar despesa</h2>
+        <form method="POST" action="/frota/despesas">${csrfInput(csrfToken)}
+          <div class="form-grid">
+            <div class="field"><label>Moto</label><select name="unidade_id"><option value="">(despesa geral da frota)</option>${optionList(unidades, preUnidade, (u) => `${u.modelo} · ${u.placa || u.chassi}`)}</select></div>
+            <div class="field"><label>Categoria</label><select name="categoria">${CATEGORIAS_DESPESA.map((c) => `<option>${c}</option>`).join('')}</select></div>
+            <div class="field"><label>Fornecedor</label><select name="fornecedor_id"><option value="">—</option>${optionList(fornecedores, null, (f) => f.nome)}</select></div>
+            <div class="field"><label>Data *</label><input type="date" name="data" value="${hojeISO()}" required></div>
+            <div class="field"><label>Km atual</label><input type="number" name="km" min="0"></div>
+            <div class="field"><label>Valor (R$) *</label><input type="number" name="valor" step="0.01" min="0.01" required></div>
+          </div>
+          <div class="field full"><label>Descrição</label><input type="text" name="descricao"></div>
+          <div class="field"><label><input type="checkbox" name="lancar_financeiro" value="1" style="width:auto;"> Lançar em Contas a Pagar</label></div>
+          <div class="field"><label><input type="checkbox" name="registrar_revisao" value="1" style="width:auto;"> Foi a revisão periódica (atualiza a data da última revisão da moto)</label></div>
+          <button class="btn">Salvar despesa</button>
+        </form>
+      </div>
+      <form method="GET" action="/frota/despesas" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin:0;"><label>De</label><input type="date" name="de" value="${esc(filtro.de || '')}"></div>
+        <div class="field" style="margin:0;"><label>Até</label><input type="date" name="ate" value="${esc(filtro.ate || '')}"></div>
+        <button class="btn btn-sm">Filtrar</button>
+        <strong style="margin-left:auto;">Total: ${money(total)}</strong>
+      </form>
+      <div class="card">${tabela(['Data', 'Modelo', 'Moto', 'Categoria', 'Fornecedor', 'Descrição', 'Valor', '', ''], linhas, 'Nenhuma despesa no período.')}</div>`,
+  });
+}
+
+// ---------------------------------------------------------------- AGENDAMENTOS
+function agendamentosPage({ user, flash, agendamentos, modelos, clientes, csrfToken }) {
+  const linhas = agendamentos.map((a) => {
+    const st = a.status === 'agendado' ? badge('agendado', 'amarelo') : a.status === 'convertido' ? badge('virou locação', 'verde') : badge(a.status, 'cinza');
+    const acoes =
+      a.status === 'agendado'
+        ? `<div style="display:flex;gap:6px;">
+             <a class="btn btn-sm" href="/frota?alugar=${a.frota_id}&cliente=${a.cliente_id || ''}&agendamento=${a.id}">Entregar moto</a>
+             <form method="POST" action="/frota/agendamentos/${a.id}/cancelar" style="margin:0;" onsubmit="return confirm('Cancelar agendamento?');">${csrfInput(csrfToken)}<button class="btn btn-sm btn-secondary">Cancelar</button></form>
+           </div>`
+        : a.locacao_id
+        ? `<a href="/locacoes/${a.locacao_id}">Locação #${a.locacao_id}</a>`
+        : '';
+    return [
+      esc(a.cliente_nome || '—'),
+      esc(a.modelo || ''),
+      `${dt(a.data_saida)} ${esc(a.hora_saida || '')}`,
+      `${dt(a.data_retorno)} ${esc(a.hora_retorno || '')}`,
+      money((a.valor_total || 0) - (a.desconto || 0)),
+      money(a.valor_pago),
+      money((a.valor_total || 0) - (a.desconto || 0) - (a.valor_pago || 0)),
+      st,
+      acoes,
+    ];
+  });
+  return page({
+    title: 'Agendamentos',
+    user,
+    flash,
+    ativo: 'agendamentos',
+    header: 'Reserva de moto com data futura (e sinal, se houver). Na data, clique em "Entregar moto".',
+    children: `
+      <div class="card"><h2 style="margin-top:0;">Novo agendamento</h2>
+        <form method="POST" action="/frota/agendamentos">${csrfInput(csrfToken)}
+          <div class="form-grid">
+            <div class="field"><label>Cliente *</label><select name="cliente_id" required><option value="">Selecione...</option>${optionList(clientes, null, (c) => c.nome)}</select></div>
+            <div class="field"><label>Modelo *</label><select name="frota_id" required>${optionList(modelos, null, (m) => m.identificacao)}</select></div>
+            <div class="field"><label>Data de saída *</label><input type="date" name="data_saida" required></div>
+            <div class="field"><label>Hora de saída</label><input type="time" name="hora_saida"></div>
+            <div class="field"><label>Data de retorno</label><input type="date" name="data_retorno"></div>
+            <div class="field"><label>Hora de retorno</label><input type="time" name="hora_retorno"></div>
+            <div class="field"><label>Valor total (R$)</label><input type="number" name="valor_total" step="0.01" min="0"></div>
+            <div class="field"><label>Desconto (R$)</label><input type="number" name="desconto" step="0.01" min="0" value="0"></div>
+            <div class="field"><label>Sinal pago (R$)</label><input type="number" name="valor_pago" step="0.01" min="0" value="0"></div>
+          </div>
+          <div class="field full"><label>Observações</label><textarea name="observacoes" rows="2"></textarea></div>
+          <button class="btn">Agendar</button>
+        </form>
+      </div>
+      <div class="card">${tabela(['Cliente', 'Modelo', 'Saída', 'Retorno', 'Valor', 'Pago', 'Restante', 'Status', ''], linhas, 'Nenhum agendamento.')}</div>`,
+  });
+}
+
+// ---------------------------------------------------------------- MODELOS DE CONTRATO
+const VARIAVEIS_CONTRATO = [
+  ['Empresa', [['logo_raw', 'Logo (use {!! $logo_raw !!})'], ['data_hoje', 'Data de hoje'], ['data_hoje_extenso', 'Data de hoje por extenso']]],
+  ['Cliente', [['cliente_nome', 'Nome'], ['cpfCnpj', 'CPF/CNPJ formatado'], ['cliente_cpf_cnpj', 'CPF/CNPJ'], ['cliente_endereco', 'Endereço completo'], ['cliente_cidade', 'Cidade'], ['cliente_estado', 'Estado'], ['cliente_telefone_1', 'Telefone 1'], ['cliente_telefone_2', 'Telefone 2'], ['telefone_1', 'Telefone 1 (alt.)'], ['telefone_2', 'Telefone 2 (alt.)'], ['cliente_email', 'E-mail'], ['cliente_rede_social', 'Rede social'], ['cliente_cnh', 'CNH'], ['cliente_validade_cnh', 'Validade da CNH'], ['cliente_rg', 'RG'], ['cliente_orgao_emissor', 'Órgão emissor'], ['cliente_uf_rg', 'UF do RG'], ['cliente_data_nascimento', 'Nascimento']]],
+  ['Veículo', [['veiculo_marca', 'Marca'], ['veiculo_modelo', 'Modelo'], ['veiculo_placa', 'Placa'], ['veiculo_ano', 'Ano'], ['veiculo_cor', 'Cor'], ['veiculo_chassi', 'Chassi'], ['veiculo_renavam', 'Renavam'], ['veiculo_km_saida', 'Km de saída']]],
+  ['Locação', [['data_saida', 'Data de saída'], ['hora_saida', 'Hora de saída'], ['data_retorno', 'Data de retorno'], ['hora_retorno', 'Hora de retorno'], ['qtd_diarias', 'Qtd. de diárias'], ['qtd_semanas', 'Qtd. de semanas'], ['qtd_periodos', 'Qtd. de períodos'], ['periodo', 'Período (diária/semanal/mensal)'], ['valor_total', 'Valor total'], ['valor_desconto', 'Desconto'], ['valor_total_desconto', 'Total com desconto'], ['valor_caucao', 'Caução'], ['parcelas_financeiro', 'Nº de parcelas'], ['valor_parcela_financeiro', 'Valor da parcela'], ['observacoes', 'Observações']]],
+  ['Assinaturas', [['testemunha_1', 'Testemunha 1'], ['testemunha_1_rg', 'RG test. 1'], ['testemunha_2', 'Testemunha 2'], ['testemunha_2_rg', 'RG test. 2'], ['fiador', 'Fiador'], ['dados_fiador', 'Dados do fiador']]],
+];
+
+function contratoModelosPage({ user, flash, modelos, csrfToken }) {
+  const linhas = modelos.map((m) => [
+    String(m.id),
+    esc(m.titulo),
+    dt(m.updated_at),
+    `<div style="display:flex;gap:6px;"><a class="btn btn-sm btn-secondary" href="/frota/contratos-modelos/${m.id}/editar">Editar</a>
+     <form method="POST" action="/frota/contratos-modelos/${m.id}/excluir" style="margin:0;" onsubmit="return confirm('Excluir modelo?');">${csrfInput(csrfToken)}<button class="btn btn-sm btn-secondary">Excluir</button></form></div>`,
+  ]);
+  return page({
+    title: 'Modelos de contrato',
+    user,
+    flash,
+    ativo: 'contratos',
+    header: 'Texto do contrato com variáveis que são trocadas pelos dados da locação. Mesma sintaxe do WSYS: dá pra colar o HTML dos modelos antigos.',
+    children: `<div class="actions-row"><a class="btn" href="/frota/contratos-modelos/novo">+ Novo modelo</a></div>
+      <div class="card">${tabela(['ID', 'Título', 'Atualizado', ''], linhas, 'Nenhum modelo ainda.')}</div>`,
+  });
+}
+
+function contratoModeloFormPage({ user, flash, modelo, csrfToken }) {
+  const m = modelo || {};
+  const vars = VARIAVEIS_CONTRATO.map(
+    ([grupo, lista]) =>
+      `<div style="margin-bottom:8px;"><strong>${grupo}</strong><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">${lista
+        .map(([v, l]) => {
+          const token = v === 'logo_raw' ? '{!! $logo_raw !!}' : `{{ $${v} }}`;
+          return `<button type="button" class="btn btn-sm btn-secondary" title="${esc(l)}" onclick="insVar('${token.replace(/'/g, "\\'")}')">${esc(l)}</button>`;
+        })
+        .join('')}</div></div>`
+  ).join('');
+  return page({
+    title: m.id ? 'Editar modelo de contrato' : 'Novo modelo de contrato',
+    user,
+    flash,
+    ativo: 'contratos',
+    children: `
+      <div class="card">
+        <form method="POST" action="${m.id ? `/frota/contratos-modelos/${m.id}` : '/frota/contratos-modelos'}">${csrfInput(csrfToken)}
+          <div class="field full"><label>Título *</label><input type="text" name="titulo" required value="${esc(m.titulo || '')}"></div>
+          <details open style="margin:8px 0;"><summary>Variáveis (clique pra inserir no cursor)</summary><div style="margin-top:8px;">${vars}</div></details>
+          <div class="field full"><label>Texto (HTML ou texto simples — quebras de linha são mantidas)</label>
+            <textarea id="corpo" name="corpo" rows="24" style="font-family:monospace;font-size:13px;">${esc(m.corpo || '')}</textarea></div>
+          <button class="btn">Salvar modelo</button>
+        </form>
+      </div>
+      <script>
+        function insVar(t){var a=document.getElementById('corpo');var s=a.selectionStart||0,e=a.selectionEnd||0;a.value=a.value.slice(0,s)+t+a.value.slice(e);a.focus();a.selectionStart=a.selectionEnd=s+t.length;}
+      </script>`,
+  });
+}
+
+// Documento final pra impressão (sem o layout do sistema).
+function contratoImpressaoPage({ titulo, corpoHtml }) {
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#000;max-width:800px;margin:20px auto;padding:0 20px;line-height:1.45;}
+  table{border-collapse:collapse;width:100%;} td,th{border:1px solid #999;padding:4px 6px;vertical-align:top;}
+  .barra{position:sticky;top:0;background:#fff;padding:8px 0;border-bottom:1px solid #ddd;margin-bottom:12px;}
+  @media print{.barra{display:none;} body{margin:0;}}
+</style></head><body>
+<div class="barra"><button onclick="window.print()">Imprimir / salvar PDF</button></div>
+${corpoHtml}
+</body></html>`;
+}
+
+// ---------------------------------------------------------------- RELATÓRIOS
+function relatoriosLocacaoPage({ user, flash, porMoto, porMes, filtro }) {
+  const linM = porMoto.map((u) => {
+    const payback = u.valor_compra ? Math.round((u.receita / u.valor_compra) * 100) : null;
+    return [
+      esc(u.modelo),
+      esc(u.placa || u.chassi),
+      String(u.qtd_locacoes),
+      money(u.receita),
+      money(u.despesas),
+      `<strong style="color:${u.resultado < 0 ? '#a1352a' : '#1b7a43'}">${money(u.resultado)}</strong>`,
+      u.valor_compra ? `${money(u.valor_compra)} · ${payback}% pago` : '—',
+      u.receita ? Math.round((u.resultado / u.receita) * 100) + '%' : '—',
+    ];
+  });
+  const tot = porMoto.reduce((a, u) => ({ r: a.r + u.receita, d: a.d + u.despesas }), { r: 0, d: 0 });
+  const linMes = porMes.map((m) => [esc(m.mes), money(m.previsto), money(m.recebido), money(m.despesas), `<strong>${money(m.recebido - m.despesas)}</strong>`, m.previsto ? Math.round((m.recebido / m.previsto) * 100) + '%' : '—']);
+  return page({
+    title: 'Lucratividade da locação',
+    user,
+    flash,
+    ativo: 'relatorios',
+    header: 'Receita = parcelas efetivamente recebidas (não o valor do contrato). Despesa = lançamentos em Despesas.',
+    children: `
+      <form method="GET" action="/frota/relatorios" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin:0;"><label>De</label><input type="date" name="de" value="${esc(filtro.de || '')}"></div>
+        <div class="field" style="margin:0;"><label>Até</label><input type="date" name="ate" value="${esc(filtro.ate || '')}"></div>
+        <button class="btn btn-sm">Aplicar</button>
+      </form>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="num">${money(tot.r)}</div><div class="label">Receita recebida</div></div>
+        <div class="stat-card"><div class="num">${money(tot.d)}</div><div class="label">Despesas</div></div>
+        <div class="stat-card"><div class="num" style="color:${tot.r - tot.d < 0 ? '#a1352a' : '#1b7a43'}">${money(tot.r - tot.d)}</div><div class="label">Resultado</div></div>
+        <div class="stat-card"><div class="num">${tot.r ? Math.round(((tot.r - tot.d) / tot.r) * 100) : 0}%</div><div class="label">Margem</div></div>
+      </div>
+      <div class="card"><h2 style="margin-top:0;">Por moto</h2>${tabela(['Modelo', 'Placa/chassi', 'Locações', 'Receita', 'Despesas', 'Resultado', 'Payback', 'Margem'], linM, 'Cadastre as motos (unidades) pra ver a lucratividade por moto.')}</div>
+      <div class="card"><h2 style="margin-top:0;">Faturamento mensal (12 meses)</h2>${tabela(['Mês', 'Previsto (vencimentos)', 'Recebido', 'Despesas', 'Resultado', '% recebido'], linMes, 'Sem dados.')}
+        <p class="muted" style="margin:6px 0 0;">"% recebido" = recebido ÷ previsto do mês. Abaixo de 100% = dinheiro na rua (inadimplência).</p></div>`,
+  });
+}
+
+module.exports = {
+  painelLocacaoPage,
+  unidadesPage,
+  unidadeEditarPage,
+  locacoesListPage,
+  locacaoDetalhePage,
+  despesasPage,
+  agendamentosPage,
+  contratoModelosPage,
+  contratoModeloFormPage,
+  contratoImpressaoPage,
+  relatoriosLocacaoPage,
+  TIPOS_OCORRENCIA,
+};

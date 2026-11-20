@@ -79,6 +79,38 @@ function clienteFormPage({ user, flash, cliente, csrfToken, camposExtras, valore
               <label for="email">E-mail</label>
               <input type="email" id="email" name="email" value="${escapeHtml(cliente ? cliente.email : '')}">
             </div>
+            <div class="field">
+              <label for="telefone2">Telefone 2</label>
+              <input type="tel" id="telefone2" name="telefone2" value="${escapeHtml(cliente ? cliente.telefone2 || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="rede_social">Rede social (Instagram)</label>
+              <input type="text" id="rede_social" name="rede_social" value="${escapeHtml(cliente ? cliente.rede_social || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="cnh">Nº da CNH</label>
+              <input type="text" id="cnh" name="cnh" value="${escapeHtml(cliente ? cliente.cnh || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="cnh_validade">Validade da CNH</label>
+              <input type="date" id="cnh_validade" name="cnh_validade" value="${escapeHtml(cliente ? cliente.cnh_validade || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="rg">RG</label>
+              <input type="text" id="rg" name="rg" value="${escapeHtml(cliente ? cliente.rg || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="rg_orgao">Órgão emissor do RG</label>
+              <input type="text" id="rg_orgao" name="rg_orgao" value="${escapeHtml(cliente ? cliente.rg_orgao || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="rg_uf">UF do RG</label>
+              <input type="text" id="rg_uf" name="rg_uf" value="${escapeHtml(cliente ? cliente.rg_uf || '' : '')}">
+            </div>
+            <div class="field">
+              <label for="data_nascimento">Data de nascimento</label>
+              <input type="date" id="data_nascimento" name="data_nascimento" value="${escapeHtml(cliente ? cliente.data_nascimento || '' : '')}">
+            </div>
             <div class="field full">
               <label for="endereco">Endereço (resumido, para exibição)</label>
               <input type="text" id="endereco" name="endereco" value="${escapeHtml(cliente ? cliente.endereco : '')}">

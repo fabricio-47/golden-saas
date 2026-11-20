@@ -927,6 +927,119 @@ function seed() {
   }
 }
 
+// ============================================================================
+// LOCAÇÃO PRO (paridade com o WSYS Locar): moto individual (unidade), dados
+// completos do contrato, ocorrências, despesas por moto, agendamentos e
+// modelos de contrato com variáveis. Tudo opcional: modelo "pool" antigo
+// continua funcionando quando o modelo não tem unidades cadastradas.
+// ============================================================================
+db.exec(`
+  CREATE TABLE IF NOT EXISTS frota_unidades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    frota_id INTEGER NOT NULL REFERENCES frota(id) ON DELETE CASCADE,
+    placa TEXT,
+    chassi TEXT NOT NULL,
+    renavam TEXT,
+    cor TEXT,
+    ano INTEGER,
+    km_atual INTEGER,
+    data_compra TEXT,
+    valor_compra REAL,
+    em_manutencao INTEGER NOT NULL DEFAULT 0,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    data_ultima_revisao TEXT,
+    intervalo_revisao_dias INTEGER NOT NULL DEFAULT 90,
+    km_prox_pastilha INTEGER,
+    km_prox_pneu INTEGER,
+    observacoes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS locacao_ocorrencias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    locacao_id INTEGER NOT NULL REFERENCES locacoes(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL DEFAULT 'outros',
+    data_hora TEXT,
+    valor REAL,
+    descricao TEXT,
+    concluido INTEGER NOT NULL DEFAULT 0,
+    cobrar_cliente INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS frota_despesas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unidade_id INTEGER REFERENCES frota_unidades(id) ON DELETE SET NULL,
+    frota_id INTEGER REFERENCES frota(id) ON DELETE SET NULL,
+    fornecedor_id INTEGER REFERENCES fornecedores(id) ON DELETE SET NULL,
+    categoria TEXT,
+    data TEXT NOT NULL DEFAULT (date('now')),
+    km INTEGER,
+    descricao TEXT,
+    valor REAL NOT NULL DEFAULT 0,
+    conta_pagar_id INTEGER REFERENCES contas_pagar(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS locacao_agendamentos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    frota_id INTEGER NOT NULL REFERENCES frota(id) ON DELETE CASCADE,
+    unidade_id INTEGER REFERENCES frota_unidades(id) ON DELETE SET NULL,
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    data_saida TEXT NOT NULL,
+    hora_saida TEXT,
+    data_retorno TEXT,
+    hora_retorno TEXT,
+    valor_total REAL,
+    desconto REAL NOT NULL DEFAULT 0,
+    valor_pago REAL NOT NULL DEFAULT 0,
+    observacoes TEXT,
+    status TEXT NOT NULL DEFAULT 'agendado',
+    locacao_id INTEGER REFERENCES locacoes(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS contrato_modelos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titulo TEXT NOT NULL,
+    corpo TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+// Locação: dados que o contrato e o financeiro precisam.
+ensureColumn('frota', 'marca', 'TEXT');
+// Parcela criada fora do plano (multa, avaria, cobrança avulsa): não entra no valor do contrato.
+ensureColumn('locacao_parcelas', 'origem', 'TEXT');
+ensureColumn('locacoes', 'unidade_id', 'INTEGER REFERENCES frota_unidades(id) ON DELETE SET NULL');
+ensureColumn('locacoes', 'hora_saida', 'TEXT');
+ensureColumn('locacoes', 'hora_retorno', 'TEXT');
+ensureColumn('locacoes', 'km_saida', 'INTEGER');
+ensureColumn('locacoes', 'km_retorno', 'INTEGER');
+ensureColumn('locacoes', 'periodo', 'TEXT');
+ensureColumn('locacoes', 'qtd_periodos', 'INTEGER');
+ensureColumn('locacoes', 'valor_caucao', 'REAL');
+ensureColumn('locacoes', 'caucao_devolvida', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('locacoes', 'desconto', 'REAL NOT NULL DEFAULT 0');
+ensureColumn('locacoes', 'testemunha1_nome', 'TEXT');
+ensureColumn('locacoes', 'testemunha1_rg', 'TEXT');
+ensureColumn('locacoes', 'testemunha2_nome', 'TEXT');
+ensureColumn('locacoes', 'testemunha2_rg', 'TEXT');
+ensureColumn('locacoes', 'fiador_nome', 'TEXT');
+ensureColumn('locacoes', 'fiador_dados', 'TEXT');
+// Locação com compra garantida: ao quitar todas as parcelas a moto vira do cliente.
+ensureColumn('locacoes', 'compra_garantida', 'INTEGER NOT NULL DEFAULT 0');
+// Cliente: documentos que o contrato de locação usa.
+ensureColumn('clientes', 'telefone2', 'TEXT');
+ensureColumn('clientes', 'rede_social', 'TEXT');
+ensureColumn('clientes', 'cnh', 'TEXT');
+ensureColumn('clientes', 'cnh_validade', 'TEXT');
+ensureColumn('clientes', 'rg', 'TEXT');
+ensureColumn('clientes', 'rg_orgao', 'TEXT');
+ensureColumn('clientes', 'rg_uf', 'TEXT');
+ensureColumn('clientes', 'data_nascimento', 'TEXT');
+
+
 seed();
 
 module.exports = { db, hashPassword };

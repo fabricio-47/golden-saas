@@ -57,6 +57,21 @@ Este projeto já está publicado em: **https://golden-saas.onrender.com**
 - **Menu lateral organizado em grupos**: Estoque (Estoque, Transferências, Fornecedores), Financeiro (Contas a Pagar, Contas a Receber) e Configurações (Lojas, Usuários, Auditoria, Backup — só Direção/Gerência) agora ficam dentro de submenus que abrem/fecham, deixando o menu principal mais enxuto. Dashboard, Clientes, Bicicletas, Ordens de Serviço e Venda Direto continuam soltos no topo por serem as telas mais usadas no dia a dia.
 - **Backup automático** (Configurações → Backup, só Direção/Gerência): todo dia o sistema tira uma cópia de segurança do banco de dados sozinho (sem precisar fazer nada) e guarda no servidor; se o e-mail estiver configurado (seção 2 deste README), manda essa cópia por e-mail automaticamente pra todos os usuários de Direção com e-mail cadastrado. Também tem um botão **"Fazer backup agora"** pra forçar na hora, e um botão **"Baixar backup completo"** que gera e baixa direto pro seu computador um .zip com o banco de dados + todas as fotos e vídeos enviados (esse não vai por e-mail, só por download, porque pode ficar grande). Recomendado baixar esse backup completo periodicamente e guardar num lugar separado (seu computador, Google Drive etc.) — é a proteção real contra perda de dados por falha no disco do servidor.
 
+## Locação Pro (módulo de locação completo — `LOCACAO_ENABLED=1`)
+
+Paridade com o WSYS Locar, adaptada pra moto elétrica:
+
+- **Painel** (`/locacao`): motos ativas/locadas/disponíveis/manutenção, ocupação, próximos retornos, a receber hoje/vencidas, ocorrências pendentes, alertas de revisão (90 dias), pastilha e pneu. Financeiro só com dinheiro que **entrou** (não soma valor de contrato como faturamento).
+- **Motos individuais** (`/frota/:id/unidades`): placa, chassi, renavam, ano, km, data/valor de compra. Com motos cadastradas, a quantidade do modelo é calculada por elas e na hora de alugar escolhe-se a moto da lista. Sem motos cadastradas, o modelo segue no modo quantidade antigo.
+- **Locação**: hora de saída/retorno, km, caução, desconto (abatido das primeiras parcelas), testemunhas, fiador e compra garantida. Ao quitar a última parcela de uma compra garantida, a moto sai da frota sozinha.
+- **Detalhe da locação** (`/locacoes/:id`): parcelas, cobrança avulsa, ocorrências (multa, colisão, avaria, danos a terceiros, moto parada) que podem virar cobrança ou ser abatidas da próxima parcela, devolução com km e caução, fotos da entrega.
+- **Lista de locações** (`/locacoes`) com filtro e exportação CSV.
+- **Agendamentos** (`/frota/agendamentos`): reserva com sinal; "Entregar moto" abre o aluguel já preenchido.
+- **Despesas por moto** (`/frota/despesas`): opcionalmente lança em Contas a Pagar e registra a revisão.
+- **Lucratividade** (`/frota/relatorios`): receita recebida × despesas por moto, payback sobre o valor de compra e faturamento mensal previsto × recebido.
+- **Modelos de contrato** (`/frota/contratos-modelos`): mesmas variáveis do WSYS (`{{ $cliente_nome }}`, `{!! $logo_raw !!}` etc.) — dá pra colar o HTML dos modelos antigos. Gera página pronta pra imprimir/salvar PDF.
+- **Cliente**: telefone 2, rede social, CNH e validade, RG/órgão/UF, data de nascimento.
+
 ## 2. Configurar o envio de e-mails (obrigatório para os botões de e-mail funcionarem)
 
 O envio de e-mail não vem configurado por padrão — sem isso, os botões de e-mail mostram um erro explicando o que falta.

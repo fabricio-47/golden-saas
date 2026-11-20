@@ -74,6 +74,7 @@ const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/campos
 const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('./src/views/garantias');
 const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
 const { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage } = require('./src/views/frota');
+const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE } = require('./src/locacaoRoutes');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
 const { financeiroResumoPage } = require('./src/views/financeiro');
@@ -398,6 +399,12 @@ function salvarValoresCliente(clienteId, body) {
 }
 
 // Busca garantias cujo chassi ou qualquer número de série bate (parcial) com o termo.
+function salvarDocsCliente(clienteId, body) {
+  const t = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
+  db.prepare(
+    'UPDATE clientes SET telefone2=?, rede_social=?, cnh=?, cnh_validade=?, rg=?, rg_orgao=?, rg_uf=?, data_nascimento=? WHERE id=?'
+  ).run(t(body.telefone2), t(body.rede_social), t(body.cnh), t(body.cnh_validade), t(body.rg), t(body.rg_orgao), t(body.rg_uf) ? t(body.rg_uf).toUpperCase() : null, t(body.data_nascimento), clienteId);
+}
 function buscarGarantias(termo) {
   const t = '%' + String(termo || '').trim() + '%';
   return db
@@ -1180,6 +1187,7 @@ async function handler(req, res) {
           (body.bairro || '').trim() || null, (body.municipio || '').trim() || null, (body.codigo_municipio || '').trim() || null,
           (body.uf || '').trim().toUpperCase() || null
         );
+      salvarDocsCliente(info.lastInsertRowid, body);
       salvarValoresCliente(info.lastInsertRowid, body);
       setFlash(session.sessionId, 'success', 'Cliente cadastrado com sucesso.');
       return redirect(res, `/clientes/${info.lastInsertRowid}`);
@@ -1215,6 +1223,7 @@ async function handler(req, res) {
         (body.bairro || '').trim() || null, (body.municipio || '').trim() || null, (body.codigo_municipio || '').trim() || null,
         (body.uf || '').trim().toUpperCase() || null, m.id
       );
+      salvarDocsCliente(m.id, body);
       salvarValoresCliente(m.id, body);
       setFlash(session.sessionId, 'success', 'Cliente atualizado.');
       return redirect(res, `/clientes/${m.id}`);
@@ -3492,6 +3501,13 @@ async function handler(req, res) {
       return redirect(res, '/catalogo/config');
     }
 
+    // Locação Pro (rotas novas). Responde antes do bloco antigo de /frota.
+    if (
+      await handleLocacaoPro({
+        req, res, url, pathname, method, body, files, user, session,
+        h: { send, redirect, setFlash, takeFlash, hasManagementAccess, forbidden, notFound, matchRoute, enviarCsv, locacaoAtiva },
+      })
+    ) return;
     // ---------------- LOCAÇÃO — FROTA (só quando LOCACAO_ENABLED=1) ----------------
     if (pathname === '/frota' || pathname.startsWith('/frota/')) {
       if (!locacaoAtiva()) return notFound(res);
@@ -3509,6 +3525,20 @@ async function handler(req, res) {
         (porModelo[l.frota_id] = porModelo[l.frota_id] || []).push(l);
       }
       for (const mod of modelos) mod.locacoes = porModelo[mod.id] || [];
+      // Motos cadastradas (unidades) disponíveis de cada modelo, pra escolher na hora de alugar.
+      const unidDisp = db.prepare(
+        `SELECT u.* FROM frota_unidades u WHERE u.frota_id = ? AND u.ativo = 1 AND u.em_manutencao = 0
+           AND ${SQL_LOC_ATIVA_DA_UNIDADE} IS NULL ORDER BY u.placa, u.chassi`
+      );
+      const qtdUnid = db.prepare('SELECT COUNT(*) c FROM frota_unidades WHERE frota_id = ?');
+      for (const mod of modelos) { mod.unidades_disp = unidDisp.all(mod.id); mod.qtd_unidades = qtdUnid.get(mod.id).c; }
+      const prefill = url.searchParams.get('alugar')
+        ? { alugar: url.searchParams.get('alugar'), cliente: url.searchParams.get('cliente'), agendamento: url.searchParams.get('agendamento') }
+        : null;
+      if (prefill && prefill.agendamento) {
+        const ag = db.prepare('SELECT * FROM locacao_agendamentos WHERE id = ?').get(prefill.agendamento);
+        if (ag) prefill.ag = ag;
+      }
       // Agrega as parcelas de cada locação ativa (total, pagas, aberto, próxima pendente).
       const parcelasDe = db.prepare('SELECT * FROM locacao_parcelas WHERE locacao_id = ? ORDER BY numero ASC');
       for (const l of locAtivas) {
@@ -3523,7 +3553,7 @@ async function handler(req, res) {
       }
       const clientes = db.prepare('SELECT id, nome FROM clientes ORDER BY nome ASC').all();
       const ar = db.prepare('SELECT COALESCE(SUM(valor),0) t, COUNT(*) c FROM locacao_parcelas WHERE pago = 0').get();
-      return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), modelos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user), totalReceber: ar.t, qtdPendentes: ar.c }));
+      return send(res, 200, frotaPainelPage({ user, flash: takeFlash(session.sessionId), modelos, clientes, csrfToken: session.csrfToken, podeGerenciar: hasManagementAccess(user), totalReceber: ar.t, qtdPendentes: ar.c, prefill }));
     }
     if (pathname === '/frota/cobranca' && method === 'GET') {
       if (!hasManagementAccess(user)) return forbidden(res);
@@ -3563,12 +3593,13 @@ async function handler(req, res) {
       }
       const qtd = toIntOrNull(body.quantidade_total);
       db.prepare(
-        `INSERT INTO frota (identificacao, modelo, cor, quantidade_total, valor_diaria, valor_semanal, valor_mensal, observacoes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO frota (identificacao, modelo, cor, quantidade_total, valor_diaria, valor_semanal, valor_mensal, observacoes, marca)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         body.identificacao.trim(), (body.modelo || '').trim() || null, (body.cor || '').trim() || null,
         qtd && qtd > 0 ? qtd : 1,
-        toFloatOrNull(body.valor_diaria), toFloatOrNull(body.valor_semanal), toFloatOrNull(body.valor_mensal), (body.observacoes || '').trim() || null
+        toFloatOrNull(body.valor_diaria), toFloatOrNull(body.valor_semanal), toFloatOrNull(body.valor_mensal), (body.observacoes || '').trim() || null,
+        (body.marca || '').trim() || null
       );
       setFlash(session.sessionId, 'success', 'Modelo cadastrado na frota.');
       return redirect(res, '/frota');
@@ -3594,11 +3625,13 @@ async function handler(req, res) {
       const minimo = ativas + (moto.em_manutencao || 0);
       const novaQtd = pedida < minimo ? minimo : pedida;
       db.prepare(
-        `UPDATE frota SET identificacao=?, modelo=?, cor=?, quantidade_total=?, valor_diaria=?, valor_semanal=?, valor_mensal=?, observacoes=? WHERE id=?`
+        `UPDATE frota SET identificacao=?, modelo=?, cor=?, quantidade_total=?, valor_diaria=?, valor_semanal=?, valor_mensal=?, observacoes=?, marca=? WHERE id=?`
       ).run(
         body.identificacao.trim(), (body.modelo || '').trim() || null, (body.cor || '').trim() || null, novaQtd,
-        toFloatOrNull(body.valor_diaria), toFloatOrNull(body.valor_semanal), toFloatOrNull(body.valor_mensal), (body.observacoes || '').trim() || null, m.id
+        toFloatOrNull(body.valor_diaria), toFloatOrNull(body.valor_semanal), toFloatOrNull(body.valor_mensal), (body.observacoes || '').trim() || null,
+        (body.marca || '').trim() || null, m.id
       );
+      syncModelo(m.id);
       setFlash(session.sessionId, 'success', 'Modelo atualizado.' + (novaQtd !== pedida ? ` (quantidade ajustada pra ${novaQtd}: já há ${minimo} moto(s) em uso/manutenção)` : ''));
       return redirect(res, '/frota');
     }
@@ -3612,6 +3645,24 @@ async function handler(req, res) {
         return redirect(res, '/frota');
       }
       if (!body.cliente_id) { setFlash(session.sessionId, 'error', 'Escolha o cliente (locatário).'); return redirect(res, '/frota'); }
+      // Moto cadastrada escolhida: valida e usa os dados dela (chassi/placa/cor/km).
+      let unidade = null;
+      if (toIntOrNull(body.unidade_id)) {
+        unidade = db.prepare(
+          `SELECT u.*, ${SQL_LOC_ATIVA_DA_UNIDADE} AS locacao_id FROM frota_unidades u WHERE u.id = ? AND u.frota_id = ?`
+        ).get(toIntOrNull(body.unidade_id), m.id);
+        if (!unidade || !unidade.ativo || unidade.em_manutencao || unidade.locacao_id) {
+          setFlash(session.sessionId, 'error', 'Essa moto não está disponível (locada, em manutenção ou desativada).');
+          return redirect(res, '/frota');
+        }
+        body.chassi = unidade.chassi;
+        body.placa = unidade.placa || body.placa;
+        body.cor = unidade.cor || body.cor;
+        if (!body.km_saida && unidade.km_atual != null) body.km_saida = String(unidade.km_atual);
+      } else if (db.prepare('SELECT COUNT(*) c FROM frota_unidades WHERE frota_id = ? AND ativo = 1').get(m.id).c > 0) {
+        setFlash(session.sessionId, 'error', 'Este modelo tem motos cadastradas: escolha qual moto está saindo.');
+        return redirect(res, '/frota');
+      }
       if (!body.chassi || !body.chassi.trim()) { setFlash(session.sessionId, 'error', 'Informe o chassi da moto que saiu.'); return redirect(res, '/frota'); }
       const fotoMoto = (files || []).find((f) => f.fieldName === 'foto_moto' && f.data && f.data.length > 0);
       const fotoCnh = (files || []).find((f) => f.fieldName === 'foto_cnh' && f.data && f.data.length > 0);
@@ -3667,8 +3718,35 @@ async function handler(req, res) {
         const paga = pagoEntrega && pc.numero === 1 ? 1 : 0;
         insParcela.run(locId, pc.numero, pc.valor, pc.vencimento, paga, paga ? hojeISO : null, paga ? (body.forma_pagamento || '').trim() || null : null);
       }
-      const totalParc = parcelas.reduce((s, pc) => s + (Number(pc.valor) || 0), 0);
+      // Desconto: abatido das primeiras parcelas (o contrato mostra total, desconto e total com desconto).
+      let desconto = Math.max(0, toFloatOrNull(body.desconto) || 0);
+      const descontoAplicado = desconto;
+      if (desconto > 0) {
+        const abertas = db.prepare('SELECT id, valor FROM locacao_parcelas WHERE locacao_id=? ORDER BY numero').all(locId);
+        for (const pa of abertas) {
+          if (desconto <= 0) break;
+          const tira = Math.min(desconto, Number(pa.valor) || 0);
+          db.prepare('UPDATE locacao_parcelas SET valor=? WHERE id=?').run(Math.round(((Number(pa.valor) || 0) - tira) * 100) / 100, pa.id);
+          desconto -= tira;
+        }
+      }
+      const totalParc = db.prepare('SELECT COALESCE(SUM(valor),0) t FROM locacao_parcelas WHERE locacao_id=?').get(locId).t;
       db.prepare('UPDATE locacoes SET valor_combinado=? WHERE id=?').run(totalParc, locId);
+      db.prepare(
+        `UPDATE locacoes SET unidade_id=?, hora_saida=?, hora_retorno=?, km_saida=?, periodo=?, qtd_periodos=?, valor_caucao=?, desconto=?,
+           testemunha1_nome=?, testemunha1_rg=?, testemunha2_nome=?, testemunha2_rg=?, fiador_nome=?, fiador_dados=?, compra_garantida=? WHERE id=?`
+      ).run(
+        unidade ? unidade.id : null, (body.hora_saida || '').trim() || null, (body.hora_retorno || '').trim() || null, toIntOrNull(body.km_saida),
+        periodo || null, periodo ? quantas : null, toFloatOrNull(body.valor_caucao), descontoAplicado - desconto,
+        (body.testemunha1_nome || '').trim() || null, (body.testemunha1_rg || '').trim() || null,
+        (body.testemunha2_nome || '').trim() || null, (body.testemunha2_rg || '').trim() || null,
+        (body.fiador_nome || '').trim() || null, (body.fiador_dados || '').trim() || null,
+        body.compra_garantida === '1' || body.compra_garantida === 'on' ? 1 : 0, locId
+      );
+      if (unidade && toIntOrNull(body.km_saida) != null) db.prepare('UPDATE frota_unidades SET km_atual=? WHERE id=?').run(toIntOrNull(body.km_saida), unidade.id);
+      if (toIntOrNull(body.agendamento_id)) {
+        db.prepare("UPDATE locacao_agendamentos SET status='convertido', locacao_id=? WHERE id=? AND status='agendado'").run(locId, toIntOrNull(body.agendamento_id));
+      }
       const msgParc = parcelas.length > 1 ? ` (${parcelas.length} parcelas geradas)` : '';
       setFlash(session.sessionId, 'success', `Locação registrada — "${modelo.identificacao}" entregue.${msgParc}`);
       return redirect(res, '/frota');

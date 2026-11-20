@@ -98,7 +98,7 @@ const PERIODO_SCRIPT = `
   if(document.readyState!=='loading') frPeriodoInit(); else document.addEventListener('DOMContentLoaded', frPeriodoInit);
 `;
 
-function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenciar = true, totalReceber = 0, qtdPendentes = 0 }) {
+function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenciar = true, totalReceber = 0, qtdPendentes = 0, prefill = null }) {
   const hojeStr = new Date().toISOString().slice(0, 10);
   modelos = modelos || [];
   // Calcula aqui, a partir das locações ativas, pra o contador grande bater
@@ -161,10 +161,11 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                   <div class="muted" style="font-size:13px;margin-top:2px;">saída ${formatDateOnly(loc.data_saida)}${fotos ? ' · ' + fotos : ''}</div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <a class="btn btn-sm btn-secondary" href="/locacoes/${loc.id}">Detalhes</a>
                   ${podeGerenciar ? `<a class="btn btn-sm btn-secondary" href="/locacoes/${loc.id}/editar">Editar</a>` : ''}
                   ${podeGerenciar && loc.proxima_parcela_id ? `<form method="POST" action="/parcelas/${loc.proxima_parcela_id}/pagar" style="margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">Receber parcela</button></form>` : ''}
                   <form method="POST" action="/locacoes/${loc.id}/devolver" onsubmit="return confirm('Confirmar devolução desta moto? Ela volta pro estoque disponível.');" style="margin:0;">
-                    <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+                    <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><input type="hidden" name="voltar" value="frota">
                     <button class="btn btn-sm" type="submit">Registrar devolução</button>
                   </form>
                 </div>
@@ -181,6 +182,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
       if (podeGerenciar && m.em_manutencao > 0) {
         acoes.push(`<form method="POST" action="/frota/${m.id}/voltou-manutencao" style="display:inline;margin:0;"><input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}"><button class="btn btn-sm btn-secondary" type="submit">− Manutenção (voltou ${m.em_manutencao})</button></form>`);
       }
+      acoes.push(`<a class="btn btn-sm btn-secondary" href="/frota/${m.id}/unidades">Motos (${m.qtd_unidades || 0})</a>`);
       if (podeGerenciar) acoes.push(`<a class="btn btn-sm btn-secondary" href="/frota/${m.id}/editar">Editar modelo</a>`);
 
       return `
@@ -219,7 +221,16 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                   <p class="muted" style="margin:6px 0 0;">Cadastro rápido (nome + telefone). Pra endereço e mais dados, use o <a class="link-btn" href="/clientes/novo" target="_blank">cadastro completo</a>.</p>
                 </div>
               </div>
-              <div class="field">
+              ${
+                m.qtd_unidades
+                  ? `<div class="field full">
+                <label>Moto que está saindo *</label>
+                <select name="unidade_id" required onchange="frUnidade(this)"><option value="">Selecione a moto...</option>${(m.unidades_disp || [])
+                  .map((u) => `<option value="${u.id}" data-km="${u.km_atual == null ? '' : u.km_atual}">${escapeHtml([u.placa, u.chassi, u.cor].filter(Boolean).join(' · '))}</option>`)
+                  .join('')}</select>
+                <small class="muted">Só aparecem as motos disponíveis. <a class="link-btn" href="/frota/${m.id}/unidades">Gerenciar motos</a></small>
+              </div>`
+                  : `<div class="field">
                 <label>Chassi da moto que saiu *</label>
                 <input type="text" name="chassi" required placeholder="Número do chassi">
               </div>
@@ -230,7 +241,10 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
               <div class="field">
                 <label>Cor da moto</label>
                 <input type="text" name="cor" value="${escapeHtml(m.cor || '')}" placeholder="Ex.: Preta">
-              </div>
+              </div>`
+              }
+              <div class="field"><label>Hora de saída</label><input type="time" name="hora_saida"></div>
+              <div class="field"><label>Km de saída</label><input type="number" name="km_saida" min="0"></div>
               <div class="field">
                 <label>Devolução prevista</label>
                 <input type="date" name="devolucao_prevista">
@@ -243,7 +257,26 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                 <label>Vencimento do pagamento (opcional)</label>
                 <input type="date" name="vencimento">
               </div>
+              <div class="field"><label>Hora de retorno</label><input type="time" name="hora_retorno"></div>
+              <div class="field"><label>Caução (R$)</label><input type="number" name="valor_caucao" min="0" step="0.01"></div>
+              <div class="field"><label>Desconto (R$) — abatido das primeiras parcelas</label><input type="number" name="desconto" min="0" step="0.01" value="0"></div>
             </div>
+            <div class="field full">
+              <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
+                <input type="checkbox" name="compra_garantida" value="1" style="width:auto;"> Locação com compra garantida (a moto vira do cliente ao quitar)
+              </label>
+            </div>
+            <details style="margin:6px 0 10px;"><summary>Testemunhas e fiador (vão pro contrato)</summary>
+              <div class="form-grid" style="margin-top:8px;">
+                <div class="field"><label>Testemunha 1</label><input type="text" name="testemunha1_nome"></div>
+                <div class="field"><label>RG testemunha 1</label><input type="text" name="testemunha1_rg"></div>
+                <div class="field"><label>Testemunha 2</label><input type="text" name="testemunha2_nome"></div>
+                <div class="field"><label>RG testemunha 2</label><input type="text" name="testemunha2_rg"></div>
+                <div class="field"><label>Fiador</label><input type="text" name="fiador_nome"></div>
+                <div class="field"><label>Dados do fiador</label><input type="text" name="fiador_dados" placeholder="CPF, endereço, telefone"></div>
+              </div>
+            </details>
+            <input type="hidden" name="agendamento_id" value="">
             <div class="form-grid">
               <div class="field">
                 <label>Foto 1 da moto na entrega *</label>
@@ -326,6 +359,30 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
       <script>
         function frAbrirAlugar(id){ var b=document.getElementById('fr_alugar_'+id); if(b){ b.style.display='block'; b.scrollIntoView({behavior:'smooth',block:'nearest'}); } }
         function frFecharAlugar(id){ var b=document.getElementById('fr_alugar_'+id); if(b) b.style.display='none'; }
+        function frUnidade(sel){
+          var o=sel.options[sel.selectedIndex]; var f=sel.closest('form'); if(!o||!f) return;
+          var km=f.querySelector('input[name=km_saida]'); if(km && o.getAttribute('data-km')) km.value=o.getAttribute('data-km');
+        }
+        (function(){
+          var P=${JSON.stringify(prefill || null).replace(/</g, '\\u003c')};
+          if(!P||!P.alugar) return;
+          function go(){
+            var b=document.getElementById('fr_alugar_'+P.alugar); if(!b) return;
+            frAbrirAlugar(P.alugar);
+            var f=b.querySelector('form'); if(!f) return;
+            if(P.cliente){ var c=f.querySelector('select[name=cliente_id]'); if(c) c.value=P.cliente; }
+            if(P.agendamento){ var a=f.querySelector('input[name=agendamento_id]'); if(a) a.value=P.agendamento; }
+            if(P.ag){
+              var set=function(n,v){ var e=f.querySelector('[name='+n+']'); if(e&&v!=null&&v!=='') e.value=v; };
+              set('devolucao_prevista',P.ag.data_retorno); set('hora_saida',P.ag.hora_saida); set('hora_retorno',P.ag.hora_retorno);
+              set('desconto',P.ag.desconto);
+              var obs=[]; if(P.ag.observacoes) obs.push(P.ag.observacoes);
+              if(Number(P.ag.valor_pago)>0) obs.push('Sinal pago no agendamento: R$ '+Number(P.ag.valor_pago).toFixed(2).replace('.',','));
+              set('observacoes',obs.join(' | '));
+            }
+          }
+          if(document.readyState!=='loading') go(); else document.addEventListener('DOMContentLoaded', go);
+        })();
 
         var FR_CSRF = ${JSON.stringify(csrfToken)};
         function frToggleNovoCli(el, show){
@@ -435,6 +492,10 @@ function frotaFormPage({ user, flash, moto, csrfToken }) {
             <div class="field">
               <label for="modelo">Detalhe / versão</label>
               <input type="text" id="modelo" name="modelo" placeholder="Ex.: 2024, 1000W" value="${escapeHtml(m.modelo || '')}">
+            </div>
+            <div class="field">
+              <label for="marca">Marca (vai pro contrato)</label>
+              <input type="text" id="marca" name="marca" placeholder="Ex.: Golden Motors" value="${escapeHtml(m.marca || '')}">
             </div>
             <div class="field">
               <label for="cor">Cor</label>
