@@ -3927,17 +3927,24 @@ async function handler(req, res) {
 
       let vendas = db
         .prepare(
-          `SELECT v.*, l.nome as loja_nome, c.nome as cliente_nome
+          `SELECT v.*, l.nome as loja_nome, c.nome as cliente_nome, u.name as vendedor_nome
            FROM vendas v
            LEFT JOIN lojas l ON l.id = v.loja_id
            JOIN clientes c ON c.id = v.cliente_id
+           LEFT JOIN users u ON u.id = v.vendedor_id
            ORDER BY v.created_at DESC`
         )
         .all();
       vendas = vendas.filter((v) => canSeeLoja(user, v.loja_id));
       if (lojaFiltroId) vendas = vendas.filter((v) => String(v.loja_id) === String(lojaFiltroId));
 
-      // Contagem e valor por status (no conjunto já filtrado por loja), depois filtra por status.
+      // Filtro por vendedor (quem fez a venda) e busca por cliente/número.
+      const vendedorFiltroId = url.searchParams.get('vendedor_id') || '';
+      if (vendedorFiltroId) vendas = vendas.filter((v) => String(v.vendedor_id) === String(vendedorFiltroId));
+      const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+      if (q) vendas = vendas.filter((v) => (v.cliente_nome || '').toLowerCase().includes(q) || (v.numero || '').toLowerCase().includes(q) || (v.vendedor_nome || '').toLowerCase().includes(q));
+
+      // Contagem e valor por status (já filtrado por loja/vendedor/busca), depois filtra por status.
       const contagem = { aberta: 0, concluida: 0, cancelada: 0 };
       const somaStatus = { aberta: 0, concluida: 0, cancelada: 0 };
       for (const v of vendas) {
@@ -3946,6 +3953,8 @@ async function handler(req, res) {
       }
       const statusFiltro = url.searchParams.get('status') || '';
       if (statusFiltro) vendas = vendas.filter((v) => v.status === statusFiltro);
+
+      const vendedores = db.prepare('SELECT DISTINCT u.id, u.name FROM users u JOIN vendas v ON v.vendedor_id = u.id ORDER BY u.name ASC').all();
 
       return send(res, 200, vendasListPage({
         user,
@@ -3957,6 +3966,9 @@ async function handler(req, res) {
         statusFiltro,
         contagem,
         somaStatus,
+        vendedores,
+        vendedorFiltroId,
+        q: url.searchParams.get('q') || '',
       }));
     }
 

@@ -49,7 +49,8 @@ function vendaStatusBadge(venda) {
   return '<span class="badge badge-execucao">Aguardando pagamento</span>';
 }
 
-function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja, statusFiltro = '', contagem = {}, somaStatus = {} }) {
+function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja, statusFiltro = '', contagem = {}, somaStatus = {}, vendedores = [], vendedorFiltroId = '', q = '' }) {
+  const mostrarColunaVendedor = (vendedores && vendedores.length > 0);
   const rows = vendas
     .map(
       (v) => `
@@ -57,6 +58,7 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
       <td><a class="link-btn" href="/vendas/${v.id}">${escapeHtml(v.numero)}</a></td>
       <td>${escapeHtml(v.cliente_nome)}</td>
       ${mostrarColunaLoja ? `<td>${v.loja_nome ? escapeHtml(v.loja_nome) : '<span class="muted">Geral</span>'}</td>` : ''}
+      ${mostrarColunaVendedor ? `<td>${v.vendedor_nome ? escapeHtml(v.vendedor_nome) : '<span class="muted">—</span>'}</td>` : ''}
       <td>${formatMoney(v.valor_total)}</td>
       <td>${formaPagamentoLabel(v)}</td>
       <td>${vendaStatusBadge(v)}</td>
@@ -65,25 +67,42 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
     )
     .join('');
 
-  // Filtro de loja (quando há mais de uma) — mantém o status atual ao trocar de loja.
-  const lojaFilterHtml =
-    lojas && lojas.length > 1
-      ? `<form method="GET" action="/vendas" class="actions-row" style="margin-top:0;margin-bottom:16px;">
-          <input type="hidden" name="status" value="${escapeHtml(statusFiltro)}">
-          <select name="loja_id" onchange="this.form.submit()">
-            <option value="">Todas as lojas que posso ver</option>
-            ${lojas.map((l) => `<option value="${l.id}" ${String(lojaFiltroId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
-          </select>
-        </form>`
-      : '';
+  // Barra de filtros: busca (cliente/número/vendedor) + loja + vendedor. Mantém o status.
+  const filtroBarHtml = `
+    <form method="GET" action="/vendas" class="actions-row" style="margin-top:0;margin-bottom:16px;gap:8px;flex-wrap:wrap;">
+      <input type="hidden" name="status" value="${escapeHtml(statusFiltro)}">
+      <input type="text" name="q" value="${escapeHtml(q)}" placeholder="Buscar cliente, número ou vendedor..." style="min-width:240px;flex:1;">
+      ${
+        lojas && lojas.length > 1
+          ? `<select name="loja_id" onchange="this.form.submit()">
+               <option value="">Todas as lojas</option>
+               ${lojas.map((l) => `<option value="${l.id}" ${String(lojaFiltroId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join('')}
+             </select>`
+          : ''
+      }
+      ${
+        vendedores && vendedores.length
+          ? `<select name="vendedor_id" onchange="this.form.submit()">
+               <option value="">Todos os vendedores</option>
+               ${vendedores.map((vd) => `<option value="${vd.id}" ${String(vendedorFiltroId) === String(vd.id) ? 'selected' : ''}>${escapeHtml(vd.name)}</option>`).join('')}
+             </select>`
+          : ''
+      }
+      <button class="btn btn-sm" type="submit">Buscar</button>
+      ${q || vendedorFiltroId || lojaFiltroId ? '<a class="btn btn-sm btn-secondary" href="/vendas">Limpar</a>' : ''}
+    </form>`;
 
-  // Dashboard de status: cards clicáveis que filtram a lista. Mantém a loja escolhida.
-  const lojaQ = lojaFiltroId ? '&loja_id=' + encodeURIComponent(lojaFiltroId) : '';
+  // Dashboard de status: cards clicáveis que filtram a lista. Mantém loja/vendedor/busca.
+  const extra = [
+    lojaFiltroId ? 'loja_id=' + encodeURIComponent(lojaFiltroId) : '',
+    vendedorFiltroId ? 'vendedor_id=' + encodeURIComponent(vendedorFiltroId) : '',
+    q ? 'q=' + encodeURIComponent(q) : '',
+  ].filter(Boolean).join('&');
   const totalCount = (contagem.aberta || 0) + (contagem.concluida || 0) + (contagem.cancelada || 0);
   const totalSoma = (somaStatus.aberta || 0) + (somaStatus.concluida || 0) + (somaStatus.cancelada || 0);
   const card = (st, label, cor, count, valor) => {
     const ativo = String(statusFiltro) === st;
-    const href = st ? `/vendas?status=${st}${lojaQ}` : `/vendas${lojaFiltroId ? '?loja_id=' + encodeURIComponent(lojaFiltroId) : ''}`;
+    const href = st ? `/vendas?status=${st}${extra ? '&' + extra : ''}` : `/vendas${extra ? '?' + extra : ''}`;
     return `<a class="stat-card" href="${href}" style="text-decoration:none;color:inherit;${ativo ? 'outline:2px solid ' + cor + ';outline-offset:-2px;' : ''}">
       <div class="num" style="${cor ? 'color:' + cor + ';' : ''}">${count}</div>
       <div class="label">${label}</div>
@@ -112,15 +131,15 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
         <a class="btn" href="/vendas/novo">+ Nova Venda</a>
       </div>
       ${statusCardsHtml}
-      ${lojaFilterHtml}
+      ${filtroBarHtml}
       <div class="card">
         ${
           vendas.length
             ? `<table>
-          <thead><tr><th>Número</th><th>Cliente</th>${mostrarColunaLoja ? '<th>Loja</th>' : ''}<th>Valor</th><th>Pagamento</th><th>Status</th><th>Data</th></tr></thead>
+          <thead><tr><th>Número</th><th>Cliente</th>${mostrarColunaLoja ? '<th>Loja</th>' : ''}${mostrarColunaVendedor ? '<th>Vendedor</th>' : ''}<th>Valor</th><th>Pagamento</th><th>Status</th><th>Data</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
-            : '<div class="empty">Nenhuma venda registrada ainda. <a class="link-btn" href="/vendas/novo">Registrar a primeira</a></div>'
+            : `<div class="empty">${q || vendedorFiltroId ? 'Nenhuma venda encontrada com esse filtro. <a class="link-btn" href="/vendas">Limpar filtros</a>' : 'Nenhuma venda registrada ainda. <a class="link-btn" href="/vendas/novo">Registrar a primeira</a>'}</div>`
         }
       </div>
     `,
