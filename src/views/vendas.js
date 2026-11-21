@@ -49,7 +49,7 @@ function vendaStatusBadge(venda) {
   return '<span class="badge badge-execucao">Aguardando pagamento</span>';
 }
 
-function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja, statusFiltro = '', contagem = {}, somaStatus = {}, vendedores = [], vendedorFiltroId = '', q = '' }) {
+function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColunaLoja, statusFiltro = '', contagem = {}, somaStatus = {}, vendedores = [], vendedorFiltroId = '', q = '', deFiltro = '', ateFiltro = '' }) {
   const mostrarColunaVendedor = (vendedores && vendedores.length > 0);
   const rows = vendas
     .map(
@@ -88,15 +88,19 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
              </select>`
           : ''
       }
+      <label style="display:flex;align-items:center;gap:4px;font-size:13px;" class="muted">de <input type="date" name="de" value="${escapeHtml(deFiltro)}" onchange="this.form.submit()" style="width:auto;"></label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:13px;" class="muted">até <input type="date" name="ate" value="${escapeHtml(ateFiltro)}" onchange="this.form.submit()" style="width:auto;"></label>
       <button class="btn btn-sm" type="submit">Buscar</button>
-      ${q || vendedorFiltroId || lojaFiltroId ? '<a class="btn btn-sm btn-secondary" href="/vendas">Limpar</a>' : ''}
+      ${q || vendedorFiltroId || lojaFiltroId || deFiltro || ateFiltro ? '<a class="btn btn-sm btn-secondary" href="/vendas">Limpar</a>' : ''}
     </form>`;
 
-  // Dashboard de status: cards clicáveis que filtram a lista. Mantém loja/vendedor/busca.
+  // Dashboard de status: cards clicáveis que filtram a lista. Mantém loja/vendedor/busca/período.
   const extra = [
     lojaFiltroId ? 'loja_id=' + encodeURIComponent(lojaFiltroId) : '',
     vendedorFiltroId ? 'vendedor_id=' + encodeURIComponent(vendedorFiltroId) : '',
     q ? 'q=' + encodeURIComponent(q) : '',
+    deFiltro ? 'de=' + encodeURIComponent(deFiltro) : '',
+    ateFiltro ? 'ate=' + encodeURIComponent(ateFiltro) : '',
   ].filter(Boolean).join('&');
   const totalCount = (contagem.aberta || 0) + (contagem.concluida || 0) + (contagem.cancelada || 0);
   const totalSoma = (somaStatus.aberta || 0) + (somaStatus.concluida || 0) + (somaStatus.cancelada || 0);

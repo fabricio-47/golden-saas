@@ -3944,7 +3944,13 @@ async function handler(req, res) {
       const q = (url.searchParams.get('q') || '').trim().toLowerCase();
       if (q) vendas = vendas.filter((v) => (v.cliente_nome || '').toLowerCase().includes(q) || (v.numero || '').toLowerCase().includes(q) || (v.vendedor_nome || '').toLowerCase().includes(q));
 
-      // Contagem e valor por status (já filtrado por loja/vendedor/busca), depois filtra por status.
+      // Filtro por período (data da venda).
+      const deFiltro = url.searchParams.get('de') || '';
+      const ateFiltro = url.searchParams.get('ate') || '';
+      if (deFiltro) vendas = vendas.filter((v) => (v.created_at || '').slice(0, 10) >= deFiltro);
+      if (ateFiltro) vendas = vendas.filter((v) => (v.created_at || '').slice(0, 10) <= ateFiltro);
+
+      // Contagem e valor por status (já filtrado por loja/vendedor/busca/período), depois filtra por status.
       const contagem = { aberta: 0, concluida: 0, cancelada: 0 };
       const somaStatus = { aberta: 0, concluida: 0, cancelada: 0 };
       for (const v of vendas) {
@@ -3969,6 +3975,8 @@ async function handler(req, res) {
         vendedores,
         vendedorFiltroId,
         q: url.searchParams.get('q') || '',
+        deFiltro,
+        ateFiltro,
       }));
     }
 
