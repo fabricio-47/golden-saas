@@ -867,23 +867,25 @@ async function handleLocacaoPro(ctx) {
   }
 
   // ---------------- relatórios
-  if (pathname === '/frota/relatorios' && method === 'GET') {
+  // Lucratividade dos veículos. "Recebido" = dinheiro que entrou (é o faturamento de verdade);
+  // "Contratado" = soma dos contratos (inclui parcelas que ainda vão vencer, não é dinheiro em caixa).
+  if ((pathname === '/frota/relatorios' || pathname === '/frota/relatorios.csv') && method === 'GET') {
     if (!ger) return done(() => forbidden(res));
     const filtro = { de: url.searchParams.get('de') || '2000-01-01', ate: url.searchParams.get('ate') || hoje() };
+    const LOC_DA_MOTO = '(l.unidade_id=? OR (l.unidade_id IS NULL AND UPPER(TRIM(l.chassi))=UPPER(TRIM(?))))';
     const porMoto = unidadesComStatus('1=1').map((u) => {
       const r = db
-        .prepare(
-          `SELECT COALESCE(SUM(p.valor),0) v FROM locacao_parcelas p JOIN locacoes l ON l.id=p.locacao_id
-           WHERE p.pago=1 AND p.data_pagamento BETWEEN ? AND ?
-             AND (l.unidade_id=? OR (l.unidade_id IS NULL AND UPPER(TRIM(l.chassi))=UPPER(TRIM(?))))`
-        )
+        .prepare(`SELECT COALESCE(SUM(p.valor),0) v FROM locacao_parcelas p JOIN locacoes l ON l.id=p.locacao_id WHERE p.pago=1 AND p.data_pagamento BETWEEN ? AND ? AND ${LOC_DA_MOTO}`)
         .get(filtro.de, filtro.ate, u.id, u.chassi).v;
-      const q = db
-        .prepare('SELECT COUNT(*) c FROM locacoes l WHERE l.unidade_id=? OR (l.unidade_id IS NULL AND UPPER(TRIM(l.chassi))=UPPER(TRIM(?)))')
-        .get(u.id, u.chassi).c;
+      const c = db
+        .prepare(`SELECT COUNT(*) q, COALESCE(SUM(l.valor_combinado),0) v FROM locacoes l WHERE l.status<>'cancelada' AND l.data_saida BETWEEN ? AND ? AND ${LOC_DA_MOTO}`)
+        .get(filtro.de, filtro.ate, u.id, u.chassi);
+      const aberto = db
+        .prepare(`SELECT COALESCE(SUM(p.valor),0) v FROM locacao_parcelas p JOIN locacoes l ON l.id=p.locacao_id WHERE p.pago=0 AND l.status='ativa' AND ${LOC_DA_MOTO}`)
+        .get(u.id, u.chassi).v;
       const d = db.prepare('SELECT COALESCE(SUM(valor),0) v FROM frota_despesas WHERE unidade_id=? AND data BETWEEN ? AND ?').get(u.id, filtro.de, filtro.ate).v;
-      return { ...u, receita: r, despesas: d, resultado: r - d, qtd_locacoes: q };
-    }).filter((u) => u.ativo || u.receita || u.despesas); // desativada (duplicada/vendida) só aparece se teve dinheiro no período
+      return { ...u, receita: r, contratado: c.v, aberto, despesas: d, resultado: r - d, qtd_locacoes: c.q };
+    }).filter((u) => u.ativo || u.receita || u.despesas || u.qtd_locacoes); // desativada (duplicada/vendida) só aparece se teve movimento
     // Receita de locações sem moto cadastrada + despesas gerais, pra o total bater.
     const semMotoR = db
       .prepare(
@@ -893,23 +895,97 @@ async function handleLocacaoPro(ctx) {
       )
       .get(filtro.de, filtro.ate).v;
     const geralD = db.prepare('SELECT COALESCE(SUM(valor),0) v FROM frota_despesas WHERE unidade_id IS NULL AND data BETWEEN ? AND ?').get(filtro.de, filtro.ate).v;
-    if (semMotoR || geralD) porMoto.push({ modelo: '(sem moto cadastrada / despesas gerais)', placa: '—', receita: semMotoR, despesas: geralD, resultado: semMotoR - geralD, qtd_locacoes: '—' });
+    if (semMotoR || geralD) porMoto.push({ modelo: '(sem moto cadastrada / despesas gerais)', placa: '—', receita: semMotoR, contratado: 0, aberto: 0, despesas: geralD, resultado: semMotoR - geralD, qtd_locacoes: '—' });
     porMoto.sort((a, b) => b.resultado - a.resultado);
+    if (pathname.endsWith('.csv')) {
+      return done(() =>
+        enviarCsv(
+          res,
+          `lucratividade-veiculos-${hoje()}.csv`,
+          ['Modelo', 'Placa', 'Chassi', 'Locações', 'Contratado', 'Recebido', 'Em aberto', 'Despesas', 'Lucro', 'Valor de compra'],
+          porMoto.map((u) => [u.modelo, u.placa || '', u.chassi || '', u.qtd_locacoes, u.contratado, u.receita, u.aberto, u.despesas, u.resultado, u.valor_compra || ''])
+        )
+      );
+    }
+    const conflitos = motosEmMaisDeUmaLocacao();
+    return done(() => send(res, 200, V.relatoriosLocacaoPage({ user, flash: flash(), porMoto, filtro, conflitos })));
+  }
+
+  // Faturamento mensal por competência: cada locação é dividida em diárias, e cada
+  // diária cai no mês em que a moto foi usada (a partir da data de saída).
+  if ((pathname === '/frota/faturamento-mensal' || pathname === '/frota/faturamento-mensal.csv') && method === 'GET') {
+    if (!ger) return done(() => forbidden(res));
+    const f = {
+      cliente: url.searchParams.get('cliente') || '',
+      veiculo: url.searchParams.get('veiculo') || '',
+      de: url.searchParams.get('de') || '',
+      ate: url.searchParams.get('ate') || '',
+    };
+    const w = ["l.status<>'cancelada'", 'l.data_saida IS NOT NULL'];
+    const p = [];
+    if (f.cliente) { w.push('l.cliente_id=?'); p.push(f.cliente); }
+    if (f.veiculo) { w.push("UPPER(TRIM(COALESCE(u.chassi,l.chassi)))=UPPER(TRIM(?))"); p.push(f.veiculo); }
+    if (f.de) { w.push('l.data_saida>=?'); p.push(f.de); }
+    if (f.ate) { w.push('l.data_saida<=?'); p.push(f.ate); }
+    const locs = db
+      .prepare(
+        `SELECT l.id, l.status, l.data_saida, l.devolucao_prevista, l.data_devolucao, l.valor_combinado, l.periodo, l.qtd_periodos,
+           c.nome cliente_nome, f.identificacao modelo, COALESCE(u.placa, l.placa) placa, COALESCE(u.chassi, l.chassi) chassi,
+           (SELECT COALESCE(SUM(valor),0) FROM locacao_parcelas WHERE locacao_id=l.id AND pago=1) pago
+         FROM locacoes l LEFT JOIN clientes c ON c.id=l.cliente_id LEFT JOIN frota f ON f.id=l.frota_id LEFT JOIN frota_unidades u ON u.id=l.unidade_id
+         WHERE ${w.join(' AND ')} ORDER BY l.data_saida DESC, l.id DESC`
+      )
+      .all(...p);
+    const DIAS_PERIODO = { diaria: 1, semanal: 7, mensal: 30 };
+    const diasEntre = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+    const competencia = {}; // 'AAAA-MM' -> valor
+    const linhas = locs.map((l) => {
+      const ini = String(l.data_saida).slice(0, 10);
+      // Devolvida antes do fim: usa os dias que ficou e o que de fato pagou.
+      const devolvida = l.status !== 'ativa' && l.data_devolucao;
+      let fim = String((devolvida ? l.data_devolucao : l.devolucao_prevista) || '').slice(0, 10);
+      let dias = fim ? diasEntre(ini, fim) : 0;
+      if (!(dias > 0) && l.periodo && l.qtd_periodos) dias = (DIAS_PERIODO[l.periodo] || 0) * l.qtd_periodos;
+      if (!(dias > 0)) dias = 1;
+      const total = devolvida ? Number(l.pago) || 0 : Number(l.valor_combinado) || 0;
+      const diaria = total / dias;
+      const d = new Date(ini + 'T00:00:00Z');
+      for (let i = 0; i < dias; i++) {
+        const mes = d.toISOString().slice(0, 7);
+        competencia[mes] = (competencia[mes] || 0) + diaria;
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      return { ...l, dias, diaria, total };
+    });
+    if (pathname.endsWith('.csv')) {
+      return done(() =>
+        enviarCsv(
+          res,
+          `faturamento-mensal-${hoje()}.csv`,
+          ['Locação', 'Cliente', 'Veículo', 'Placa', 'Chassi', 'Data saída', 'Qtd diárias', 'Valor diária', 'Valor total'],
+          linhas.map((l) => [l.id, l.cliente_nome, l.modelo, l.placa || '', l.chassi || '', l.data_saida, l.dias, l.diaria.toFixed(2), l.total.toFixed(2)])
+        )
+      );
+    }
+    // Meses: 5 pra trás, o atual e 6 pra frente.
+    const [ay, am] = hoje().split('-').map(Number);
     const porMes = [];
-    const d0 = new Date();
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(d0.getFullYear(), d0.getMonth() - i, 1);
-      const mes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    for (let i = -5; i <= 6; i++) {
+      const dm = new Date(Date.UTC(ay, am - 1 + i, 1));
+      const mes = dm.toISOString().slice(0, 7);
       const g = (sql) => db.prepare(sql).get(mes).v || 0;
       porMes.push({
-        mes: `${MESES[d.getMonth()].slice(0, 3)}/${d.getFullYear()}`,
+        mes: `${MESES[dm.getUTCMonth()].slice(0, 3)}/${dm.getUTCFullYear()}`,
+        atual: i === 0,
+        competencia: competencia[mes] || 0,
         previsto: g('SELECT SUM(valor) v FROM locacao_parcelas WHERE substr(vencimento,1,7)=?'),
         recebido: g('SELECT SUM(valor) v FROM locacao_parcelas WHERE pago=1 AND substr(data_pagamento,1,7)=?'),
         despesas: g('SELECT SUM(valor) v FROM frota_despesas WHERE substr(data,1,7)=?'),
       });
     }
-    const conflitos = motosEmMaisDeUmaLocacao();
-    return done(() => send(res, 200, V.relatoriosLocacaoPage({ user, flash: flash(), porMoto, porMes, filtro, conflitos })));
+    const clientes = db.prepare('SELECT DISTINCT c.id, c.nome FROM clientes c JOIN locacoes l ON l.cliente_id=c.id ORDER BY c.nome').all();
+    const veiculos = db.prepare('SELECT u.chassi, u.placa, f.identificacao modelo FROM frota_unidades u JOIN frota f ON f.id=u.frota_id ORDER BY f.identificacao, u.chassi').all();
+    return done(() => send(res, 200, V.faturamentoMensalPage({ user, flash: flash(), linhas, porMes, filtro: f, clientes, veiculos, qs: url.search || '' })));
   }
 
   return false;

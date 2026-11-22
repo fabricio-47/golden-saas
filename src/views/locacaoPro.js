@@ -53,6 +53,7 @@ function subnav(ativo) {
     ['despesas', '/frota/despesas', 'Despesas'],
     ['revisoes', '/frota/revisoes', 'Revisões'],
     ['relatorios', '/frota/relatorios', 'Lucratividade'],
+    ['faturamento', '/frota/faturamento-mensal', 'Faturamento mensal'],
     ['contratos', '/frota/contratos-modelos', 'Modelos de contrato'],
   ];
   return `<div class="actions-row" style="flex-wrap:wrap;gap:6px;margin:0 0 14px;">${itens
@@ -63,7 +64,7 @@ function subnav(ativo) {
 function page({ title, user, flash, ativo, header, children }) {
   return layout({
     title,
-    activeNav: { painel: 'locacao-painel', despesas: 'despesas-frota', relatorios: 'lucratividade', contratos: 'contratos-modelos', revisoes: 'revisoes' }[ativo] || ativo,
+    activeNav: { painel: 'locacao-painel', despesas: 'despesas-frota', relatorios: 'lucratividade', faturamento: 'faturamento-mensal', contratos: 'contratos-modelos', revisoes: 'revisoes' }[ativo] || ativo,
     user,
     flash,
     children: `
@@ -642,52 +643,135 @@ ${corpoHtml}
 }
 
 // ---------------------------------------------------------------- RELATÓRIOS
-function relatoriosLocacaoPage({ user, flash, porMoto, porMes, filtro, conflitos = [] }) {
-  const linM = porMoto.map((u) => {
+// Estilo das telas de relatório (cards no padrão WSYS + impressão em PDF).
+const REL_CSS = `<style>
+  .rel-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:16px}
+  .rel-card{background:var(--bg-dark,#111);color:#fff;border-radius:12px;padding:16px 18px;border-bottom:3px solid #1b7a43;min-width:0}
+  .rel-card.neg{border-bottom-color:#a1352a}.rel-card.neu{border-bottom-color:#d4af37}
+  .rel-card .t{font-size:13px;color:#bbb}.rel-card .v{font-size:26px;font-weight:700;margin:4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rel-card .s{font-size:12px;color:#8fd19e}.rel-card.neg .s{color:#f0a39a}.rel-card.neu .s{color:#e8cf7a}
+  .pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:6px;white-space:nowrap;font-weight:600}
+  .pill.v{background:rgba(27,122,67,.12);color:#1b7a43}.pill.r{background:rgba(161,53,42,.12);color:#a1352a}.pill.a{background:rgba(176,137,0,.16);color:#8a6d00}
+  .rel-barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:10px}
+  @media print{.sidebar,.mobile-topbar,.no-print,#ia-btn,#ia-box,.actions-row{display:none!important}.main{margin:0!important;padding:0!important}.card{break-inside:avoid}}
+</style>`;
+const relCard = (t, v, s, tipo) => `<div class="rel-card ${tipo || ''}"><div class="t">${t}</div><div class="v" title="${esc(v)}">${v}</div><div class="s">${s}</div></div>`;
+const BUSCA_JS = `<script>function relBusca(inp,tab){var q=inp.value.toLowerCase();document.querySelectorAll('#'+tab+' tbody tr').forEach(function(tr){tr.style.display=tr.innerText.toLowerCase().indexOf(q)>=0?'':'none'})}</script>`;
+
+function relatoriosLocacaoPage({ user, flash, porMoto, filtro, conflitos = [] }) {
+  const tot = porMoto.reduce((a, u) => ({ r: a.r + u.receita, c: a.c + (u.contratado || 0), ab: a.ab + (u.aberto || 0), d: a.d + u.despesas }), { r: 0, c: 0, ab: 0, d: 0 });
+  const lucro = tot.r - tot.d;
+  const margem = tot.r ? Math.round((lucro / tot.r) * 100) : 0;
+  const qs = `de=${encodeURIComponent(filtro.de || '')}&ate=${encodeURIComponent(filtro.ate || '')}`;
+  const linhas = porMoto.map((u) => {
     const payback = u.valor_compra ? Math.round((u.receita / u.valor_compra) * 100) : null;
-    return [
-      esc(u.modelo),
-      esc(u.placa || u.chassi),
-      String(u.qtd_locacoes),
-      money(u.receita),
-      money(u.despesas),
-      `<strong style="color:${u.resultado < 0 ? '#a1352a' : '#1b7a43'}">${money(u.resultado)}</strong>`,
-      u.valor_compra ? `${money(u.valor_compra)} · ${payback}% pago` : '—',
-      u.receita ? Math.round((u.resultado / u.receita) * 100) + '%' : '—',
-    ];
+    return `<tr>
+      <td>${esc(u.modelo)}</td>
+      <td>${u.id ? `<a href="/frota/unidades/${u.id}/editar">${esc(u.placa && u.placa !== u.chassi ? u.placa + ' · ' + (u.chassi || '') : u.chassi || u.placa || '—')}</a>` : esc(u.placa || '—')}${u.id && !u.ativo ? ' <span class="pill r">desativada</span>' : ''}</td>
+      <td style="text-align:center;">${u.qtd_locacoes}</td>
+      <td><span class="pill a">${money(u.contratado)}</span></td>
+      <td><span class="pill v">${money(u.receita)}</span></td>
+      <td><span class="pill r">${money(u.despesas)}</span></td>
+      <td><strong style="color:${u.resultado < 0 ? '#a1352a' : '#1b7a43'}">${money(u.resultado)}</strong>${u.receita ? ` <span class="muted">${Math.round((u.resultado / u.receita) * 100)}%</span>` : ''}</td>
+      <td>${u.valor_compra ? `${payback}% de ${money(u.valor_compra)}` : '<span class="muted">sem valor de compra</span>'}</td>
+    </tr>`;
   });
-  const tot = porMoto.reduce((a, u) => ({ r: a.r + u.receita, d: a.d + u.despesas }), { r: 0, d: 0 });
-  const linMes = porMes.map((m) => [esc(m.mes), money(m.previsto), money(m.recebido), money(m.despesas), `<strong>${money(m.recebido - m.despesas)}</strong>`, m.previsto ? Math.round((m.recebido / m.previsto) * 100) + '%' : '—']);
   return page({
-    title: 'Lucratividade da locação',
+    title: 'Lucratividade dos veículos',
     user,
     flash,
     ativo: 'relatorios',
-    header: 'Receita = parcelas efetivamente recebidas (não o valor do contrato). Despesa = lançamentos em Despesas.',
-    children: `
-      <form method="GET" action="/frota/relatorios" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-        <div class="field" style="margin:0;"><label>De</label><input type="date" name="de" value="${esc(filtro.de || '')}"></div>
+    header: 'Recebido = dinheiro que entrou de verdade. Contratado = valor total dos contratos (inclui parcelas que ainda vão vencer).',
+    children: `${REL_CSS}${BUSCA_JS}
+      <form method="GET" action="/frota/relatorios" class="card no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin:0;"><label>De</label><input type="date" name="de" value="${esc(filtro.de === '2000-01-01' ? '' : filtro.de || '')}"></div>
         <div class="field" style="margin:0;"><label>Até</label><input type="date" name="ate" value="${esc(filtro.ate || '')}"></div>
         <button class="btn btn-sm">Aplicar</button>
+        <span style="flex:1"></span>
+        <a class="btn btn-sm btn-secondary" href="/frota/relatorios.csv?${qs}">Exportar relatório</a>
+        <button type="button" class="btn btn-sm" onclick="window.print()">Relatório - PDF</button>
       </form>
-      <div class="stat-grid">
-        <div class="stat-card"><div class="num">${money(tot.r)}</div><div class="label">Receita recebida</div></div>
-        <div class="stat-card"><div class="num">${money(tot.d)}</div><div class="label">Despesas</div></div>
-        <div class="stat-card"><div class="num" style="color:${tot.r - tot.d < 0 ? '#a1352a' : '#1b7a43'}">${money(tot.r - tot.d)}</div><div class="label">Resultado</div></div>
-        <div class="stat-card"><div class="num">${tot.r ? Math.round(((tot.r - tot.d) / tot.r) * 100) : 0}%</div><div class="label">Margem</div></div>
+      <div class="rel-cards">
+        ${relCard('Faturamento recebido', money(tot.r), 'Dinheiro que entrou no período')}
+        ${relCard('Contratado', money(tot.c), `Ainda a receber das ativas: ${money(tot.ab)}`, 'neu')}
+        ${relCard('Custos totais', money(tot.d), tot.d ? 'Despesas e manutenções' : 'Sem custos registrados', 'neg')}
+        ${relCard('Lucro líquido', money(lucro), `Lucratividade: ${margem}%`, lucro < 0 ? 'neg' : '')}
       </div>
+      ${tot.d === 0 ? `<div class="card no-print" style="border-left:4px solid #d4af37;"><strong>Margem de 100% não é real:</strong> nenhuma despesa foi lançada. Lance manutenção, seguro, rastreador e IPVA em <a href="/frota/despesas">Despesas</a> e o valor de compra de cada moto (em Frota → Motos) para o lucro e o payback ficarem certos.</div>` : ''}
       ${conflitos.length ? `<div class="card" style="border:2px solid #a1352a;">
         <h2 style="margin-top:0;color:#a1352a;">Mesma moto em mais de uma locação ativa (${conflitos.length})</h2>
         <p class="muted" style="margin-top:0;">Uma das locações está com o chassi errado: confira o chassi na moto e corrija a locação.</p>
         ${tabela(['Chassi', 'Locações ativas'], conflitos.map((cf) => [esc(cf.chassi), cf.locacoes.map((l) => `<a href="/locacoes/${l.id}">#${l.id}</a> ${esc(l.cliente_nome || '?')} (saída ${esc(l.data_saida || '?')})`).join('<br>')]), '')}
       </div>` : ''}
-      <div class="card"><h2 style="margin-top:0;">Por moto</h2>${tabela(['Modelo', 'Placa/chassi', 'Locações', 'Receita', 'Despesas', 'Resultado', 'Payback', 'Margem'], linM, 'Cadastre as motos (unidades) pra ver a lucratividade por moto.')}</div>
-      <div class="card"><h2 style="margin-top:0;">Faturamento mensal (12 meses)</h2>${tabela(['Mês', 'Previsto (vencimentos)', 'Recebido', 'Despesas', 'Resultado', '% recebido'], linMes, 'Sem dados.')}
-        <p class="muted" style="margin:6px 0 0;">"% recebido" = recebido ÷ previsto do mês. Abaixo de 100% = dinheiro na rua (inadimplência).</p></div>`,
+      <div class="card">
+        <div class="rel-barra"><h2 style="margin:0;">Por veículo (${porMoto.length})</h2><input type="search" class="no-print" placeholder="Pesquisar" oninput="relBusca(this,'tab-lucro')" style="max-width:240px;"></div>
+        ${porMoto.length ? `<div style="overflow-x:auto;"><table id="tab-lucro"><thead><tr><th>Modelo</th><th>Placa / chassi</th><th style="text-align:center;">Locações</th><th>Contratado</th><th>Recebido</th><th>Manutenções/Despesas</th><th>Lucratividade</th><th>Payback</th></tr></thead><tbody>${linhas.join('')}</tbody></table></div>` : '<div class="empty">Cadastre as motos (unidades) pra ver a lucratividade por veículo.</div>'}
+      </div>`,
   });
 }
 
-// ---------------------------------------------------------------- IMPORTAÇÃO WSYS
+function faturamentoMensalPage({ user, flash, linhas, porMes, filtro, clientes, veiculos, qs }) {
+  const sel = (v, a) => (String(v) === String(a) ? 'selected' : '');
+  const COLS = [['cliente', 'Cliente'], ['veiculo', 'Veículo'], ['placa', 'Placa'], ['saida', 'Data saída'], ['dias', 'Qtd diárias'], ['diaria', 'Valor diária'], ['total', 'Valor total']];
+  const linMes = porMes
+    .map(
+      (m) => `<tr${m.atual ? ' style="background:rgba(212,175,55,.08);font-weight:600;"' : ''}><td>${esc(m.mes)}</td><td>${money(m.competencia)}</td><td>${money(m.previsto)}</td><td>${money(m.recebido)}</td><td>${money(m.despesas)}</td><td>${m.previsto ? Math.round((m.recebido / m.previsto) * 100) + '%' : '—'}</td></tr>`
+    )
+    .join('');
+  const linDet = linhas
+    .map(
+      (l) => `<tr>
+      <td data-c="cliente"><a href="/locacoes/${l.id}">#${l.id}</a> ${esc(l.cliente_nome || '—')}</td>
+      <td data-c="veiculo">${esc(l.modelo || '')}</td>
+      <td data-c="placa">${esc(l.placa || l.chassi || '—')}</td>
+      <td data-c="saida">${dt(l.data_saida)}</td>
+      <td data-c="dias">${l.dias}</td>
+      <td data-c="diaria">${money(l.diaria)}</td>
+      <td data-c="total">${money(l.total)}</td>
+    </tr>`
+    )
+    .join('');
+  const nf = ['cliente', 'veiculo', 'de', 'ate'].filter((k) => filtro[k]).length;
+  return page({
+    title: 'Faturamento mensal',
+    user,
+    flash,
+    ativo: 'faturamento',
+    header: 'Divide cada locação pela quantidade de diárias e coloca cada diária no mês em que a moto foi usada, a partir da data de saída. Assim você vê o valor da locação por mês de uso (competência), e compara com o que venceu e o que entrou de verdade.',
+    children: `${REL_CSS}${BUSCA_JS}
+      <div class="card">
+        <h2 style="margin-top:0;">Por mês</h2>
+        <div style="overflow-x:auto;"><table><thead><tr><th>Mês</th><th>Competência (uso)</th><th>Previsto (vencimentos)</th><th>Recebido</th><th>Despesas</th><th>% recebido</th></tr></thead><tbody>${linMes}</tbody></table></div>
+        <p class="muted" style="margin:6px 0 0;">"% recebido" abaixo de 100% = dinheiro na rua (inadimplência). Competência considera só as locações do filtro abaixo.</p>
+      </div>
+      <div class="card">
+        <div class="rel-barra">
+          <h2 style="margin:0;">Locações (${linhas.length})</h2>
+          <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input type="search" placeholder="Pesquisar" oninput="relBusca(this,'tab-fat')" style="max-width:220px;">
+            <details style="position:relative;"><summary class="btn btn-sm btn-secondary" style="list-style:none;">Filtros${nf ? ` (${nf})` : ''}</summary>
+              <form method="GET" action="/frota/faturamento-mensal" class="card" style="position:absolute;right:0;z-index:20;width:280px;margin-top:6px;">
+                <div class="field"><label>Cliente</label><select name="cliente"><option value="">Todos</option>${clientes.map((c) => `<option value="${c.id}" ${sel(c.id, filtro.cliente)}>${esc(c.nome)}</option>`).join('')}</select></div>
+                <div class="field"><label>Veículo (placa/chassi)</label><select name="veiculo"><option value="">Todos</option>${veiculos.map((v) => `<option value="${esc(v.chassi)}" ${sel(v.chassi, filtro.veiculo)}>${esc(v.modelo + ' · ' + (v.placa || v.chassi))}</option>`).join('')}</select></div>
+                <div class="field"><label>Saída de</label><input type="date" name="de" value="${esc(filtro.de)}"></div>
+                <div class="field"><label>Saída até</label><input type="date" name="ate" value="${esc(filtro.ate)}"></div>
+                <div class="actions-row" style="margin:0;"><button class="btn btn-sm">Aplicar</button><a class="btn btn-sm btn-secondary" href="/frota/faturamento-mensal">Limpar filtros</a></div>
+              </form>
+            </details>
+            <details style="position:relative;"><summary class="btn btn-sm btn-secondary" style="list-style:none;">Colunas</summary>
+              <div class="card" style="position:absolute;right:0;z-index:20;width:200px;margin-top:6px;">
+                ${COLS.map(([k, l]) => `<label style="display:flex;gap:8px;align-items:center;font-weight:normal;margin:4px 0;"><input type="checkbox" checked style="width:auto;" onchange="document.querySelectorAll('#tab-fat [data-c=${k}]').forEach(function(e){e.style.display=this.checked?'':'none'}.bind(this))"> ${l}</label>`).join('')}
+              </div>
+            </details>
+            <a class="btn btn-sm btn-secondary" href="/frota/faturamento-mensal.csv${esc(qs)}">Exportar</a>
+            <button type="button" class="btn btn-sm" onclick="window.print()">PDF</button>
+          </div>
+        </div>
+        ${linhas.length ? `<div style="overflow-x:auto;"><table id="tab-fat"><thead><tr>${COLS.map(([k, l]) => `<th data-c="${k}">${l}</th>`).join('')}</tr></thead><tbody>${linDet}</tbody></table></div>` : '<div class="empty">Sem registros.</div>'}
+      </div>`,
+  });
+}
+
 function importarPage({ user, flash, csrfToken, relatorio, erroImp, modo, dadosTexto }) {
   const r = relatorio;
   const linha = (rot, obj) => `<tr><td><strong>${rot}</strong></td><td>${Object.entries(obj).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <strong>${esc(typeof v === 'number' && /valor/.test(k) ? money(v) : v)}</strong>`).join(' · ')}</td></tr>`;
@@ -779,5 +863,6 @@ module.exports = {
   contratoModeloFormPage,
   contratoImpressaoPage,
   relatoriosLocacaoPage,
+  faturamentoMensalPage,
   TIPOS_OCORRENCIA,
 };
