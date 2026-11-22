@@ -7,7 +7,7 @@ const STATUS_LABELS = { pendente: 'Pendente', recebido: 'Recebido' };
 
 function isAtrasada(conta) {
   if (conta.status !== 'pendente' || !conta.vencimento) return false;
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = new Date().toLocaleDateString('en-CA');
   return conta.vencimento < hoje;
 }
 

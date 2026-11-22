@@ -99,7 +99,7 @@ const PERIODO_SCRIPT = `
 `;
 
 function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenciar = true, totalReceber = 0, qtdPendentes = 0, prefill = null }) {
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = new Date().toLocaleDateString('en-CA');
   modelos = modelos || [];
   // Calcula aqui, a partir das locações ativas, pra o contador grande bater
   // sempre com as linhas de cada moto (mesma base de data do navegador).

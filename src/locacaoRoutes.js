@@ -59,7 +59,7 @@ function proximaRevisao(u) {
   if (isNaN(d.getTime())) return null;
   d.setDate(d.getDate() + (u.intervalo_revisao_dias || 90));
   const prox = d.toISOString().slice(0, 10);
-  const hoje0 = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00');
+  const hoje0 = new Date(new Date().toLocaleDateString('en-CA') + 'T00:00:00');
   const dias = Math.round((d - hoje0) / 86400000);
   return { base: String(base).slice(0, 10), origem: u.data_ultima_revisao ? 'revisao' : 'locacao', prox, dias };
 }

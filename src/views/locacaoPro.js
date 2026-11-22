@@ -10,7 +10,7 @@ const { escapeHtml, formatMoney, formatDateOnly } = require('../utils');
 const esc = escapeHtml;
 const money = (v) => formatMoney(Number(v) || 0);
 const dt = (v) => (v ? formatDateOnly(v) : '—');
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => new Date().toLocaleDateString('en-CA');
 
 function diasAte(iso) {
   if (!iso) return null;
@@ -746,7 +746,7 @@ function revisoesPage({ user, flash, lista, total, filtro, csrfToken }) {
       `${dt(x.prox)} ${st}<br><small class="muted">conta de ${de} (${dt(x.base)})</small>`,
       `<div style="display:flex;gap:6px;flex-wrap:wrap;">${waRevisao(x.telefone, x.cliente, dt(x.prox), x.dias < 0)}
         <form method="POST" action="/frota/revisoes/${x.tipo}/${x.id}/feita" style="margin:0;display:flex;gap:4px;">${csrfInput(csrfToken)}<input type="hidden" name="ver" value="${esc(filtro)}">
-          <input type="date" name="data" value="${new Date().toISOString().slice(0, 10)}" style="width:auto;"><button class="btn btn-sm">Revisão feita</button></form></div>`,
+          <input type="date" name="data" value="${new Date().toLocaleDateString('en-CA')}" style="width:auto;"><button class="btn btn-sm">Revisão feita</button></form></div>`,
     ];
   });
   return page({

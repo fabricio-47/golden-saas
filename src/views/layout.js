@@ -112,7 +112,8 @@ const STYLE = `
     border-radius: 10px;
     padding: 18px 20px;
   }
-  .stat-card .num { font-size: 28px; font-weight: 700; color: var(--gold-soft); }
+  .stat-card { min-width: 0; overflow: hidden; }
+  .stat-card .num { font-size: 28px; font-weight: 700; color: var(--gold-soft); white-space: nowrap; }
   .stat-card .label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th { text-align: left; padding: 10px 12px; color: #6b6558; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 2px solid #e5e2d8; }
@@ -522,6 +523,19 @@ function layout({ title, activeNav, user, flash, children }) {
           }
         });
       });
+    })();
+  </script>
+  <script>
+    // Número grande do card (ex.: R$ 689.500,00) diminui a fonte até caber no card.
+    (function(){
+      function ajusta(){
+        document.querySelectorAll('.stat-card .num').forEach(function(el){
+          el.style.fontSize='';
+          var fs=parseFloat(getComputedStyle(el).fontSize)||28;
+          while(el.scrollWidth>el.clientWidth && fs>14){ fs-=1; el.style.fontSize=fs+'px'; }
+        });
+      }
+      ajusta(); window.addEventListener('resize',ajusta);
     })();
   </script>
   ${user ? IA_WIDGET : ''}

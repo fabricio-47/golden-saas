@@ -244,7 +244,7 @@ function importar(dados, { simular }) {
                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
               )
               .run(
-                u.frota_id, uid, clienteId, u.chassi, u.placa, u.cor, data(l.data_saida) || new Date().toISOString().slice(0, 10), hora(l.hora_saida),
+                u.frota_id, uid, clienteId, u.chassi, u.placa, u.cor, data(l.data_saida) || new Date().toLocaleDateString('en-CA'), hora(l.hora_saida),
                 data(l.data_retorno), hora(l.hora_retorno), ativa ? null : data(l.data_retorno), n(l.km_saida), n(l.km_retorno), periodo,
                 n(l.qtd), n(l.valor_caucao), n(l.desconto) || 0, [t(l.obs), `Importado do WSYS (locação ${l.ext})`].filter(Boolean).join(' · '),
                 ativa ? 'ativa' : 'devolvida', t(l.testemunha_1), t(l.testemunha_1_rg), t(l.testemunha_2), t(l.testemunha_2_rg), t(l.fiador), t(l.dados_fiador),
@@ -255,7 +255,7 @@ function importar(dados, { simular }) {
           // Entrada (o WSYS guarda em "caução"): vira a parcela nº 0, paga na data de saída.
           const entrada = n(l.valor_caucao);
           if (entrada && entrada > 0) {
-            const ds = data(l.data_saida) || new Date().toISOString().slice(0, 10);
+            const ds = data(l.data_saida) || new Date().toLocaleDateString('en-CA');
             db.prepare("INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, pago, data_pagamento, origem) VALUES (?, 0, ?, ?, 1, ?, 'entrada')").run(locId, entrada, ds, ds);
             r.parcelas.entradas = (r.parcelas.entradas || 0) + 1;
             r.parcelas.valor_entradas = Math.round(((r.parcelas.valor_entradas || 0) + entrada) * 100) / 100;

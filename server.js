@@ -1,5 +1,9 @@
 'use strict';
 
+// Todo o sistema trabalha no horário de Brasília. Sem isso o servidor (UTC)
+// vira o dia às 21h: parcela que vence hoje aparecia como "1d atraso".
+process.env.TZ = process.env.TZ || 'America/Sao_Paulo';
+
 const http = require('node:http');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
@@ -198,7 +202,7 @@ function licenseSecret() {
   return process.env.LICENSE_SECRET || 'golden-saas-chave-padrao-troque-no-servidor';
 }
 function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString('en-CA');
 }
 function getLicencaAte() {
   const c = getConfigGeral();
@@ -370,7 +374,7 @@ function enviarCsv(res, filename, headers, rows) {
   res.end(csv);
 }
 function dataArquivo() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString('en-CA');
 }
 
 // ---------------- Campos extras (campos personalizados do cliente) ----------------
@@ -4609,7 +4613,7 @@ async function handler(req, res) {
       if (!hasManagementAccess(user)) return forbidden(res);
       try {
         const zip = await buildFullBackupZip(db);
-        const filename = `golden-saas-backup-completo-${new Date().toISOString().slice(0, 10)}.zip`;
+        const filename = `golden-saas-backup-completo-${new Date().toLocaleDateString('en-CA')}.zip`;
         res.writeHead(200, {
           'Content-Type': 'application/zip',
           'Content-Disposition': `attachment; filename="${filename}"`,
@@ -4839,7 +4843,7 @@ server.listen(PORT, () => {
 async function maybeRunDailyBackup() {
   try {
     const state = readBackupState();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA');
     if (state.lastAutoBackupDate === today) return;
     const result = await runAutoBackup(db, { recipients: getBackupRecipients() });
     console.log(`[backup] Backup automático diário concluído (${result.sizeBytes} bytes, e-mail: ${result.emailed ? 'enviado' : result.emailError || 'não configurado'}).`);

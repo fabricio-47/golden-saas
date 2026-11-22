@@ -145,7 +145,7 @@ function garantiaConsultaPage({ user, flash, termo, resultados, recentes, config
 function garantiaFormPage({ user, flash, garantia, csrfToken, config, produtos, clientes }) {
   const isEdit = !!(garantia && garantia.id);
   const g = garantia || {};
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = new Date().toLocaleDateString('en-CA');
   const clienteOptions = (clientes || [])
     .map((c) => `<option value="${c.id}" ${g.cliente_id == c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`)
     .join('');
