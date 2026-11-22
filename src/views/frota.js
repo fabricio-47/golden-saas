@@ -200,124 +200,121 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
         <div class="actions-row" style="margin:8px 0 0;flex-wrap:wrap;gap:8px;">${acoes.join('')}</div>
 
         <div id="fr_alugar_${m.id}" style="display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
-          <h3 style="margin:0 0 10px;">Registrar locação — ${escapeHtml(m.identificacao)}</h3>
+          <h3 style="margin:0 0 10px;">Criar locação — ${escapeHtml(m.identificacao)}</h3>
           <form method="POST" action="/frota/${m.id}/alugar" enctype="multipart/form-data" onsubmit="return frSubmitAlugar(event, this);">
             <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
-            ${periodoBloco(m, hojeStr)}
-            <div class="form-grid">
-              <div class="field full fr-novocli">
-                <label>Locatário (cliente) *</label>
-                <select name="cliente_id" required><option value="">Selecione...</option>${clienteOptions}</select>
-                <a href="javascript:void(0)" class="link-btn" style="font-size:13px;display:inline-block;margin-top:4px;" onclick="frToggleNovoCli(this,true)">+ Cadastrar cliente novo aqui</a>
-                <div class="fr-nc-box" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--border);border-radius:8px;">
-                  <div class="form-grid">
-                    <div class="field"><label>Nome do cliente *</label><input type="text" class="fr-nc-nome" placeholder="Nome completo"></div>
-                    <div class="field"><label>Telefone</label><input type="text" class="fr-nc-tel" placeholder="(21) 9...."></div>
-                  </div>
-                  <div class="actions-row" style="margin-top:6px;">
-                    <button type="button" class="btn btn-sm" onclick="frNovoCliente(this)">Salvar cliente</button>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="frToggleNovoCli(this,false)">Cancelar</button>
-                  </div>
-                  <p class="muted" style="margin:6px 0 0;">Cadastro rápido (nome + telefone). Pra endereço e mais dados, use o <a class="link-btn" href="/clientes/novo" target="_blank">cadastro completo</a>.</p>
-                </div>
-              </div>
-              ${
-                m.qtd_unidades
-                  ? `<div class="field full">
-                <label>Moto que está saindo *</label>
-                <select name="unidade_id" required onchange="frUnidade(this)"><option value="">Selecione a moto...</option>${(m.unidades_disp || [])
-                  .map((u) => `<option value="${u.id}" data-km="${u.km_atual == null ? '' : u.km_atual}">${escapeHtml([u.placa, u.chassi, u.cor].filter(Boolean).join(' · '))}</option>`)
-                  .join('')}</select>
-                <small class="muted">Só aparecem as motos disponíveis. <a class="link-btn" href="/frota/${m.id}/unidades">Gerenciar motos</a></small>
-              </div>`
-                  : `<div class="field">
-                <label>Chassi da moto que saiu *</label>
-                <input type="text" name="chassi" required placeholder="Número do chassi">
-              </div>
-              <div class="field">
-                <label>Placa (opcional)</label>
-                <input type="text" name="placa" placeholder="ABC1D23">
-              </div>
-              <div class="field">
-                <label>Cor da moto</label>
-                <input type="text" name="cor" value="${escapeHtml(m.cor || '')}" placeholder="Ex.: Preta">
-              </div>`
-              }
-              <div class="field"><label>Hora de saída</label><input type="time" name="hora_saida"></div>
-              <div class="field"><label>Km de saída</label><input type="number" name="km_saida" min="0"></div>
-              <div class="field">
-                <label>Devolução prevista</label>
-                <input type="date" name="devolucao_prevista">
-              </div>
-              <div class="field">
-                <label>Valor combinado (R$)</label>
-                <input type="number" name="valor_combinado" min="0" step="0.01" placeholder="Pra controlar a cobrança">
-              </div>
-              <div class="field">
-                <label>Vencimento do pagamento (opcional)</label>
-                <input type="date" name="vencimento">
-              </div>
-              <div class="field"><label>Hora de retorno</label><input type="time" name="hora_retorno"></div>
-              <div class="field"><label>Entrada (R$)</label><input type="number" name="valor_caucao" min="0" step="0.01" placeholder="Ex.: 600">
-                <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:6px;cursor:pointer;"><input type="checkbox" name="entrada_paga" value="1" checked style="width:auto;"> Entrada já paga na entrega</label>
-                <select name="forma_entrada" style="margin-top:6px;"><option value="PIX">PIX</option><option value="Dinheiro">Dinheiro</option><option value="Cartão">Cartão</option><option value="Outro">Outro</option></select>
-              </div>
-              <div class="field"><label>Desconto (R$) — abatido das primeiras parcelas</label><input type="number" name="desconto" min="0" step="0.01" value="0"></div>
-            </div>
-            <div class="field full">
-              <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
-                <input type="checkbox" name="compra_garantida" value="1" style="width:auto;"> Locação com compra garantida (a moto vira do cliente ao quitar)
-              </label>
-            </div>
-            <details style="margin:6px 0 10px;"><summary>Testemunhas e fiador (vão pro contrato)</summary>
-              <div class="form-grid" style="margin-top:8px;">
-                <div class="field"><label>Testemunha 1</label><input type="text" name="testemunha1_nome"></div>
-                <div class="field"><label>RG testemunha 1</label><input type="text" name="testemunha1_rg"></div>
-                <div class="field"><label>Testemunha 2</label><input type="text" name="testemunha2_nome"></div>
-                <div class="field"><label>RG testemunha 2</label><input type="text" name="testemunha2_rg"></div>
-                <div class="field"><label>Fiador</label><input type="text" name="fiador_nome"></div>
-                <div class="field"><label>Dados do fiador</label><input type="text" name="fiador_dados" placeholder="CPF, endereço, telefone"></div>
-              </div>
-            </details>
+            <input type="hidden" name="criar_outro" value="">
             <input type="hidden" name="agendamento_id" value="">
-            <div class="form-grid">
-              <div class="field">
-                <label>Foto 1 da moto na entrega *</label>
-                <input type="file" name="foto_moto" accept="image/*" class="img-compress" required>
-                <small class="muted">Prova da condição (arranhões, amassados). Comprimida automaticamente.</small>
-              </div>
-              <div class="field">
-                <label>Foto 2 da moto (opcional)</label>
-                <input type="file" name="foto_moto2" accept="image/*" class="img-compress">
-                <small class="muted">Outro ângulo.</small>
-              </div>
-              <div class="field">
-                <label>Foto 3 da moto (opcional)</label>
-                <input type="file" name="foto_moto3" accept="image/*" class="img-compress">
-                <small class="muted">Outro ângulo.</small>
-              </div>
-              <div class="field">
-                <label>Foto 4 da moto (opcional)</label>
-                <input type="file" name="foto_moto4" accept="image/*" class="img-compress">
-                <small class="muted">Outro ângulo.</small>
-              </div>
-              <div class="field">
-                <label>Foto da CNH do locatário *</label>
-                <input type="file" name="foto_cnh" accept="image/*" class="img-compress" required>
-                <small class="muted">CNH digital no celular do cliente. Comprimida automaticamente.</small>
-              </div>
+            <div class="fr-tabs">
+              <button type="button" class="fr-tab ativo" data-tab="info">Informações da Locação</button>
+              <button type="button" class="fr-tab" data-tab="assin">Assinaturas de Terceiros</button>
+              <button type="button" class="fr-tab" data-tab="ocorr">Ocorrências</button>
             </div>
-            <div class="field full">
-              <label>Observações (opcional)</label>
-              <textarea name="observacoes" rows="2"></textarea>
+
+            <div class="fr-painel" data-painel="info">
+              <fieldset class="fr-box"><legend>Dados da Locação</legend>
+                <div class="form-grid">
+                  <div class="field fr-novocli">
+                    <label>Cliente *</label>
+                    <select name="cliente_id" required><option value="">Selecione...</option>${clienteOptions}</select>
+                    <a href="javascript:void(0)" class="link-btn" style="font-size:13px;display:inline-block;margin-top:4px;" onclick="frToggleNovoCli(this,true)">+ Cadastrar cliente novo aqui</a>
+                    <div class="fr-nc-box" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--border);border-radius:8px;">
+                      <div class="form-grid">
+                        <div class="field"><label>Nome do cliente *</label><input type="text" class="fr-nc-nome" placeholder="Nome completo"></div>
+                        <div class="field"><label>Telefone</label><input type="text" class="fr-nc-tel" placeholder="(21) 9...."></div>
+                      </div>
+                      <div class="actions-row" style="margin-top:6px;">
+                        <button type="button" class="btn btn-sm" onclick="frNovoCliente(this)">Salvar cliente</button>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="frToggleNovoCli(this,false)">Cancelar</button>
+                      </div>
+                      <p class="muted" style="margin:6px 0 0;">Cadastro rápido (nome + telefone). Pra endereço e mais dados, use o <a class="link-btn" href="/clientes/novo" target="_blank">cadastro completo</a>.</p>
+                    </div>
+                  </div>
+                  ${
+                    m.qtd_unidades
+                      ? `<div class="field">
+                    <label>Veículo (moto que está saindo) *</label>
+                    <select name="unidade_id" required onchange="frUnidade(this)"><option value="">Selecione a moto...</option>${(m.unidades_disp || [])
+                      .map((u) => `<option value="${u.id}" data-km="${u.km_atual == null ? '' : u.km_atual}">${escapeHtml([u.placa, u.chassi, u.cor].filter(Boolean).join(' · '))}</option>`)
+                      .join('')}</select>
+                    <small class="muted">Só aparecem as motos disponíveis. <a class="link-btn" href="/frota/${m.id}/unidades">Gerenciar motos</a></small>
+                  </div>`
+                      : `<div class="field">
+                    <label>Chassi da moto que saiu *</label>
+                    <input type="text" name="chassi" required placeholder="Número do chassi">
+                  </div>
+                  <div class="field"><label>Placa (opcional)</label><input type="text" name="placa" placeholder="ABC1D23"></div>
+                  <div class="field"><label>Cor da moto</label><input type="text" name="cor" value="${escapeHtml(m.cor || '')}" placeholder="Ex.: Preta"></div>`
+                  }
+                </div>
+                ${periodoBloco(m, hojeStr)}
+              </fieldset>
+
+              <fieldset class="fr-box"><legend>Datas e Valores</legend>
+                <div class="form-grid">
+                  <div class="field"><label>Data saída</label><input type="date" name="data_saida" value="${hojeStr}"></div>
+                  <div class="field"><label>Hora saída</label><input type="time" name="hora_saida"></div>
+                  <div class="field"><label>Data retorno</label><input type="date" name="devolucao_prevista"></div>
+                  <div class="field"><label>Hora retorno</label><input type="time" name="hora_retorno"></div>
+                  <div class="field"><label>Km saída</label><input type="number" name="km_saida" min="0"></div>
+                  <div class="field"><label>Entrada / caução (R$)</label><input type="number" name="valor_caucao" min="0" step="0.01" placeholder="Ex.: 600" oninput="frTotais(this.form)">
+                    <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:6px;cursor:pointer;"><input type="checkbox" name="entrada_paga" value="1" checked style="width:auto;"> Entrada já paga na entrega</label>
+                    <select name="forma_entrada" style="margin-top:6px;"><option value="PIX">PIX</option><option value="Dinheiro">Dinheiro</option><option value="Cartão">Cartão</option><option value="Outro">Outro</option></select>
+                  </div>
+                  <div class="field"><label>Valor total (R$)</label><input type="number" name="valor_combinado" min="0" step="0.01" placeholder="Preenche sozinho pelo período" oninput="frTotais(this.form)"></div>
+                  <div class="field"><label>Desconto (R$) — abatido das primeiras parcelas</label><input type="number" name="desconto" min="0" step="0.01" value="0" oninput="frTotais(this.form)"></div>
+                  <div class="field"><label>Valor total com desconto</label><input type="text" class="fr-total-desc" readonly tabindex="-1" style="background:var(--bg);font-weight:700;"></div>
+                  <div class="field"><label>Vencimento da 1ª parcela</label><input type="date" name="vencimento"><small class="muted">Vazio = data de saída.</small></div>
+                </div>
+                <div class="field full"><label>Observações</label><textarea name="observacoes" rows="2"></textarea></div>
+              </fieldset>
+
+              <fieldset class="fr-box"><legend>Financeiro</legend>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;margin-bottom:6px;">
+                  <input type="checkbox" name="pago_entrega" value="1" style="width:auto;"> 1ª parcela já paga na entrega (senão fica pendente na cobrança)
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
+                  <input type="checkbox" name="compra_garantida" value="1" style="width:auto;"> Locação com compra garantida (a moto vira do cliente ao quitar)
+                </label>
+              </fieldset>
+
+              <fieldset class="fr-box"><legend>Fotos da entrega</legend>
+                <div class="form-grid">
+                  <div class="field"><label>Foto 1 da moto na entrega *</label><input type="file" name="foto_moto" accept="image/*" class="img-compress" required><small class="muted">Prova da condição (arranhões, amassados). Comprimida automaticamente.</small></div>
+                  <div class="field"><label>Foto 2 da moto (opcional)</label><input type="file" name="foto_moto2" accept="image/*" class="img-compress"></div>
+                  <div class="field"><label>Foto 3 da moto (opcional)</label><input type="file" name="foto_moto3" accept="image/*" class="img-compress"></div>
+                  <div class="field"><label>Foto 4 da moto (opcional)</label><input type="file" name="foto_moto4" accept="image/*" class="img-compress"></div>
+                  <div class="field"><label>Foto da CNH do locatário *</label><input type="file" name="foto_cnh" accept="image/*" class="img-compress" required><small class="muted">CNH digital no celular do cliente.</small></div>
+                </div>
+              </fieldset>
             </div>
-            <div class="field full">
-              <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
-                <input type="checkbox" name="pago_entrega" value="1" style="width:auto;"> Já pago na entrega (senão fica como pendente na cobrança)
-              </label>
+
+            <div class="fr-painel" data-painel="assin" style="display:none;">
+              <fieldset class="fr-box"><legend>Assinaturas no Contrato</legend>
+                <div class="form-grid">
+                  <div class="field"><label>Testemunha 1</label><input type="text" name="testemunha1_nome"></div>
+                  <div class="field"><label>RG</label><input type="text" name="testemunha1_rg"></div>
+                  <div class="field"><label>Testemunha 2</label><input type="text" name="testemunha2_nome"></div>
+                  <div class="field"><label>RG</label><input type="text" name="testemunha2_rg"></div>
+                  <div class="field"><label>Fiador</label><input type="text" name="fiador_nome"></div>
+                </div>
+              </fieldset>
+              <fieldset class="fr-box"><legend>Dados Completos do Fiador</legend>
+                <textarea name="fiador_dados" rows="3" placeholder="CPF, RG, endereço, telefone"></textarea>
+              </fieldset>
             </div>
-            <div class="actions-row" style="margin-top:8px;">
-              <button class="btn" type="submit">Confirmar locação</button>
+
+            <div class="fr-painel" data-painel="ocorr" style="display:none;">
+              <fieldset class="fr-box"><legend>Ocorrências da Locação</legend>
+                <p class="muted" style="margin-top:0;">Ex.: moto saiu com arranhão, retrovisor faltando. Ocorrências com valor e cobranças depois ficam em Detalhes da locação.</p>
+                <div class="fr-ocorr-lista"></div>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="frNovaOcorr(this)">Novo</button>
+              </fieldset>
+            </div>
+
+            <div class="actions-row" style="margin-top:10px;">
+              <button class="btn" type="submit">Criar</button>
+              <button class="btn btn-secondary" type="submit" onclick="this.form.criar_outro.value='1'">Salvar e criar outro</button>
               <button type="button" class="btn btn-secondary" onclick="frFecharAlugar(${m.id})">Cancelar</button>
             </div>
           </form>
@@ -334,6 +331,13 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
     user,
     flash,
     children: `
+      <style>
+        .fr-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:12px}
+        .fr-tab{background:none;border:none;border-bottom:3px solid transparent;padding:8px 12px;cursor:pointer;font-weight:600;color:inherit;opacity:.65}
+        .fr-tab.ativo{opacity:1;border-bottom-color:var(--gold,#d4af37)}
+        .fr-box{border:1px solid var(--border);border-radius:8px;padding:10px 14px 12px;margin:0 0 12px}
+        .fr-box legend{font-weight:700;padding:0 6px}
+      </style>
       <div class="page-header">
         <div>
           <h1>Frota de locação</h1>
@@ -361,6 +365,37 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
       ${modelos.length ? cards : '<div class="card"><div class="empty">Nenhum modelo na frota ainda. Clique em "Novo modelo" pra cadastrar o primeiro.</div></div>'}
       <script>
         function frAbrirAlugar(id){ var b=document.getElementById('fr_alugar_'+id); if(b){ b.style.display='block'; b.scrollIntoView({behavior:'smooth',block:'nearest'}); } }
+        // Abas do formulário (Informações / Assinaturas / Ocorrências)
+        document.addEventListener('click',function(e){
+          var t=e.target.closest&&e.target.closest('.fr-tab'); if(!t) return;
+          var f=t.closest('form'); frMostraAba(f,t.getAttribute('data-tab'));
+        });
+        function frMostraAba(f,aba){
+          f.querySelectorAll('.fr-tab').forEach(function(b){b.classList.toggle('ativo',b.getAttribute('data-tab')===aba)});
+          f.querySelectorAll('.fr-painel').forEach(function(p){p.style.display=p.getAttribute('data-painel')===aba?'':'none'});
+        }
+        // Campo obrigatório escondido em outra aba: abre a aba certa pro navegador mostrar o erro.
+        document.addEventListener('invalid',function(e){
+          var p=e.target.closest&&e.target.closest('.fr-painel'); if(p&&p.style.display==='none') frMostraAba(p.closest('form'),p.getAttribute('data-painel'));
+        },true);
+        function frTotais(f){
+          var v=parseFloat((f.valor_combinado||{}).value)||0, d=parseFloat((f.desconto||{}).value)||0, e=parseFloat((f.valor_caucao||{}).value)||0;
+          var out=f.querySelector('.fr-total-desc'); if(!out) return;
+          var t=Math.max(0,v-d)+e;
+          out.value=(v||e)?('R$ '+t.toFixed(2).replace('.',',')+(e?' (com entrada)':'')):'';
+        }
+        document.addEventListener('change',function(e){ if(e.target.closest&&e.target.closest('.loc-periodo-wrap')) setTimeout(function(){frTotais(e.target.form)},0); });
+        document.addEventListener('input',function(e){ if(e.target.classList&&e.target.classList.contains('loc-qtd')) setTimeout(function(){frTotais(e.target.form)},0); });
+        var FR_TIPOS=${JSON.stringify(require('./locacaoPro').TIPOS_OCORRENCIA)};
+        function frNovaOcorr(btn){
+          var lista=btn.closest('fieldset').querySelector('.fr-ocorr-lista'); var n=lista.children.length+1; if(n>5){alert('Até 5 ocorrências aqui. O resto, adicione em Detalhes da locação.');return;}
+          var opts=Object.keys(FR_TIPOS).map(function(k){return '<option value="'+k+'">'+FR_TIPOS[k]+'</option>'}).join('');
+          var d=document.createElement('div'); d.className='form-grid'; d.style.cssText='padding:8px 0;border-bottom:1px solid var(--border);';
+          d.innerHTML='<div class="field"><label>Tipo</label><select name="ocorr_tipo_'+n+'">'+opts+'</select></div>'+
+            '<div class="field"><label>Descrição</label><input type="text" name="ocorr_desc_'+n+'" placeholder="O que aconteceu"></div>'+
+            '<div class="field"><label>Valor (R$, opcional)</label><input type="number" step="0.01" min="0" name="ocorr_valor_'+n+'"></div>';
+          lista.appendChild(d);
+        }
         function frFecharAlugar(id){ var b=document.getElementById('fr_alugar_'+id); if(b) b.style.display='none'; }
         function frUnidade(sel){
           var o=sel.options[sel.selectedIndex]; var f=sel.closest('form'); if(!o||!f) return;

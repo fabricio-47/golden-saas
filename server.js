@@ -76,6 +76,7 @@ const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalog
 const { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage } = require('./src/views/frota');
 const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE, normChassi } = require('./src/locacaoRoutes');
 // Data de hoje em Brasília (o servidor roda em UTC: depois das 21h o date('now') já é amanhã).
+const { TIPOS_OCORRENCIA } = require('./src/views/locacaoPro');
 const hojeSP = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const { handleCrm, handleCrmWebhook } = require('./src/crmRoutes');
 const { handleIa } = require('./src/iaRoutes');
@@ -3714,12 +3715,14 @@ async function handler(req, res) {
       if (!fotoMoto) { setFlash(session.sessionId, 'error', 'A foto da moto na entrega é obrigatória.'); return redirect(res, '/frota'); }
       if (!fotoCnh) { setFlash(session.sessionId, 'error', 'A foto da CNH do locatário é obrigatória.'); return redirect(res, '/frota'); }
       const pagoEntrega = body.pago_entrega === '1' || body.pago_entrega === 'on' ? 1 : 0;
+      // Data de saída: a informada no formulário (lançar locação que já saiu), senão hoje.
+      const dataSaida = /^\d{4}-\d{2}-\d{2}$/.test((body.data_saida || '').trim()) ? body.data_saida.trim() : hojeSP();
       const info = db.prepare(
         `INSERT INTO locacoes (frota_id, unidade_id, cliente_id, chassi, placa, cor, data_saida, devolucao_prevista, valor_combinado, vencimento, pago, data_pagamento, forma_pagamento, observacoes, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ativa')`
       ).run(
         m.id, unidade ? unidade.id : null, toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null, (body.cor || '').trim() || null,
-        hojeSP(), (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
+        dataSaida, (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
         (body.vencimento || '').trim() || null, pagoEntrega, pagoEntrega ? hojeSP() : null,
         pagoEntrega ? ((body.forma_pagamento || '').trim() || null) : null,
         (body.observacoes || '').trim() || null
@@ -3750,7 +3753,7 @@ async function handler(req, res) {
       if (periodo && diasPorPeriodo[periodo] && rateByPeriodo[periodo] != null) {
         const rate = Number(rateByPeriodo[periodo]) || 0;
         const dias = diasPorPeriodo[periodo];
-        const baseVenc = (body.vencimento || '').trim() || hojeSP();
+        const baseVenc = (body.vencimento || '').trim() || dataSaida;
         for (let k = 0; k < quantas; k++) parcelas.push({ numero: k + 1, valor: rate, vencimento: addDiasISO(baseVenc, k * dias) });
       } else {
         parcelas.push({ numero: 1, valor: toFloatOrNull(body.valor_combinado) || 0, vencimento: (body.vencimento || '').trim() || null });
@@ -3802,8 +3805,24 @@ async function handler(req, res) {
       if (toIntOrNull(body.agendamento_id)) {
         db.prepare("UPDATE locacao_agendamentos SET status='convertido', locacao_id=? WHERE id=? AND status='agendado'").run(locId, toIntOrNull(body.agendamento_id));
       }
+      // Ocorrências lançadas na aba "Ocorrências" do formulário.
+      const insOc = db.prepare('INSERT INTO locacao_ocorrencias (locacao_id, tipo, data_hora, valor, descricao) VALUES (?,?,?,?,?)');
+      let nOc = 0;
+      for (let k = 1; k <= 5; k++) {
+        const desc = (body['ocorr_desc_' + k] || '').trim();
+        const val = toFloatOrNull(body['ocorr_valor_' + k]);
+        if (!desc && !val) continue;
+        const tipo = TIPOS_OCORRENCIA[body['ocorr_tipo_' + k]] ? body['ocorr_tipo_' + k] : 'outros';
+        insOc.run(locId, tipo, dataSaida, val, desc || null);
+        nOc++;
+      }
       const msgParc = parcelas.length > 1 ? ` (${parcelas.length} parcelas geradas)` : '';
-      setFlash(session.sessionId, 'success', `Locação registrada — "${modelo.identificacao}" entregue.${msgParc}`);
+      const msgOc = nOc ? ` ${nOc} ocorrência(s) registrada(s).` : '';
+      setFlash(session.sessionId, 'success', `Locação registrada — "${modelo.identificacao}" entregue.${msgParc}${msgOc}`);
+      if (body.criar_outro === '1') {
+        const ainda = db.prepare("SELECT COUNT(*) c FROM locacoes WHERE frota_id=? AND status='ativa'").get(m.id).c;
+        if ((modelo.quantidade_total || 0) - ainda - (modelo.em_manutencao || 0) > 0) return redirect(res, '/frota?alugar=' + m.id);
+      }
       return redirect(res, '/frota');
     }
     if ((m = matchRoute('/frota/:id/manutencao', pathname)) && method === 'POST') {
