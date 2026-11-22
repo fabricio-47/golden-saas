@@ -642,7 +642,7 @@ ${corpoHtml}
 }
 
 // ---------------------------------------------------------------- RELATÓRIOS
-function relatoriosLocacaoPage({ user, flash, porMoto, porMes, filtro }) {
+function relatoriosLocacaoPage({ user, flash, porMoto, porMes, filtro, conflitos = [] }) {
   const linM = porMoto.map((u) => {
     const payback = u.valor_compra ? Math.round((u.receita / u.valor_compra) * 100) : null;
     return [
@@ -676,6 +676,11 @@ function relatoriosLocacaoPage({ user, flash, porMoto, porMes, filtro }) {
         <div class="stat-card"><div class="num" style="color:${tot.r - tot.d < 0 ? '#a1352a' : '#1b7a43'}">${money(tot.r - tot.d)}</div><div class="label">Resultado</div></div>
         <div class="stat-card"><div class="num">${tot.r ? Math.round(((tot.r - tot.d) / tot.r) * 100) : 0}%</div><div class="label">Margem</div></div>
       </div>
+      ${conflitos.length ? `<div class="card" style="border:2px solid #a1352a;">
+        <h2 style="margin-top:0;color:#a1352a;">Mesma moto em mais de uma locação ativa (${conflitos.length})</h2>
+        <p class="muted" style="margin-top:0;">Uma das locações está com o chassi errado: confira o chassi na moto e corrija a locação.</p>
+        ${tabela(['Chassi', 'Locações ativas'], conflitos.map((cf) => [esc(cf.chassi), cf.locacoes.map((l) => `<a href="/locacoes/${l.id}">#${l.id}</a> ${esc(l.cliente_nome || '?')} (saída ${esc(l.data_saida || '?')})`).join('<br>')]), '')}
+      </div>` : ''}
       <div class="card"><h2 style="margin-top:0;">Por moto</h2>${tabela(['Modelo', 'Placa/chassi', 'Locações', 'Receita', 'Despesas', 'Resultado', 'Payback', 'Margem'], linM, 'Cadastre as motos (unidades) pra ver a lucratividade por moto.')}</div>
       <div class="card"><h2 style="margin-top:0;">Faturamento mensal (12 meses)</h2>${tabela(['Mês', 'Previsto (vencimentos)', 'Recebido', 'Despesas', 'Resultado', '% recebido'], linMes, 'Sem dados.')}
         <p class="muted" style="margin:6px 0 0;">"% recebido" = recebido ÷ previsto do mês. Abaixo de 100% = dinheiro na rua (inadimplência).</p></div>`,

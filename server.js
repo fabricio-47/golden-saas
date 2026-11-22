@@ -75,6 +75,8 @@ const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('
 const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
 const { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage } = require('./src/views/frota');
 const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE, normChassi } = require('./src/locacaoRoutes');
+// Data de hoje em Brasília (o servidor roda em UTC: depois das 21h o date('now') já é amanhã).
+const hojeSP = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const { handleCrm, handleCrmWebhook } = require('./src/crmRoutes');
 const { somenteCrm } = require('./src/crmSegmentos');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
@@ -3709,11 +3711,11 @@ async function handler(req, res) {
       const pagoEntrega = body.pago_entrega === '1' || body.pago_entrega === 'on' ? 1 : 0;
       const info = db.prepare(
         `INSERT INTO locacoes (frota_id, unidade_id, cliente_id, chassi, placa, cor, data_saida, devolucao_prevista, valor_combinado, vencimento, pago, data_pagamento, forma_pagamento, observacoes, status)
-         VALUES (?, ?, ?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, 'ativa')`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ativa')`
       ).run(
         m.id, unidade ? unidade.id : null, toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null, (body.cor || '').trim() || null,
-        (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
-        (body.vencimento || '').trim() || null, pagoEntrega, pagoEntrega ? new Date().toISOString().slice(0, 10) : null,
+        hojeSP(), (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
+        (body.vencimento || '').trim() || null, pagoEntrega, pagoEntrega ? hojeSP() : null,
         pagoEntrega ? ((body.forma_pagamento || '').trim() || null) : null,
         (body.observacoes || '').trim() || null
       );
@@ -3743,12 +3745,12 @@ async function handler(req, res) {
       if (periodo && diasPorPeriodo[periodo] && rateByPeriodo[periodo] != null) {
         const rate = Number(rateByPeriodo[periodo]) || 0;
         const dias = diasPorPeriodo[periodo];
-        const baseVenc = (body.vencimento || '').trim() || new Date().toISOString().slice(0, 10);
+        const baseVenc = (body.vencimento || '').trim() || hojeSP();
         for (let k = 0; k < quantas; k++) parcelas.push({ numero: k + 1, valor: rate, vencimento: addDiasISO(baseVenc, k * dias) });
       } else {
         parcelas.push({ numero: 1, valor: toFloatOrNull(body.valor_combinado) || 0, vencimento: (body.vencimento || '').trim() || null });
       }
-      const hojeISO = new Date().toISOString().slice(0, 10);
+      const hojeISO = hojeSP();
       const insParcela = db.prepare(
         'INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, pago, data_pagamento, forma_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
@@ -3785,7 +3787,7 @@ async function handler(req, res) {
       const entrada = toFloatOrNull(body.valor_caucao);
       if (entrada && entrada > 0) {
         const entradaPaga = body.entrada_paga === '1' || body.entrada_paga === 'on';
-        const hojeEnt = new Date().toISOString().slice(0, 10);
+        const hojeEnt = hojeSP();
         db.prepare(
           "INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, pago, data_pagamento, forma_pagamento, origem) VALUES (?, 0, ?, ?, ?, ?, ?, 'entrada')"
         ).run(locId, entrada, hojeEnt, entradaPaga ? 1 : 0, entradaPaga ? hojeEnt : null, entradaPaga ? (body.forma_entrada || '').trim() || null : null);
@@ -3888,7 +3890,16 @@ async function handler(req, res) {
       const locAtual = db.prepare('SELECT chassi, unidade_id FROM locacoes WHERE id = ?').get(m.id);
       if (normChassi(locAtual.chassi) !== normChassi(body.chassi)) {
         const alvo = normChassi(body.chassi);
-        const un = db.prepare('SELECT id, chassi FROM frota_unidades').all().find((u) => normChassi(u.chassi) === alvo);
+        const outra = db
+          .prepare("SELECT l.id, l.chassi, c.nome FROM locacoes l LEFT JOIN clientes c ON c.id=l.cliente_id WHERE l.status='ativa' AND l.id <> ?")
+          .all(m.id)
+          .find((l) => normChassi(l.chassi) === alvo);
+        if (outra) {
+          setFlash(session.sessionId, 'error', `Essa moto já está na locação ativa #${outra.id} (${outra.nome || 'cliente'}). Confira o chassi.`);
+          return redirect(res, '/locacoes/' + m.id + '/editar');
+        }
+        // Prefere a moto ativa; desativada (duplicada) só se não houver outra.
+        const un = db.prepare('SELECT id, chassi, ativo FROM frota_unidades ORDER BY ativo DESC, id').all().find((u) => normChassi(u.chassi) === alvo);
         db.prepare('UPDATE locacoes SET unidade_id = ? WHERE id = ?').run(un ? un.id : null, m.id);
       }
       db.prepare(

@@ -548,7 +548,7 @@ async function handleLocacaoPro(ctx) {
       avisoEntrada = ' A entrada já está paga com outro valor: desfaça o pagamento dela na lista de parcelas antes de mudar.';
       db.prepare('UPDATE locacoes SET valor_caucao=? WHERE id=?').run(pe.valor, m.id);
     } else if (!pe && entrada > 0) {
-      db.prepare("INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, origem) VALUES (?, 0, ?, date('now'), 'entrada')").run(m.id, entrada);
+      db.prepare("INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento, origem) VALUES (?, 0, ?, ?, 'entrada')").run(m.id, entrada, hoje());
     }
     db.prepare('UPDATE locacoes SET valor_combinado = (SELECT SUM(valor) FROM locacao_parcelas WHERE locacao_id=?) WHERE id=?').run(m.id, m.id);
     ok('Dados da locação salvos.' + avisoEntrada);
@@ -558,7 +558,7 @@ async function handleLocacaoPro(ctx) {
     const loc = db.prepare('SELECT * FROM locacoes WHERE id=?').get(m.id);
     if (!loc) return done(() => notFound(res));
     const km = int(body.km_retorno);
-    db.prepare("UPDATE locacoes SET status='devolvida', data_devolucao=date('now'), km_retorno=COALESCE(?, km_retorno), caucao_devolvida=? WHERE id=?").run(
+    db.prepare("UPDATE locacoes SET status='devolvida', data_devolucao=?, km_retorno=COALESCE(?, km_retorno), caucao_devolvida=? WHERE id=?").run(hoje(),
       km, chk(body.caucao_devolvida), m.id
     );
     if (km !== null && loc.unidade_id) db.prepare('UPDATE frota_unidades SET km_atual=? WHERE id=?').run(km, loc.unidade_id);
@@ -653,7 +653,7 @@ async function handleLocacaoPro(ctx) {
     const pc = db.prepare('SELECT * FROM locacao_parcelas WHERE id=?').get(m.id);
     if (!pc) return done(() => notFound(res));
     if (m.acao === 'pagar') {
-      db.prepare("UPDATE locacao_parcelas SET pago=1, data_pagamento=date('now'), forma_pagamento=? WHERE id=?").run(txt(body.forma_pagamento), m.id);
+      db.prepare('UPDATE locacao_parcelas SET pago=1, data_pagamento=?, forma_pagamento=? WHERE id=?').run(hoje(), txt(body.forma_pagamento), m.id);
       const loc = db.prepare('SELECT * FROM locacoes WHERE id=?').get(pc.locacao_id);
       const falta = db.prepare('SELECT COUNT(*) c FROM locacao_parcelas WHERE locacao_id=? AND pago=0').get(pc.locacao_id).c;
       let extra = '';
@@ -667,7 +667,7 @@ async function handleLocacaoPro(ctx) {
           const u = db.prepare('SELECT frota_id FROM frota_unidades WHERE id=?').get(loc.unidade_id);
           if (u) syncModelo(u.frota_id);
         }
-        db.prepare("UPDATE locacoes SET status='quitada', data_devolucao=date('now') WHERE id=?").run(loc.id);
+        db.prepare("UPDATE locacoes SET status='quitada', data_devolucao=? WHERE id=?").run(hoje(), loc.id);
         extra = ' Todas as parcelas quitadas: a moto agora é do cliente (compra garantida) e saiu da frota.' + (loc.unidade_id ? '' : ' Esta locação não tinha moto cadastrada vinculada; ajuste a quantidade do modelo.');
       }
       ok('Parcela recebida.' + extra);
@@ -883,7 +883,7 @@ async function handleLocacaoPro(ctx) {
         .get(u.id, u.chassi).c;
       const d = db.prepare('SELECT COALESCE(SUM(valor),0) v FROM frota_despesas WHERE unidade_id=? AND data BETWEEN ? AND ?').get(u.id, filtro.de, filtro.ate).v;
       return { ...u, receita: r, despesas: d, resultado: r - d, qtd_locacoes: q };
-    });
+    }).filter((u) => u.ativo || u.receita || u.despesas); // desativada (duplicada/vendida) só aparece se teve dinheiro no período
     // Receita de locações sem moto cadastrada + despesas gerais, pra o total bater.
     const semMotoR = db
       .prepare(
@@ -908,10 +908,30 @@ async function handleLocacaoPro(ctx) {
         despesas: g('SELECT SUM(valor) v FROM frota_despesas WHERE substr(data,1,7)=?'),
       });
     }
-    return done(() => send(res, 200, V.relatoriosLocacaoPage({ user, flash: flash(), porMoto, porMes, filtro })));
+    const conflitos = motosEmMaisDeUmaLocacao();
+    return done(() => send(res, 200, V.relatoriosLocacaoPage({ user, flash: flash(), porMoto, porMes, filtro, conflitos })));
   }
 
   return false;
+}
+
+// Mesma moto (mesmo chassi limpo) em mais de uma locação ativa = cadastro errado:
+// uma das locações está com o chassi trocado e tem moto na rua sem controle.
+function motosEmMaisDeUmaLocacao() {
+  const ativas = db
+    .prepare(
+      `SELECT l.id, l.chassi, l.data_saida, c.nome AS cliente_nome FROM locacoes l
+       LEFT JOIN clientes c ON c.id = l.cliente_id WHERE l.status='ativa' AND l.chassi IS NOT NULL`
+    )
+    .all();
+  const grupos = {};
+  for (const l of ativas) {
+    const k = normChassi(l.chassi);
+    if (k) (grupos[k] = grupos[k] || []).push(l);
+  }
+  return Object.entries(grupos)
+    .filter(([, ls]) => ls.length > 1)
+    .map(([chassi, locacoes]) => ({ chassi, locacoes }));
 }
 
 // Plano de reparcelamento das parcelas regulares em aberto (não mexe nas pagas,
