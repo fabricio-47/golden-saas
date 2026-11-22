@@ -754,7 +754,8 @@ function queryRelatorios(user, de, ate) {
     .map((o) => ({ ...o, valor: (Number(o.valor_pecas) || 0) + (Number(o.valor_mao_obra) || 0) }));
   const vendas = db
     .prepare(
-      `SELECT v.*, c.nome as cliente_nome FROM vendas v JOIN clientes c ON c.id = v.cliente_id
+      `SELECT v.*, c.nome as cliente_nome, u.name as vendedor_nome FROM vendas v JOIN clientes c ON c.id = v.cliente_id
+       LEFT JOIN users u ON u.id = v.vendedor_id
        WHERE date(v.created_at) BETWEEN ? AND ? ORDER BY v.created_at ASC, v.id ASC`
     )
     .all(de, ate)
@@ -2431,8 +2432,8 @@ async function handler(req, res) {
         return sendCsv(
           res,
           `vendas_${de}_a_${ate}.csv`,
-          ['Número', 'Data', 'Cliente', 'Status', 'Forma de pagamento', 'Valor total (R$)'],
-          vendas.map((v) => [v.numero, dataBR(v.created_at), v.cliente_nome, v.status, v.forma_pagamento || '', money(v.valor_total)])
+          ['Número', 'Data', 'Cliente', 'Vendedor', 'Status', 'Forma de pagamento', 'Valor total (R$)'],
+          vendas.map((v) => [v.numero, dataBR(v.created_at), v.cliente_nome, v.vendedor_nome || '', v.status, v.forma_pagamento || '', money(v.valor_total)])
         );
       }
       if (tipo === 'recebimentos') {

@@ -42,6 +42,7 @@ function relatoriosPage({
       <td><a class="link-btn" href="/vendas/${v.id}">${escapeHtml(v.numero)}</a></td>
       <td>${formatDateOnly(v.created_at)}</td>
       <td>${escapeHtml(v.cliente_nome)}</td>
+      <td>${v.vendedor_nome ? escapeHtml(v.vendedor_nome) : '<span class="muted">—</span>'}</td>
       <td>${escapeHtml(v.status)}</td>
       <td style="text-align:right;">${formatMoney(v.valor_total)}</td>
     </tr>`
@@ -106,7 +107,7 @@ function relatoriosPage({
         </div>
         ${
           vendasList.length
-            ? `<table><thead><tr><th>Número</th><th>Data</th><th>Cliente</th><th>Status</th><th style="text-align:right;">Valor</th></tr></thead><tbody>${vendasRows}</tbody></table>`
+            ? `<table><thead><tr><th>Número</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Status</th><th style="text-align:right;">Valor</th></tr></thead><tbody>${vendasRows}</tbody></table>`
             : '<p class="muted">Nenhuma venda no período.</p>'
         }
       </div>
