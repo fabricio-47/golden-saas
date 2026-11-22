@@ -40,6 +40,15 @@ const TIPOS_OCORRENCIA = {
   parada_tecnica: 'Moto parada (problema técnico)',
   outros: 'Outros',
 };
+const TIPOS_DOCUMENTO = {
+  contrato_assinado: 'Contrato assinado',
+  cnh: 'CNH',
+  rg_cpf: 'RG / CPF',
+  comprovante_residencia: 'Comprovante de residência',
+  termo_entrega: 'Termo de entrega / vistoria',
+  termo_devolucao: 'Termo de devolução',
+  outros: 'Outros',
+};
 const CATEGORIAS_DESPESA = ['Revisão', 'Peças', 'Pneu', 'Freio/pastilha', 'Bateria', 'Elétrica', 'Funilaria', 'Seguro', 'Rastreador', 'Reboque', 'Documentação/IPVA', 'Outros'];
 const FORMAS_PGTO = ['PIX', 'Dinheiro', 'Cartão', 'Boleto', 'Outro'];
 
@@ -52,6 +61,7 @@ function subnav(ativo) {
     ['cobranca', '/frota/cobranca', 'Cobrança'],
     ['despesas', '/frota/despesas', 'Despesas'],
     ['revisoes', '/frota/revisoes', 'Revisões'],
+    ['documentos', '/frota/documentos', 'Contratos/Documentos'],
     ['relatorios', '/frota/relatorios', 'Lucratividade'],
     ['faturamento', '/frota/faturamento-mensal', 'Faturamento mensal'],
     ['contratos', '/frota/contratos-modelos', 'Modelos de contrato'],
@@ -64,7 +74,7 @@ function subnav(ativo) {
 function page({ title, user, flash, ativo, header, children }) {
   return layout({
     title,
-    activeNav: { painel: 'locacao-painel', despesas: 'despesas-frota', relatorios: 'lucratividade', faturamento: 'faturamento-mensal', contratos: 'contratos-modelos', revisoes: 'revisoes' }[ativo] || ativo,
+    activeNav: { painel: 'locacao-painel', despesas: 'despesas-frota', relatorios: 'lucratividade', faturamento: 'faturamento-mensal', documentos: 'documentos-locacao', contratos: 'contratos-modelos', revisoes: 'revisoes' }[ativo] || ativo,
     user,
     flash,
     children: `
@@ -347,7 +357,7 @@ function reparcelarForm(loc, r, csrfToken) {
   </details>`;
 }
 
-function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar, reparc = null }) {
+function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar, reparc = null, documentos = [] }) {
   const total = parcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
   const pago = parcelas.filter((p) => p.pago).reduce((s, p) => s + (Number(p.valor) || 0), 0);
   const linP = parcelas.map((p) => {
@@ -465,7 +475,64 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
         </form></div>`
           : ''
       }
-      ${fotos ? `<div class="card"><h2 style="margin-top:0;">Fotos da entrega</h2>${fotos}</div>` : ''}`,
+      ${fotos ? `<div class="card"><h2 style="margin-top:0;">Fotos da entrega</h2>${fotos}</div>` : ''}
+      <div class="card" id="documentos"><h2 style="margin-top:0;">Contratos e documentos</h2>
+        ${documentos.some((d) => d.tipo === 'contrato_assinado') ? '' : `<p style="margin-top:0;color:#a1352a;font-weight:600;">Falta anexar o contrato assinado desta locação.</p>`}
+        ${tabela(
+          ['Tipo', 'Arquivo', 'Descrição', 'Enviado', ''],
+          documentos.map((d) => [
+            d.tipo === 'contrato_assinado' ? badge(TIPOS_DOCUMENTO[d.tipo], 'verde') : esc(TIPOS_DOCUMENTO[d.tipo] || d.tipo),
+            `<a href="/uploads/${esc(d.caminho_arquivo)}" target="_blank">${esc(d.nome_arquivo || 'arquivo')}</a>`,
+            esc(d.descricao || ''),
+            `${dt(String(d.created_at).slice(0, 10))}${d.enviado_nome ? ' · ' + esc(d.enviado_nome) : ''}`,
+            podeGerenciar ? `<form method="POST" action="/locacoes/documentos/${d.id}/excluir" style="margin:0;" onsubmit="return confirm('Excluir este documento?');">${csrfInput(csrfToken)}<button class="btn btn-sm btn-secondary">Excluir</button></form>` : '',
+          ]),
+          'Nenhum documento anexado ainda.'
+        )}
+        <form method="POST" action="/locacoes/${loc.id}/documentos" enctype="multipart/form-data" style="margin-top:10px;">${csrfInput(csrfToken)}
+          <div class="form-grid">
+            <div class="field"><label>Tipo</label><select name="tipo">${Object.entries(TIPOS_DOCUMENTO).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
+            <div class="field"><label>Arquivo (PDF ou foto) *</label><input type="file" name="arquivo" accept="application/pdf,image/*" multiple required></div>
+            <div class="field"><label>Descrição</label><input type="text" name="descricao" placeholder="Opcional"></div>
+          </div>
+          <button class="btn btn-sm">Anexar</button>
+        </form>
+      </div>`,
+  });
+}
+
+function documentosPage({ user, flash, lista, status, pendentes }) {
+  const semContrato = lista.filter((l) => !l.contratos).length;
+  const linhas = lista.map((l) => [
+    `<a href="/locacoes/${l.id}#documentos">#${l.id}</a>`,
+    esc(l.cliente_nome || '—'),
+    esc([l.modelo, l.moto].filter(Boolean).join(' · ')),
+    dt(l.data_saida),
+    l.contratos ? badge('contrato assinado', 'verde') : badge('sem contrato assinado', 'vermelho'),
+    l.tipos ? esc(String(l.tipos).split(',').filter((t) => t !== 'contrato_assinado').map((t) => TIPOS_DOCUMENTO[t] || t).join(', ')) : '<span class="muted">—</span>',
+    `<a class="btn btn-sm" href="/locacoes/${l.id}#documentos">Anexar</a>`,
+  ]);
+  return page({
+    title: 'Contratos e documentos',
+    user,
+    flash,
+    ativo: 'documentos',
+    header: 'Contrato assinado e documentos de cada locação, num lugar só. Sem contrato assinado guardado, fica difícil cobrar ou recuperar a moto.',
+    children: `
+      <form method="GET" action="/frota/documentos" class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin:0;"><label>Locações</label><select name="status">
+          <option value="ativa" ${status === 'ativa' ? 'selected' : ''}>Ativas</option>
+          <option value="devolvida" ${status === 'devolvida' ? 'selected' : ''}>Devolvidas</option>
+          <option value="quitada" ${status === 'quitada' ? 'selected' : ''}>Quitadas</option>
+          <option value="todas" ${status === 'todas' ? 'selected' : ''}>Todas</option>
+        </select></div>
+        <label style="display:flex;gap:6px;align-items:center;font-weight:normal;"><input type="checkbox" name="sem_contrato" value="1" ${pendentes ? 'checked' : ''} style="width:auto;"> Só as sem contrato assinado</label>
+        <button class="btn btn-sm">Filtrar</button>
+      </form>
+      <div class="card">
+        <h2 style="margin-top:0;">${lista.length} locação(ões)${semContrato ? ` · <span style="color:#a1352a;">${semContrato} sem contrato assinado</span>` : ''}</h2>
+        ${tabela(['Locação', 'Cliente', 'Moto', 'Saída', 'Contrato', 'Outros documentos', ''], linhas, 'Nenhuma locação aqui.')}
+      </div>`,
   });
 }
 
@@ -888,6 +955,8 @@ module.exports = {
   contratoModeloFormPage,
   contratoImpressaoPage,
   relatoriosLocacaoPage,
+  documentosPage,
+  TIPOS_DOCUMENTO,
   faturamentoMensalPage,
   TIPOS_OCORRENCIA,
 };

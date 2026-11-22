@@ -1031,6 +1031,17 @@ db.exec(`CREATE TABLE IF NOT EXISTS frota_custos_fixos (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`);
 ensureColumn('frota_despesas', 'custo_fixo_id', 'INTEGER');
+// Contrato assinado e documentos de cada locação (PDF ou foto).
+db.exec(`CREATE TABLE IF NOT EXISTS locacao_documentos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  locacao_id INTEGER NOT NULL REFERENCES locacoes(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL DEFAULT 'outros',
+  descricao TEXT,
+  nome_arquivo TEXT,
+  caminho_arquivo TEXT NOT NULL,
+  enviado_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
 ensureColumn('locacoes', 'valor_caucao', 'REAL');
 ensureColumn('locacoes', 'caucao_devolvida', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('locacoes', 'desconto', 'REAL NOT NULL DEFAULT 0');

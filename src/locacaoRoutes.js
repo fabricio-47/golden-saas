@@ -4,6 +4,7 @@
 // principal ANTES do bloco /frota antigo; devolve true quando atendeu a rota.
 
 const { db } = require('./db');
+const { saveReceiptFile, deleteUploadedFile } = require('./uploads');
 const { LOGO_DATA_URI } = require('./assets/logo');
 const { escapeHtml, formatMoney } = require('./utils');
 const V = require('./views/locacaoPro');
@@ -528,7 +529,8 @@ async function handleLocacaoPro(ctx) {
     const ocorrencias = db.prepare('SELECT * FROM locacao_ocorrencias WHERE locacao_id=? ORDER BY created_at DESC').all(m.id);
     const modelosContrato = db.prepare('SELECT id, titulo FROM contrato_modelos ORDER BY titulo').all();
     const reparc = infoParcelasAbertas(m.id);
-    return done(() => send(res, 200, V.locacaoDetalhePage({ user, flash: flash(), loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar: ger, reparc })));
+    const documentos = db.prepare(`SELECT d.*, datetime(d.created_at, '-3 hours') created_at, u.name enviado_nome FROM locacao_documentos d LEFT JOIN users u ON u.id=d.enviado_por WHERE d.locacao_id=? ORDER BY d.id DESC`).all(m.id);
+    return done(() => send(res, 200, V.locacaoDetalhePage({ user, flash: flash(), loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar: ger, reparc, documentos })));
   }
   if ((m = matchRoute('/locacoes/:id/dados', pathname)) && method === 'POST') {
     if (!ger) return done(() => forbidden(res));
@@ -894,6 +896,56 @@ async function handleLocacaoPro(ctx) {
       }
     }
     return done(() => send(res, 200, V.importarPage({ user, flash: flash(), csrfToken, relatorio, erroImp, modo, dadosTexto: method === 'POST' && modo !== 'importar' ? body.dados || '' : '' })));
+  }
+
+  // ---------------- contratos / documentos da locação
+  if ((m = matchRoute('/locacoes/:id/documentos', pathname)) && method === 'POST') {
+    if (!db.prepare('SELECT id FROM locacoes WHERE id=?').get(m.id)) return done(() => notFound(res));
+    const arqs = (ctx.files || []).filter((f) => f.fieldName === 'arquivo' && f.data && f.data.length);
+    if (!arqs.length) {
+      erro('Escolha o arquivo (PDF ou foto).');
+      return done(() => redirect(res, `/locacoes/${m.id}#documentos`));
+    }
+    const tipo = V.TIPOS_DOCUMENTO[body.tipo] ? body.tipo : 'outros';
+    let n = 0;
+    let recusados = 0;
+    for (const f of arqs) {
+      const salvo = saveReceiptFile('locacao-doc', m.id, f);
+      if (!salvo) { recusados++; continue; }
+      db.prepare('INSERT INTO locacao_documentos (locacao_id, tipo, descricao, nome_arquivo, caminho_arquivo, enviado_por) VALUES (?,?,?,?,?,?)').run(
+        m.id, tipo, txt(body.descricao), salvo.nome_arquivo, salvo.caminho_arquivo, user.id
+      );
+      n++;
+    }
+    if (n) ok(`${n} documento(s) anexado(s).` + (recusados ? ` ${recusados} recusado(s): só PDF ou foto até 20MB.` : ''));
+    else erro('Arquivo não aceito: envie PDF ou foto (JPG, PNG, WEBP, HEIC) até 20MB.');
+    return done(() => redirect(res, `/locacoes/${m.id}#documentos`));
+  }
+  if ((m = matchRoute('/locacoes/documentos/:id/excluir', pathname)) && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    const d = db.prepare('SELECT * FROM locacao_documentos WHERE id=?').get(m.id);
+    if (!d) return done(() => notFound(res));
+    db.prepare('DELETE FROM locacao_documentos WHERE id=?').run(d.id);
+    try { deleteUploadedFile(d.caminho_arquivo); } catch (e) { /* arquivo já não existe */ }
+    ok('Documento excluído.');
+    return done(() => redirect(res, `/locacoes/${d.locacao_id}#documentos`));
+  }
+  // Painel de contratos: quais locações ativas estão sem contrato assinado anexado.
+  if (pathname === '/frota/documentos' && method === 'GET') {
+    const status = url.searchParams.get('status') || 'ativa';
+    const pendentes = url.searchParams.get('sem_contrato') === '1';
+    const lista = db
+      .prepare(
+        `SELECT l.id, l.status, l.data_saida, c.nome cliente_nome, f.identificacao modelo, COALESCE(u.placa,u.chassi,l.placa,l.chassi) moto,
+           (SELECT COUNT(*) FROM locacao_documentos d WHERE d.locacao_id=l.id AND d.tipo='contrato_assinado') contratos,
+           (SELECT COUNT(*) FROM locacao_documentos d WHERE d.locacao_id=l.id) docs,
+           (SELECT GROUP_CONCAT(DISTINCT d.tipo) FROM locacao_documentos d WHERE d.locacao_id=l.id) tipos
+         FROM locacoes l LEFT JOIN clientes c ON c.id=l.cliente_id LEFT JOIN frota f ON f.id=l.frota_id LEFT JOIN frota_unidades u ON u.id=l.unidade_id
+         ${status === 'todas' ? '' : 'WHERE l.status=?'} ORDER BY l.data_saida DESC, l.id DESC`
+      )
+      .all(...(status === 'todas' ? [] : [status]))
+      .filter((l) => !pendentes || !l.contratos);
+    return done(() => send(res, 200, V.documentosPage({ user, flash: flash(), lista, status, pendentes })));
   }
 
   // ---------------- relatórios
