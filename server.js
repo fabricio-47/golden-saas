@@ -78,6 +78,7 @@ const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE, normChassi } = r
 // Data de hoje em Brasília (o servidor roda em UTC: depois das 21h o date('now') já é amanhã).
 const hojeSP = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const { handleCrm, handleCrmWebhook } = require('./src/crmRoutes');
+const { handleIa } = require('./src/iaRoutes');
 const { somenteCrm } = require('./src/crmSegmentos');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
 const { convitePage } = require('./src/views/convite');
@@ -3533,6 +3534,9 @@ async function handler(req, res) {
       setFlash(session.sessionId, 'success', 'Catálogo salvo.');
       return redirect(res, '/catalogo/config');
     }
+
+    // Assistente de IA (widget em todas as telas).
+    if (await handleIa({ res, pathname, method, body, user, session, h: { send } })) return;
 
     // CRM comercial (funil, leads, follow-ups, propostas).
     if (

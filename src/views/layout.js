@@ -237,6 +237,61 @@ const STYLE = `
   }
 `;
 
+// Assistente de IA (canto inferior direito). Conversa fica só nesta aba (sessionStorage).
+const IA_WIDGET = String.raw`
+<style>
+  #ia-btn{position:fixed;right:18px;bottom:18px;z-index:9998;background:#111;color:#d4af37;border:1px solid #d4af37;border-radius:24px;padding:10px 16px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:14px}
+  #ia-box{position:fixed;right:18px;bottom:70px;z-index:9999;width:380px;max-width:calc(100vw - 24px);height:540px;max-height:calc(100vh - 100px);background:#fff;border:1px solid #ddd;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden}
+  #ia-box.aberto{display:flex}
+  #ia-top{background:#111;color:#fff;padding:10px 12px;display:flex;align-items:center;gap:8px;font-weight:700}
+  #ia-top span{color:#d4af37}
+  #ia-top button{margin-left:auto;background:none;border:none;color:#ccc;cursor:pointer;font-size:12px}
+  #ia-msgs{flex:1;overflow-y:auto;padding:12px;background:#f7f6f2;font-size:14px;line-height:1.45}
+  .ia-m{margin:0 0 10px;padding:8px 10px;border-radius:10px;max-width:92%;white-space:pre-wrap;word-wrap:break-word}
+  .ia-u{background:#111;color:#fff;margin-left:auto}
+  .ia-a{background:#fff;border:1px solid #e5e2d8;color:#222}
+  #ia-form{display:flex;gap:6px;padding:8px;border-top:1px solid #eee;background:#fff}
+  #ia-form textarea{flex:1;resize:none;height:44px;border:1px solid #ccc;border-radius:8px;padding:8px;font:inherit;font-size:14px}
+  #ia-form button{background:#d4af37;color:#111;border:none;border-radius:8px;padding:0 14px;font-weight:700;cursor:pointer}
+  @media print{#ia-btn,#ia-box{display:none!important}}
+</style>
+<button id="ia-btn" type="button" title="Tire dúvidas e peça sugestões">&#10024; Assistente</button>
+<div id="ia-box" role="dialog" aria-label="Assistente">
+  <div id="ia-top">&#10024; Assistente <span>Golden</span><button type="button" id="ia-limpar">limpar conversa</button></div>
+  <div id="ia-msgs"></div>
+  <form id="ia-form"><textarea id="ia-txt" placeholder="Pergunte algo (Enter envia)"></textarea><button type="submit">Enviar</button></form>
+</div>
+<script>
+(function(){
+  var K='ia_conversa', box=document.getElementById('ia-box'), msgs=document.getElementById('ia-msgs'), txt=document.getElementById('ia-txt'), form=document.getElementById('ia-form');
+  var conversa=[]; try{conversa=JSON.parse(sessionStorage.getItem(K)||'[]')}catch(e){}
+  var ocupado=false, csrf=null;
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function fmt(s){return esc(s).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|\s)(\/[a-z0-9\-\/]+)/g,'$1<a href="$2">$2</a>')}
+  function desenha(){
+    if(!conversa.length){msgs.innerHTML='<div class="ia-m ia-a">Oi! Posso tirar dúvidas de como usar o sistema e, se você for da gerência, analisar os números e sugerir o que fazer. Ex.: "quem está com parcela da locação vencida?" ou "como dou baixa numa venda?"</div>';return}
+    msgs.innerHTML=conversa.map(function(m){return '<div class="ia-m '+(m.role==='user'?'ia-u':'ia-a')+'">'+fmt(m.content)+'</div>'}).join('')+(ocupado?'<div class="ia-m ia-a">pensando…</div>':'');
+    msgs.scrollTop=msgs.scrollHeight;
+  }
+  function salva(){try{sessionStorage.setItem(K,JSON.stringify(conversa.slice(-30)))}catch(e){}}
+  function token(){return csrf?Promise.resolve(csrf):fetch('/ia/token',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){csrf=j.csrf;return csrf})}
+  document.getElementById('ia-btn').onclick=function(){box.classList.toggle('aberto');desenha();if(box.classList.contains('aberto'))txt.focus()};
+  document.getElementById('ia-limpar').onclick=function(){conversa=[];salva();desenha()};
+  txt.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit()}});
+  form.onsubmit=function(e){
+    e.preventDefault(); var t=txt.value.trim(); if(!t||ocupado)return;
+    conversa.push({role:'user',content:t}); txt.value=''; ocupado=true; desenha(); salva();
+    token().then(function(c){
+      var b=new URLSearchParams(); b.set('csrf',c); b.set('mensagens',JSON.stringify(conversa.slice(-20)));
+      return fetch('/ia/chat',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()});
+    }).then(function(r){return r.json()}).then(function(j){
+      conversa.push({role:'assistant',content:j.texto||j.erro||'(sem resposta)'});
+    }).catch(function(){conversa.push({role:'assistant',content:'Falhou a conexão. Tente de novo.'});csrf=null})
+    .then(function(){ocupado=false;salva();desenha()});
+  };
+})();
+</script>`;
+
 function layout({ title, activeNav, user, flash, children }) {
   const canManage = hasManagementAccess(user);
   // Módulo de cada item do menu — usado pra esconder links que o usuário
@@ -469,6 +524,7 @@ function layout({ title, activeNav, user, flash, children }) {
       });
     })();
   </script>
+  ${user ? IA_WIDGET : ''}
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
