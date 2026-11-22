@@ -2739,6 +2739,45 @@ async function handler(req, res) {
 
       const soma = (arr) => arr.reduce((s, x) => s + (Number(x.valor) || 0), 0);
 
+      // Locação entra no financeiro: parcelas recebidas/em aberto viram "a receber" e
+      // despesas da frota que não foram pra Contas a Pagar viram "pago" na data da despesa.
+      // A carteira futura (parcelas que vencem depois deste mês) fica num número à parte,
+      // pra não inflar o "a receber" com 2 anos de contrato.
+      const fimMes = mesAtual + '-31';
+      let locInfo = null;
+      if (locacaoAtiva() && canSeeAllLojas(user)) {
+        const parc = db
+          .prepare(
+            `SELECT p.id, p.valor, p.vencimento, p.pago, p.data_pagamento, p.numero, l.id locacao_id, l.status loc_status, c.nome cliente_nome
+             FROM locacao_parcelas p JOIN locacoes l ON l.id=p.locacao_id LEFT JOIN clientes c ON c.id=l.cliente_id`
+          )
+          .all();
+        let carteiraFutura = 0;
+        for (const p of parc) {
+          if (p.pago) {
+            receber.push({ origem: 'locacao', status: 'recebido', valor: p.valor, recebido_em: p.data_pagamento, vencimento: p.vencimento, descricao: `Locação #${p.locacao_id} · parcela ${p.numero}`, cliente_nome: p.cliente_nome });
+          } else if (p.loc_status === 'ativa') {
+            if (p.vencimento && p.vencimento > fimMes) { carteiraFutura += Number(p.valor) || 0; continue; }
+            receber.push({ origem: 'locacao', status: 'pendente', valor: p.valor, vencimento: p.vencimento, descricao: `Locação #${p.locacao_id} · parcela ${p.numero}`, cliente_nome: p.cliente_nome, link: `/locacoes/${p.locacao_id}` });
+          }
+        }
+        const desp = db
+          .prepare(
+            `SELECT d.valor, d.data, d.categoria, COALESCE(u.placa, u.chassi) moto FROM frota_despesas d
+             LEFT JOIN frota_unidades u ON u.id=d.unidade_id WHERE d.conta_pagar_id IS NULL`
+          )
+          .all();
+        for (const d of desp) {
+          pagar.push({ origem: 'frota', status: 'pago', valor: d.valor, pago_em: d.data, vencimento: d.data, descricao: `Frota: ${d.categoria || 'despesa'}${d.moto ? ' — ' + d.moto : ''}` });
+        }
+        const sm = (arr) => arr.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+        locInfo = {
+          recebidoMes: sm(receber.filter((r) => r.origem === 'locacao' && r.recebido_em && r.recebido_em.slice(0, 7) === mesAtual)),
+          despesasMes: sm(pagar.filter((p) => p.origem === 'frota' && p.pago_em && p.pago_em.slice(0, 7) === mesAtual)),
+          carteiraFutura,
+        };
+      }
+
       const receberPend = receber.filter((r) => r.status !== 'recebido');
       const pagarPend = pagar.filter((p) => p.status !== 'pago');
       const receberVenc = receberPend.filter((r) => r.vencimento && r.vencimento < hoje);
@@ -2786,6 +2825,7 @@ async function handler(req, res) {
         mesLabel: `${mesLabelMap[mesAtual.slice(5, 7)]}/${mesAtual.slice(0, 4)}`,
         fluxo,
         vencimentos,
+        locInfo,
       }));
     }
 

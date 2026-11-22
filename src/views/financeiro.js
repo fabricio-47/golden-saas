@@ -19,6 +19,7 @@ function financeiroResumoPage({
   mesLabel,
   fluxo,
   vencimentos,
+  locInfo = null,
 }) {
   const corValor = (v) => (v >= 0 ? '#1f6b3a' : '#a1352a');
 
@@ -81,6 +82,14 @@ function financeiroResumoPage({
         </div>
       </div>
 
+      ${
+        locInfo
+          ? `<div class="card" style="border-left:4px solid #d4af37;padding:12px 16px;">
+        <strong>Inclui a locação:</strong> parcelas recebidas (${formatMoney(locInfo.recebidoMes)} neste mês) e despesas da frota (${formatMoney(locInfo.despesasMes)} neste mês).
+        Parcelas de locação que vencem depois deste mês ficam fora do "a receber": <strong>${formatMoney(locInfo.carteiraFutura)}</strong> de carteira futura.
+      </div>`
+          : ''
+      }
       <h2 style="margin-bottom:12px;">Em aberto</h2>
       <div class="stat-grid">
         <div class="stat-card" style="border-left:4px solid #2f6b3a;">
