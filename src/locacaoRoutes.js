@@ -8,7 +8,8 @@ const { LOGO_DATA_URI } = require('./assets/logo');
 const { escapeHtml, formatMoney } = require('./utils');
 const V = require('./views/locacaoPro');
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+// Data de hoje no fuso do Brasil (o servidor roda em UTC: depois das 21h já seria "amanhã").
+const hoje = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const txt = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
 const num = (v) => {
   if (v === undefined || v === null || String(v).trim() === '') return null;
@@ -177,10 +178,10 @@ function variaveisContrato(locId) {
   const valorParcela = Object.keys(freq).sort((a, b) => freq[b] - freq[a] || b - a)[0];
   const endereco = c.endereco || [c.logradouro, c.numero, c.complemento, c.bairro, c.municipio && c.uf ? `${c.municipio}/${c.uf}` : c.municipio, c.cep].filter(Boolean).join(', ');
   const dias = diasEntre(l.data_saida, l.devolucao_prevista);
-  const d = new Date();
+  const [ah, mh, dh] = hoje().split('-').map(Number);
   return {
     data_hoje: brData(hoje()),
-    data_hoje_extenso: `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`,
+    data_hoje_extenso: `${dh} de ${MESES[mh - 1]} de ${ah}`,
     cliente_nome: c.nome, cpfCnpj: fmtCpfCnpj(c.cpf_cnpj), cliente_cpf_cnpj: c.cpf_cnpj,
     cliente_endereco: endereco, cliente_cidade: c.municipio, cliente_estado: c.uf,
     cliente_telefone_1: c.telefone, cliente_telefone_2: c.telefone2, telefone_1: c.telefone, telefone_2: c.telefone2,
@@ -522,7 +523,8 @@ async function handleLocacaoPro(ctx) {
     const parcelas = db.prepare('SELECT * FROM locacao_parcelas WHERE locacao_id=? ORDER BY numero').all(m.id);
     const ocorrencias = db.prepare('SELECT * FROM locacao_ocorrencias WHERE locacao_id=? ORDER BY created_at DESC').all(m.id);
     const modelosContrato = db.prepare('SELECT id, titulo FROM contrato_modelos ORDER BY titulo').all();
-    return done(() => send(res, 200, V.locacaoDetalhePage({ user, flash: flash(), loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar: ger })));
+    const reparc = infoParcelasAbertas(m.id);
+    return done(() => send(res, 200, V.locacaoDetalhePage({ user, flash: flash(), loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar: ger, reparc })));
   }
   if ((m = matchRoute('/locacoes/:id/dados', pathname)) && method === 'POST') {
     if (!ger) return done(() => forbidden(res));
@@ -563,6 +565,43 @@ async function handleLocacaoPro(ctx) {
     const aberto = db.prepare('SELECT COALESCE(SUM(valor),0) v FROM locacao_parcelas WHERE locacao_id=? AND pago=0').get(m.id).v;
     ok('Devolução registrada — moto disponível de novo.' + (aberto > 0 ? ` Atenção: ${formatMoney(aberto)} ainda em aberto nesta locação.` : ''));
     return done(() => redirect(res, body.voltar === 'frota' ? '/frota' : `/locacoes/${m.id}`));
+  }
+  // Alterar o valor da parcela: refaz as parcelas em aberto com o novo valor.
+  // manter=saldo → o saldo devedor fica igual e a QUANTIDADE de parcelas se ajusta (valor maior = menos parcelas);
+  // manter=quantidade → a quantidade fica igual e o saldo muda.
+  if ((m = matchRoute('/locacoes/:id/reparcelar', pathname)) && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    const loc = db.prepare('SELECT * FROM locacoes WHERE id=?').get(m.id);
+    if (!loc) return done(() => notFound(res));
+    const novo = Math.round((num(body.novo_valor) || 0) * 100) / 100;
+    if (novo <= 0) {
+      erro('Informe o novo valor da parcela.');
+      return done(() => redirect(res, `/locacoes/${m.id}`));
+    }
+    const r = planoReparcelar(m.id, novo, body.manter === 'quantidade' ? 'quantidade' : 'saldo');
+    if (!r) {
+      erro('Não há parcelas em aberto para alterar.');
+      return done(() => redirect(res, `/locacoes/${m.id}`));
+    }
+    db.exec('BEGIN');
+    try {
+      db.prepare('DELETE FROM locacao_parcelas WHERE locacao_id=? AND pago=0 AND origem IS NULL').run(m.id);
+      const ins = db.prepare('INSERT INTO locacao_parcelas (locacao_id, numero, valor, vencimento) VALUES (?,?,?,?)');
+      r.novas.forEach((p) => ins.run(m.id, p.numero, p.valor, p.vencimento));
+      const nota = `${brData(hoje())}: parcela alterada de ${formatMoney(r.valorAntes)} para ${formatMoney(novo)} — ${r.qtdAntes} → ${r.novas.length} parcela(s) em aberto, saldo ${formatMoney(r.saldoAntes)} → ${formatMoney(r.saldoDepois)}.`;
+      db.prepare(
+        `UPDATE locacoes SET valor_combinado=(SELECT SUM(valor) FROM locacao_parcelas WHERE locacao_id=?),
+           qtd_periodos=(SELECT COUNT(*) FROM locacao_parcelas WHERE locacao_id=? AND origem IS NULL),
+           devolucao_prevista=?, observacoes=CASE WHEN COALESCE(TRIM(observacoes),'')='' THEN ? ELSE observacoes || char(10) || ? END WHERE id=?`
+      ).run(m.id, m.id, r.fim, nota, nota, m.id);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      erro('Não foi possível alterar: ' + e.message);
+      return done(() => redirect(res, `/locacoes/${m.id}`));
+    }
+    ok(`Parcela alterada para ${formatMoney(novo)}: ${r.novas.length} parcela(s) em aberto, última em ${brData(r.novas[r.novas.length - 1].vencimento)}.`);
+    return done(() => redirect(res, `/locacoes/${m.id}`));
   }
   if ((m = matchRoute('/locacoes/:id/parcela-avulsa', pathname)) && method === 'POST') {
     if (!ger) return done(() => forbidden(res));
@@ -873,6 +912,48 @@ async function handleLocacaoPro(ctx) {
   }
 
   return false;
+}
+
+// Plano de reparcelamento das parcelas regulares em aberto (não mexe nas pagas,
+// na entrada nem em cobranças avulsas). Mantém a data da próxima parcela e o intervalo.
+function infoParcelasAbertas(locId) {
+  const loc = db.prepare('SELECT periodo FROM locacoes WHERE id=?').get(locId) || {};
+  const abertas = db.prepare('SELECT * FROM locacao_parcelas WHERE locacao_id=? AND pago=0 AND origem IS NULL ORDER BY vencimento, numero').all(locId);
+  if (!abertas.length) return null;
+  const todas = db.prepare('SELECT vencimento FROM locacao_parcelas WHERE locacao_id=? AND origem IS NULL AND vencimento IS NOT NULL ORDER BY vencimento').all(locId);
+  let dias = { diaria: 1, semanal: 7, mensal: 30 }[loc.periodo] || null;
+  if (!dias && todas.length > 1) dias = Math.max(1, Math.round((new Date(todas[1].vencimento) - new Date(todas[0].vencimento)) / 86400000));
+  const freq = {};
+  for (const p of abertas) freq[p.valor] = (freq[p.valor] || 0) + 1;
+  const valorAtual = Number(Object.keys(freq).sort((a, b) => freq[b] - freq[a] || b - a)[0]);
+  return {
+    dias: dias || 7,
+    primeiro: abertas[0].vencimento || hoje(),
+    primeiroNumero: Math.min(...abertas.map((p) => p.numero)),
+    qtd: abertas.length,
+    saldo: Math.round(abertas.reduce((s, p) => s + (Number(p.valor) || 0), 0) * 100) / 100,
+    valorAtual,
+  };
+}
+function planoReparcelar(locId, novo, manter) {
+  const i = infoParcelasAbertas(locId);
+  if (!i) return null;
+  const somaDias = (iso, n) => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const valores = [];
+  if (manter === 'quantidade') {
+    for (let k = 0; k < i.qtd; k++) valores.push(novo);
+  } else {
+    const centavos = Math.round(i.saldo * 100), n100 = Math.round(novo * 100);
+    const cheias = Math.floor(centavos / n100), resto = centavos - cheias * n100;
+    for (let k = 0; k < cheias; k++) valores.push(novo);
+    if (resto > 0) valores.push(resto / 100);
+  }
+  const novas = valores.map((v, k) => ({ numero: i.primeiroNumero + k, valor: v, vencimento: somaDias(i.primeiro, k * i.dias) }));
+  return {
+    novas, qtdAntes: i.qtd, valorAntes: i.valorAtual, saldoAntes: i.saldo,
+    saldoDepois: Math.round(valores.reduce((s, v) => s + v, 0) * 100) / 100,
+    fim: novas.length ? somaDias(novas[novas.length - 1].vencimento, i.dias) : null,
+  };
 }
 
 function adicionarParcela(locId, valor, vencimento, origem = 'avulsa') {

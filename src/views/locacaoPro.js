@@ -320,7 +320,33 @@ function locacoesListPage({ user, flash, locacoes, filtro }) {
 }
 
 // ---------------------------------------------------------------- LOCAÇÃO (detalhe)
-function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar }) {
+// Alterar valor da parcela, com prévia ao vivo (o servidor refaz a mesma conta ao salvar).
+function reparcelarForm(loc, r, csrfToken) {
+  if (!r) return '';
+  const dados = esc(JSON.stringify({ saldo: r.saldo, qtd: r.qtd, primeiro: r.primeiro, dias: r.dias }));
+  return `<details style="margin-top:10px;"><summary>Alterar valor da parcela</summary>
+    <form method="POST" action="/locacoes/${loc.id}/reparcelar" style="margin-top:8px;" onsubmit="return confirm('Refazer as parcelas em aberto com o novo valor?');" data-reparc="${dados}">${csrfInput(csrfToken)}
+      <p class="muted">Hoje: <b>${r.qtd}</b> parcela(s) em aberto de <b>${money(r.valorAtual)}</b>, saldo <b>${money(r.saldo)}</b>, próxima em ${dt(r.primeiro)}. Parcelas pagas, entrada e cobranças avulsas não mudam.</p>
+      <div class="form-grid">
+        <div class="field"><label>Novo valor da parcela (R$) *</label><input type="number" name="novo_valor" step="0.01" min="0.01" required></div>
+        <div class="field"><label>O que manter</label><select name="manter">
+          <option value="saldo">Saldo devedor — a quantidade de parcelas se ajusta</option>
+          <option value="quantidade">Quantidade de parcelas — o saldo muda</option></select></div>
+      </div>
+      <p class="reparc-previa" style="font-weight:600;"></p>
+      <button class="btn btn-sm">Aplicar novo valor</button>
+    </form>
+    <script>(function(){var f=document.querySelector('form[data-reparc]');if(!f)return;var d=JSON.parse(f.dataset.reparc);
+      function br(v){return v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
+      function dt(iso,k){var x=new Date(iso+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+k*d.dias);return x.toISOString().slice(0,10).split('-').reverse().join('/');}
+      function calc(){var v=parseFloat(f.novo_valor.value),o=f.querySelector('.reparc-previa');if(!(v>0)){o.textContent='';return;}
+        var n,saldo,ult;if(f.manter.value==='quantidade'){n=d.qtd;saldo=v*n;ult=v;}else{var c=Math.round(d.saldo*100),p=Math.round(v*100);var ch=Math.floor(c/p),r=c-ch*p;n=ch+(r>0?1:0);saldo=d.saldo;ult=r>0?r/100:v;}
+        o.textContent='Fica: '+n+' parcela(s) de '+br(v)+(ult!==v?' (a última de '+br(ult)+')':'')+', saldo '+br(saldo)+', última em '+dt(d.primeiro,n-1)+' ('+(n-d.qtd>=0?'+':'')+(n-d.qtd)+' parcela(s)).';}
+      f.novo_valor.addEventListener('input',calc);f.manter.addEventListener('change',calc);})();</script>
+  </details>`;
+}
+
+function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosContrato, csrfToken, podeGerenciar, reparc = null }) {
   const total = parcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
   const pago = parcelas.filter((p) => p.pago).reduce((s, p) => s + (Number(p.valor) || 0), 0);
   const linP = parcelas.map((p) => {
@@ -384,7 +410,7 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
           <form method="POST" action="/locacoes/${loc.id}/parcela-avulsa" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">${csrfInput(csrfToken)}
             <input type="number" name="valor" step="0.01" min="0.01" required placeholder="Valor" style="width:140px;">
             <input type="date" name="vencimento" value="${hojeISO()}" style="width:auto;">
-            <button class="btn btn-sm">Adicionar</button></form></details>`
+            <button class="btn btn-sm">Adicionar</button></form></details>${reparcelarForm(loc, reparc, csrfToken)}`
             : ''
         }
       </div>
