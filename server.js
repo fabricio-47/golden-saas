@@ -74,7 +74,7 @@ const { camposExtrasListPage, campoExtraFormPage } = require('./src/views/campos
 const { garantiaConsultaPage, garantiaFormPage, garantiaPrazosPage } = require('./src/views/garantias');
 const { catalogoPublicoPage, catalogoConfigPage } = require('./src/views/catalogo');
 const { frotaPainelPage, frotaFormPage, cobrancaPage, locacaoEditarPage } = require('./src/views/frota');
-const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE } = require('./src/locacaoRoutes');
+const { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE, normChassi } = require('./src/locacaoRoutes');
 const { handleCrm, handleCrmWebhook } = require('./src/crmRoutes');
 const { somenteCrm } = require('./src/crmSegmentos');
 const { funcionariosListPage, funcionarioFormPage } = require('./src/views/funcionarios');
@@ -3708,10 +3708,10 @@ async function handler(req, res) {
       if (!fotoCnh) { setFlash(session.sessionId, 'error', 'A foto da CNH do locatário é obrigatória.'); return redirect(res, '/frota'); }
       const pagoEntrega = body.pago_entrega === '1' || body.pago_entrega === 'on' ? 1 : 0;
       const info = db.prepare(
-        `INSERT INTO locacoes (frota_id, cliente_id, chassi, placa, cor, data_saida, devolucao_prevista, valor_combinado, vencimento, pago, data_pagamento, forma_pagamento, observacoes, status)
-         VALUES (?, ?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, 'ativa')`
+        `INSERT INTO locacoes (frota_id, unidade_id, cliente_id, chassi, placa, cor, data_saida, devolucao_prevista, valor_combinado, vencimento, pago, data_pagamento, forma_pagamento, observacoes, status)
+         VALUES (?, ?, ?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, 'ativa')`
       ).run(
-        m.id, toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null, (body.cor || '').trim() || null,
+        m.id, unidade ? unidade.id : null, toIntOrNull(body.cliente_id), body.chassi.trim(), (body.placa || '').trim() || null, (body.cor || '').trim() || null,
         (body.devolucao_prevista || '').trim() || null, toFloatOrNull(body.valor_combinado),
         (body.vencimento || '').trim() || null, pagoEntrega, pagoEntrega ? new Date().toISOString().slice(0, 10) : null,
         pagoEntrega ? ((body.forma_pagamento || '').trim() || null) : null,
@@ -3884,6 +3884,13 @@ async function handler(req, res) {
       if (!loc) return notFound(res);
       if (!body.cliente_id) { setFlash(session.sessionId, 'error', 'Escolha o cliente (locatário).'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
       if (!body.chassi || !body.chassi.trim()) { setFlash(session.sessionId, 'error', 'Informe o chassi.'); return redirect(res, '/locacoes/' + m.id + '/editar'); }
+      // Se o chassi mudou, religa a locação à moto cadastrada com esse chassi (comparação limpa).
+      const locAtual = db.prepare('SELECT chassi, unidade_id FROM locacoes WHERE id = ?').get(m.id);
+      if (normChassi(locAtual.chassi) !== normChassi(body.chassi)) {
+        const alvo = normChassi(body.chassi);
+        const un = db.prepare('SELECT id, chassi FROM frota_unidades').all().find((u) => normChassi(u.chassi) === alvo);
+        db.prepare('UPDATE locacoes SET unidade_id = ? WHERE id = ?').run(un ? un.id : null, m.id);
+      }
       db.prepare(
         `UPDATE locacoes SET cliente_id=?, chassi=?, placa=?, cor=?, devolucao_prevista=?, observacoes=? WHERE id=?`
       ).run(

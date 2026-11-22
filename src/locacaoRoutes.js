@@ -63,13 +63,77 @@ function proximaRevisao(u) {
   return { base: String(base).slice(0, 10), origem: u.data_ultima_revisao ? 'revisao' : 'locacao', prox, dias };
 }
 
+// ------------------------------------------------------------ chassi
+// Chassi "limpo": só letras e números, em maiúsculas. Tudo depois de "#" é
+// número interno da moto (ex.: "R3TDR1AW1N1222158 #16") e não faz parte do chassi.
+function separarChassi(v) {
+  const bruto = String(v || '').toUpperCase();
+  const i = bruto.indexOf('#');
+  const chassi = (i >= 0 ? bruto.slice(0, i) : bruto).replace(/[^A-Z0-9]/g, '');
+  const interno = i >= 0 ? bruto.slice(i + 1).replace(/[^A-Z0-9]/g, '') : '';
+  return { chassi: chassi || null, interno: interno || null };
+}
+const normChassi = (v) => separarChassi(v).chassi;
+const CHASSI_MIN = 8;
+
+// Procura moto já cadastrada com o mesmo chassi (comparando a versão limpa),
+// em qualquer modelo e incluindo as desativadas.
+function acharChassiDuplicado(chassi, ignorarId = null) {
+  const alvo = normChassi(chassi);
+  if (!alvo) return null;
+  const todas = db
+    .prepare('SELECT u.id, u.chassi, u.ativo, u.frota_id, f.identificacao AS modelo FROM frota_unidades u LEFT JOIN frota f ON f.id=u.frota_id')
+    .all();
+  return todas.find((u) => u.id !== ignorarId && normChassi(u.chassi) === alvo) || null;
+}
+function msgDuplicado(d) {
+  return `Já existe moto com esse chassi: #${d.id} (${d.chassi}) no modelo ${d.modelo || '?'}${d.ativo ? '' : ', desativada — exclua ou reative ela'}.`;
+}
+
 function unidadeDoBody(body) {
+  const { chassi, interno } = separarChassi(body.chassi);
+  let obs = txt(body.observacoes);
+  if (interno && !(obs || '').includes('#' + interno)) obs = `Nº interno #${interno}` + (obs ? `\n${obs}` : '');
+  let placa = txt(body.placa) ? txt(body.placa).toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
+  if (placa && chassi && placa === chassi) placa = null; // chassi digitado no campo placa
   return [
-    int(body.frota_id), txt(body.placa) ? txt(body.placa).toUpperCase() : null, txt(body.chassi) ? txt(body.chassi).toUpperCase() : null,
+    int(body.frota_id), placa || null, chassi,
     txt(body.renavam), txt(body.cor), int(body.ano), int(body.km_atual), txt(body.data_compra), num(body.valor_compra),
     chk(body.em_manutencao), chk(body.ativo), txt(body.data_ultima_revisao), int(body.intervalo_revisao_dias) || 90,
-    int(body.km_prox_pastilha), int(body.km_prox_pneu), txt(body.observacoes),
+    int(body.km_prox_pastilha), int(body.km_prox_pneu), obs,
   ];
+}
+
+// Entrada em lote: uma moto por linha — "CHASSI [#interno] [cor]".
+function analisarLote(texto) {
+  const vistos = new Set();
+  const linhas = [];
+  for (const bruta of String(texto || '').split(/\r?\n/)) {
+    const l = bruta.trim();
+    if (!l) continue;
+    const partes = l.split(/[\s;,\t]+/).filter(Boolean);
+    let chassiTxt = partes.shift() || '';
+    if (partes[0] && partes[0].startsWith('#')) chassiTxt += ' ' + partes.shift();
+    const { chassi, interno } = separarChassi(chassiTxt);
+    const cor = partes.join(' ') || null;
+    const item = { linha: l, chassi, interno, cor, status: 'nova', motivo: '' };
+    if (!chassi || chassi.length < CHASSI_MIN) {
+      item.status = 'invalida';
+      item.motivo = `chassi com menos de ${CHASSI_MIN} letras/números`;
+    } else if (vistos.has(chassi)) {
+      item.status = 'repetida';
+      item.motivo = 'repetido nesta lista';
+    } else {
+      const d = acharChassiDuplicado(chassi);
+      if (d) {
+        item.status = 'existe';
+        item.motivo = `já cadastrada: #${d.id} no modelo ${d.modelo || '?'}${d.ativo ? '' : ' (desativada)'}`;
+      }
+    }
+    vistos.add(chassi);
+    linhas.push(item);
+  }
+  return linhas;
 }
 
 function locacaoCompleta(id) {
@@ -274,6 +338,56 @@ async function handleLocacaoPro(ctx) {
     return done(() => redirect(res, `/frota/${destino.id}/unidades`));
   }
 
+  // Entrada em lote: cola vários chassis, confere (prévia) e cadastra de uma vez.
+  if ((m = matchRoute('/frota/:id/lote', pathname)) && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    const modelo = db.prepare('SELECT * FROM frota WHERE id=?').get(m.id);
+    if (!modelo) return done(() => notFound(res));
+    const itens = analisarLote(body.chassis);
+    const comum = {
+      cor: txt(body.cor), ano: int(body.ano), data_compra: txt(body.data_compra), valor_compra: num(body.valor_compra),
+      intervalo_revisao_dias: int(body.intervalo_revisao_dias) || 90, observacoes: txt(body.observacoes),
+    };
+    if (!itens.length) {
+      erro('Cole pelo menos um chassi (um por linha).');
+      return done(() => redirect(res, `/frota/${m.id}/unidades`));
+    }
+    const novas = itens.filter((i) => i.status === 'nova');
+    if (body.modo === 'gravar') {
+      if (!novas.length) {
+        erro('Nenhuma moto nova para cadastrar nessa lista.');
+        return done(() => redirect(res, `/frota/${m.id}/unidades`));
+      }
+      const ins = db.prepare(
+        `INSERT INTO frota_unidades (frota_id, placa, chassi, renavam, cor, ano, km_atual, data_compra, valor_compra, em_manutencao, ativo,
+          data_ultima_revisao, intervalo_revisao_dias, km_prox_pastilha, km_prox_pneu, observacoes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      );
+      db.exec('BEGIN');
+      try {
+        for (const i of novas) {
+          if (acharChassiDuplicado(i.chassi)) throw new Error(`chassi ${i.chassi} foi cadastrado enquanto você conferia`);
+          const obs = [i.interno ? `Nº interno #${i.interno}` : null, comum.observacoes].filter(Boolean).join('\n') || null;
+          ins.run(m.id, null, i.chassi, null, i.cor || comum.cor || modelo.cor || null, comum.ano, 0, comum.data_compra, comum.valor_compra,
+            0, 1, null, comum.intervalo_revisao_dias, null, null, obs);
+        }
+        db.exec('COMMIT');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        erro('Nada foi cadastrado: ' + e.message);
+        return done(() => redirect(res, `/frota/${m.id}/unidades`));
+      }
+      syncModelo(m.id);
+      const pulados = itens.length - novas.length;
+      ok(`${novas.length} moto(s) cadastrada(s) em ${modelo.identificacao}.` + (pulados ? ` ${pulados} linha(s) ignorada(s) (duplicada ou inválida).` : ''));
+      return done(() => redirect(res, `/frota/${m.id}/unidades`));
+    }
+    // prévia
+    const outros = db.prepare('SELECT id, identificacao FROM frota WHERE id<>? ORDER BY identificacao').all(m.id);
+    const unidades = unidadesComStatus('u.frota_id=?', [m.id]).map((u) => ({ ...u, revisao: proximaRevisao(u) }));
+    const lote = { itens, comum, texto: body.chassis || '' };
+    return done(() => send(res, 200, V.unidadesPage({ user, flash: flash(), modelo, unidades, csrfToken, outros, podeGerenciar: ger, lote })));
+  }
+
   if (pathname === '/frota/unidades' && method === 'POST') {
     if (!ger) return done(() => forbidden(res));
     const vals = unidadeDoBody(body);
@@ -281,9 +395,13 @@ async function handleLocacaoPro(ctx) {
       erro('Informe o modelo e o chassi.');
       return done(() => redirect(res, vals[0] ? `/frota/${vals[0]}/unidades` : '/frota'));
     }
-    const dup = db.prepare('SELECT id FROM frota_unidades WHERE UPPER(TRIM(chassi))=?').get(vals[2]);
+    if (vals[2].length < CHASSI_MIN) {
+      erro(`Chassi inválido: precisa ter pelo menos ${CHASSI_MIN} letras/números.`);
+      return done(() => redirect(res, `/frota/${vals[0]}/unidades`));
+    }
+    const dup = acharChassiDuplicado(vals[2]);
     if (dup) {
-      erro('Já existe moto com esse chassi.');
+      erro(msgDuplicado(dup));
       return done(() => redirect(res, `/frota/${vals[0]}/unidades`));
     }
     db.prepare(
@@ -325,9 +443,19 @@ async function handleLocacaoPro(ctx) {
       erro('Informe o modelo e o chassi.');
       return done(() => redirect(res, `/frota/unidades/${m.id}/editar`));
     }
-    if (db.prepare('SELECT id FROM frota_unidades WHERE UPPER(TRIM(chassi))=? AND id<>?').get(vals[2], m.id)) {
-      erro('Já existe outra moto com esse chassi.');
+    if (vals[2].length < CHASSI_MIN) {
+      erro(`Chassi inválido: precisa ter pelo menos ${CHASSI_MIN} letras/números.`);
       return done(() => redirect(res, `/frota/unidades/${m.id}/editar`));
+    }
+    const dupE = acharChassiDuplicado(vals[2], u.id);
+    if (dupE) {
+      erro(msgDuplicado(dupE));
+      return done(() => redirect(res, `/frota/unidades/${m.id}/editar`));
+    }
+    // Locações antigas sem vínculo apontam para a moto pelo texto do chassi. Antes de
+    // trocar o chassi, grava o vínculo nelas para não perderem a moto.
+    if (vals[2] !== u.chassi) {
+      db.prepare('UPDATE locacoes SET unidade_id=? WHERE unidade_id IS NULL AND UPPER(TRIM(chassi))=UPPER(TRIM(?))').run(u.id, u.chassi);
     }
     db.prepare(
       `UPDATE frota_unidades SET frota_id=?, placa=?, chassi=?, renavam=?, cor=?, ano=?, km_atual=?, data_compra=?, valor_compra=?, em_manutencao=?, ativo=?,
@@ -767,4 +895,4 @@ function abaterDasParcelas(locId, valor) {
   return resta > 0.009 ? ` Abatido ${formatMoney(valor - resta)} (não havia parcela em aberto pro restante).` : ` Abatido ${formatMoney(valor)} das próximas parcelas.`;
 }
 
-module.exports = { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE };
+module.exports = { handleLocacaoPro, syncModelo, SQL_LOC_ATIVA_DA_UNIDADE, normChassi };

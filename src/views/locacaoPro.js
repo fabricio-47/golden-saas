@@ -155,7 +155,7 @@ function painelLocacaoPage({ user, flash, k, retornos, receber, ocorrencias, ale
 }
 
 // ---------------------------------------------------------------- UNIDADES
-function unidadesPage({ user, flash, modelo, unidades, csrfToken, outros = [], podeGerenciar = false }) {
+function unidadesPage({ user, flash, modelo, unidades, csrfToken, outros = [], podeGerenciar = false, lote = null }) {
   const linhas = unidades.map((u) => {
     const st = !u.ativo ? badge('desativada', 'cinza') : u.locacao_id ? badge('locada', 'amarelo') : u.em_manutencao ? badge('manutenção', 'vermelho') : badge('disponível', 'verde');
     const rv = u.revisao;
@@ -180,7 +180,8 @@ function unidadesPage({ user, flash, modelo, unidades, csrfToken, outros = [], p
     header: 'Cada moto física com placa, chassi e km. Com motos cadastradas, a quantidade do modelo passa a ser calculada por elas.',
     children: `
       <div class="card">${tabela(['Placa', 'Chassi', 'Cor', 'Km', 'Próx. revisão', 'Situação', ''], linhas, 'Nenhuma moto cadastrada neste modelo (ele segue no modo quantidade).')}</div>
-      <div class="card"><h2 style="margin-top:0;">Cadastrar moto</h2>${unidadeForm({ u: { frota_id: modelo.id, cor: modelo.cor }, csrfToken, action: '/frota/unidades' })}</div>
+      ${podeGerenciar ? loteCard({ modelo, csrfToken, lote }) : ''}
+      <div class="card"><h2 style="margin-top:0;">Cadastrar uma moto</h2>${unidadeForm({ u: { frota_id: modelo.id, cor: modelo.cor }, csrfToken, action: '/frota/unidades' })}</div>
       ${
         podeGerenciar && outros.length
           ? `<div class="card"><h2 style="margin-top:0;">Juntar com outro modelo</h2>
@@ -192,6 +193,42 @@ function unidadesPage({ user, flash, modelo, unidades, csrfToken, outros = [], p
           : ''
       }`,
   });
+}
+
+// Entrada em lote: cola a lista, confere a prévia e cadastra tudo de uma vez.
+function loteCard({ modelo, csrfToken, lote }) {
+  const c = (lote && lote.comum) || {};
+  const v = (x) => esc(x ?? '');
+  const campos = `
+      <div class="form-grid">
+        <div class="field"><label>Cor (quando a linha não tiver)</label><input name="cor" value="${v(c.cor ?? modelo.cor)}"></div>
+        <div class="field"><label>Ano</label><input type="number" name="ano" min="1990" max="2100" value="${v(c.ano)}"></div>
+        <div class="field"><label>Data da compra</label><input type="date" name="data_compra" value="${v(c.data_compra)}"></div>
+        <div class="field"><label>Valor de compra de cada moto (R$)</label><input type="number" name="valor_compra" min="0" step="0.01" value="${v(c.valor_compra)}"></div>
+        <div class="field"><label>Revisão a cada (dias)</label><input type="number" name="intervalo_revisao_dias" min="1" value="${v(c.intervalo_revisao_dias || 90)}"></div>
+        <div class="field"><label>Observações (vale para todas)</label><input name="observacoes" value="${v(c.observacoes)}"></div>
+      </div>`;
+  let previa = '';
+  let botoes = `<button class="btn" type="submit" name="modo" value="conferir">Conferir lista</button>`;
+  if (lote) {
+    const cores = { nova: ['nova', 'verde'], existe: ['já existe', 'vermelho'], repetida: ['repetida', 'amarelo'], invalida: ['inválida', 'vermelho'] };
+    const linhas = lote.itens.map((i) => [esc(i.chassi || i.linha), esc(i.interno ? '#' + i.interno : ''), esc(i.cor || c.cor || modelo.cor || ''), badge(...cores[i.status]) + (i.motivo ? ` <small class="muted">${esc(i.motivo)}</small>` : '')]);
+    const n = lote.itens.filter((i) => i.status === 'nova').length;
+    const pul = lote.itens.length - n;
+    previa = `<h3>Prévia: ${n} nova(s)${pul ? `, ${pul} ignorada(s)` : ''}</h3>
+      ${tabela(['Chassi', 'Nº interno', 'Cor', 'Situação'], linhas, '')}`;
+    botoes = n
+      ? `<button class="btn" type="submit" name="modo" value="gravar">Cadastrar ${n} moto(s)</button> <button class="btn btn-secondary" type="submit" name="modo" value="conferir">Conferir de novo</button>`
+      : `<button class="btn" type="submit" name="modo" value="conferir">Conferir de novo</button>`;
+  }
+  return `<div class="card" id="lote"><h2 style="margin-top:0;">Entrada em lote</h2>
+    <p class="muted">Cole uma moto por linha: <b>chassi</b>, e se quiser o número interno e a cor. Ex.: <code>R3TDR1AW1N1222210 #31 Preta</code>. O sistema limpa o chassi, separa o "#número" e bloqueia chassi que já existe em qualquer modelo (inclusive desativadas).</p>
+    <form method="POST" action="/frota/${modelo.id}/lote">${csrfInput(csrfToken)}
+      <div class="field full"><label>Chassis (um por linha) *</label><textarea name="chassis" rows="6" required>${esc((lote && lote.texto) || '')}</textarea></div>
+      ${campos}
+      ${previa}
+      <div class="actions-row">${botoes}</div>
+    </form></div>`;
 }
 
 function unidadeForm({ u, csrfToken, action, modelos }) {
