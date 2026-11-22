@@ -4,6 +4,7 @@
 // principal ANTES do bloco /frota antigo; devolve true quando atendeu a rota.
 
 const { db } = require('./db');
+const { userCanAccessModulo } = require('./roles');
 const { saveReceiptFile, deleteUploadedFile } = require('./uploads');
 const { LOGO_DATA_URI } = require('./assets/logo');
 const { escapeHtml, formatMoney } = require('./utils');
@@ -231,7 +232,8 @@ async function handleLocacaoPro(ctx) {
   const flash = () => takeFlash(session.sessionId);
   const ok = (msg) => setFlash(session.sessionId, 'success', msg);
   const erro = (msg) => setFlash(session.sessionId, 'error', msg);
-  const ger = hasManagementAccess(user);
+  // Gestão da locação: quem tem Configurações ou o módulo "Locação: gestão".
+  const ger = hasManagementAccess(user) || userCanAccessModulo(user, 'locacao_gestao');
   const csrfToken = session.csrfToken;
   const done = (fn) => {
     fn();
@@ -251,6 +253,8 @@ async function handleLocacaoPro(ctx) {
 
   // ---------------- painel
   if (pathname === '/locacao' && method === 'GET') {
+    // O painel mostra dinheiro (recebido, carteira): só gestão. Os demais vão pra frota.
+    if (!ger) return done(() => redirect(res, '/frota'));
     syncTodos();
     const t = hoje();
     const mes = t.slice(0, 7);

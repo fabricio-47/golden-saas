@@ -300,6 +300,7 @@ function layout({ title, activeNav, user, flash, children }) {
   // 'contratos' não é um módulo (não tem checkbox em Níveis de permissão),
   // por isso fica sempre visível, igual já era o comportamento no backend.
   const podeVer = (modulo) => !modulo || userCanAccessModulo(user, modulo);
+  const gestLoc = canManage || podeVer('locacao_gestao');
   // Ordem e agrupamento do menu inspirados no padrão de ERPs de gestão
   // (Cadastros / Vendas / Ordens de serviço / Estoque / Financeiro / Contratos / Configurações).
   // Cada entrada é um link solto ('link') ou um grupo expansível ('group');
@@ -364,8 +365,8 @@ function layout({ title, activeNav, user, flash, children }) {
         { key: 'garantias', href: '/garantias', label: 'Garantias', modulo: 'os' },
       ].filter((item) => podeVer(item.modulo)),
     },
-    ...(process.env.LOCACAO_ENABLED === '1' || process.env.LOCACAO_ENABLED === 'true'
-      ? [{ type: 'group', key: 'locacao-group', label: 'Locação', items: [...(canManage ? [{ key: 'locacao-painel', href: '/locacao', label: 'Painel' }] : []), { key: 'frota', href: '/frota', label: 'Frota / alugar' }, { key: 'locacoes', href: '/locacoes', label: 'Locações' }, { key: 'agendamentos', href: '/frota/agendamentos', label: 'Agendamentos' }, { key: 'documentos-locacao', href: '/frota/documentos', label: 'Contratos/Documentos' }, ...(canManage ? [{ key: 'cobranca', href: '/frota/cobranca', label: 'Cobrança' }, { key: 'despesas-frota', href: '/frota/despesas', label: 'Despesas' }, { key: 'revisoes', href: '/frota/revisoes', label: 'Revisões' }, { key: 'lucratividade', href: '/frota/relatorios', label: 'Lucratividade' }, { key: 'faturamento-mensal', href: '/frota/faturamento-mensal', label: 'Faturamento mensal' }, { key: 'contratos-modelos', href: '/frota/contratos-modelos', label: 'Modelos de contrato' }] : [])] }]
+    ...((process.env.LOCACAO_ENABLED === '1' || process.env.LOCACAO_ENABLED === 'true') && podeVer('locacao')
+      ? [{ type: 'group', key: 'locacao-group', label: 'Locação', items: [...(gestLoc ? [{ key: 'locacao-painel', href: '/locacao', label: 'Painel' }] : []), { key: 'frota', href: '/frota', label: 'Frota / alugar' }, { key: 'locacoes', href: '/locacoes', label: 'Locações' }, { key: 'agendamentos', href: '/frota/agendamentos', label: 'Agendamentos' }, { key: 'documentos-locacao', href: '/frota/documentos', label: 'Contratos/Documentos' }, ...(gestLoc ? [{ key: 'cobranca', href: '/frota/cobranca', label: 'Cobrança' }, { key: 'despesas-frota', href: '/frota/despesas', label: 'Despesas' }, { key: 'revisoes', href: '/frota/revisoes', label: 'Revisões' }, { key: 'lucratividade', href: '/frota/relatorios', label: 'Lucratividade' }, { key: 'faturamento-mensal', href: '/frota/faturamento-mensal', label: 'Faturamento mensal' }, { key: 'contratos-modelos', href: '/frota/contratos-modelos', label: 'Modelos de contrato' }] : [])] }]
       : []),
     {
       type: 'group',

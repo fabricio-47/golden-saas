@@ -11,6 +11,8 @@ const MODULOS = [
   { key: 'os', label: 'Ordens de Serviço' },
   { key: 'vendas', label: 'Venda Direto' },
   { key: 'crm', label: 'CRM (funil comercial)' },
+  { key: 'locacao', label: 'Locação (frota, locações, agendamentos, contratos)' },
+  { key: 'locacao_gestao', label: 'Locação: gestão (cobrança, despesas, lucratividade)' },
   { key: 'estoque', label: 'Estoque' },
   { key: 'financeiro', label: 'Financeiro' },
   { key: 'configuracoes', label: 'Configurações' },

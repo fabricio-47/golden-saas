@@ -1215,5 +1215,12 @@ seed();
 // Libera o módulo CRM para quem já vê Vendas (uma vez só; depois vale o que estiver na tela de Níveis).
 db.exec(`INSERT OR IGNORE INTO nivel_permissoes (nivel_id, modulo, pode_ver)
   SELECT nivel_id, 'crm', 1 FROM nivel_permissoes WHERE modulo = 'vendas' AND pode_ver = 1`);
+// Locação vira módulo de permissão (uma vez só, mantendo o acesso de antes):
+// operação da locação liberada pra todos os níveis; gestão (cobrança, despesas,
+// relatórios) pra quem já tinha Configurações.
+db.exec(`INSERT OR IGNORE INTO nivel_permissoes (nivel_id, modulo, pode_ver)
+  SELECT id, 'locacao', 1 FROM niveis_permissao`);
+db.exec(`INSERT OR IGNORE INTO nivel_permissoes (nivel_id, modulo, pode_ver)
+  SELECT nivel_id, 'locacao_gestao', pode_ver FROM nivel_permissoes WHERE modulo = 'configuracoes'`);
 
 module.exports = { db, hashPassword };
