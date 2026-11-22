@@ -470,7 +470,7 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
 }
 
 // ---------------------------------------------------------------- DESPESAS
-function despesasPage({ user, flash, despesas, unidades, fornecedores, filtro, total, csrfToken, preUnidade }) {
+function despesasPage({ user, flash, despesas, unidades, fornecedores, filtro, total, csrfToken, preUnidade, custosFixos = [], qtdMotos = 0 }) {
   const linhas = despesas.map((d) => [
     dt(d.data),
     esc(d.modelo || ''),
@@ -489,6 +489,31 @@ function despesasPage({ user, flash, despesas, unidades, fornecedores, filtro, t
     ativo: 'despesas',
     header: 'Tudo que a frota custa. Entra no cálculo de lucratividade por moto.',
     children: `
+      <div class="card"><h2 style="margin-top:0;">Custos mensais fixos por moto</h2>
+        <p class="muted" style="margin-top:0;">Ex.: rastreador. Todo mês o sistema lança sozinho uma despesa desse valor em cada moto ativa da frota (hoje: ${qtdMotos} motos).</p>
+        ${tabela(
+          ['Categoria', 'Descrição', 'Valor/mês por moto', 'Desde', 'Custo/mês hoje', 'Lançado até agora', ''],
+          custosFixos.map((c) => [
+            esc(c.categoria),
+            esc(c.descricao || ''),
+            money(c.valor),
+            esc(c.desde),
+            c.ativo ? money(c.valor * qtdMotos) : badge('encerrado', 'cinza'),
+            `${money(c.total_lancado)} <span class="muted">(${c.lancados})</span>`,
+            c.ativo ? `<form method="POST" action="/frota/custos-fixos/${c.id}/encerrar" style="margin:0;" onsubmit="return confirm('Parar de lançar este custo nos próximos meses?');">${csrfInput(csrfToken)}<button class="btn btn-sm btn-secondary">Encerrar</button></form>` : '',
+          ]),
+          'Nenhum custo mensal cadastrado.'
+        )}
+        <form method="POST" action="/frota/custos-fixos" style="margin-top:10px;">${csrfInput(csrfToken)}
+          <div class="form-grid">
+            <div class="field"><label>Categoria</label><select name="categoria">${CATEGORIAS_DESPESA.map((c) => `<option ${c === 'Rastreador' ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+            <div class="field"><label>Descrição</label><input type="text" name="descricao" placeholder="Ex.: Mensalidade do rastreador"></div>
+            <div class="field"><label>Valor por moto por mês (R$) *</label><input type="number" name="valor" step="0.01" min="0.01" required></div>
+            <div class="field"><label>A partir do mês</label><input type="month" name="desde" value="${hojeISO().slice(0, 7)}"></div>
+          </div>
+          <button class="btn btn-sm">Cadastrar custo mensal</button>
+        </form>
+      </div>
       <div class="card"><h2 style="margin-top:0;">Lançar despesa</h2>
         <form method="POST" action="/frota/despesas">${csrfInput(csrfToken)}
           <div class="form-grid">

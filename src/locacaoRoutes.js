@@ -238,6 +238,10 @@ async function handleLocacaoPro(ctx) {
   };
   let m;
 
+  if (method === 'GET' && ger && ['/locacao', '/frota/despesas', '/frota/relatorios', '/frota/relatorios.csv', '/frota/faturamento-mensal', '/frota/faturamento-mensal.csv'].includes(pathname)) {
+    try { gerarCustosFixos(); } catch (e) { console.error('[custos fixos]', e.message); }
+  }
+
   // Mantém a quantidade do modelo coerente com as motos cadastradas, depois segue pro painel antigo.
   if (pathname === '/frota' && method === 'GET') {
     syncTodos();
@@ -695,9 +699,35 @@ async function handleLocacaoPro(ctx) {
     const total = despesas.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const unidades = unidadesComStatus('u.ativo=1');
     const fornecedores = db.prepare('SELECT id, nome FROM fornecedores WHERE ativo=1 ORDER BY nome').all();
+    const custosFixos = db
+      .prepare(
+        `SELECT c.*, (SELECT COUNT(*) FROM frota_despesas d WHERE d.custo_fixo_id=c.id) lancados,
+           (SELECT COALESCE(SUM(valor),0) FROM frota_despesas d WHERE d.custo_fixo_id=c.id) total_lancado
+         FROM frota_custos_fixos c ORDER BY c.ativo DESC, c.id`
+      )
+      .all();
     return done(() =>
-      send(res, 200, V.despesasPage({ user, flash: flash(), despesas, unidades, fornecedores, filtro, total, csrfToken, preUnidade: url.searchParams.get('unidade') }))
+      send(res, 200, V.despesasPage({ user, flash: flash(), despesas, unidades, fornecedores, filtro, total, csrfToken, preUnidade: url.searchParams.get('unidade'), custosFixos, qtdMotos: unidades.length }))
     );
+  }
+  if (pathname === '/frota/custos-fixos' && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    const valor = num(body.valor);
+    const desde = /^\d{4}-\d{2}$/.test(txt(body.desde) || '') ? txt(body.desde) : hoje().slice(0, 7);
+    if (!valor || valor <= 0) {
+      erro('Informe o valor mensal por moto.');
+      return done(() => redirect(res, '/frota/despesas'));
+    }
+    db.prepare('INSERT INTO frota_custos_fixos (categoria, descricao, valor, desde) VALUES (?,?,?,?)').run(txt(body.categoria) || 'Outros', txt(body.descricao), valor, desde);
+    const n = gerarCustosFixos();
+    ok(`Custo mensal cadastrado. ${n} despesa(s) lançada(s) até este mês; os próximos meses entram sozinhos.`);
+    return done(() => redirect(res, '/frota/despesas'));
+  }
+  if ((m = matchRoute('/frota/custos-fixos/:id/encerrar', pathname)) && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    db.prepare('UPDATE frota_custos_fixos SET ativo=0 WHERE id=?').run(m.id);
+    ok('Custo mensal encerrado: não lança mais nos próximos meses (os já lançados continuam).');
+    return done(() => redirect(res, '/frota/despesas'));
   }
   if (pathname === '/frota/despesas' && method === 'POST') {
     if (!ger) return done(() => forbidden(res));
@@ -989,6 +1019,32 @@ async function handleLocacaoPro(ctx) {
   }
 
   return false;
+}
+
+// Lança, para cada custo fixo ativo, uma despesa por moto ativa em cada mês desde o início
+// até o mês atual (sem duplicar). Roda ao abrir as telas de locação.
+function gerarCustosFixos() {
+  const custos = db.prepare('SELECT * FROM frota_custos_fixos WHERE ativo=1').all();
+  if (!custos.length) return 0;
+  const mesAtual = hoje().slice(0, 7);
+  const motos = db.prepare('SELECT id, frota_id FROM frota_unidades WHERE ativo=1').all();
+  const existe = db.prepare('SELECT 1 FROM frota_despesas WHERE custo_fixo_id=? AND unidade_id=? AND substr(data,1,7)=?');
+  const ins = db.prepare('INSERT INTO frota_despesas (unidade_id, frota_id, categoria, data, descricao, valor, custo_fixo_id) VALUES (?,?,?,?,?,?,?)');
+  let n = 0;
+  for (const c of custos) {
+    let [y, mo] = c.desde.split('-').map(Number);
+    for (let guard = 0; guard < 120; guard++) {
+      const mes = `${y}-${String(mo).padStart(2, '0')}`;
+      if (mes > mesAtual) break;
+      for (const u of motos) {
+        if (existe.get(c.id, u.id, mes)) continue;
+        ins.run(u.id, u.frota_id, c.categoria, mes + '-01', `${c.descricao || c.categoria} (mensal automático)`, c.valor, c.id);
+        n++;
+      }
+      mo++; if (mo > 12) { mo = 1; y++; }
+    }
+  }
+  return n;
 }
 
 // Mesma moto (mesmo chassi limpo) em mais de uma locação ativa = cadastro errado:

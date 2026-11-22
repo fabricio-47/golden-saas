@@ -1020,6 +1020,17 @@ ensureColumn('locacoes', 'km_saida', 'INTEGER');
 ensureColumn('locacoes', 'km_retorno', 'INTEGER');
 ensureColumn('locacoes', 'periodo', 'TEXT');
 ensureColumn('locacoes', 'qtd_periodos', 'INTEGER');
+// Custos mensais fixos por moto (ex.: rastreador R$ 85/mês): geram uma despesa por moto ativa por mês.
+db.exec(`CREATE TABLE IF NOT EXISTS frota_custos_fixos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  categoria TEXT NOT NULL,
+  descricao TEXT,
+  valor REAL NOT NULL,
+  desde TEXT NOT NULL,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+ensureColumn('frota_despesas', 'custo_fixo_id', 'INTEGER');
 ensureColumn('locacoes', 'valor_caucao', 'REAL');
 ensureColumn('locacoes', 'caucao_devolvida', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('locacoes', 'desconto', 'REAL NOT NULL DEFAULT 0');
