@@ -1,18 +1,19 @@
 'use strict';
 
-// Assistente de IA (Claude) dentro do Golden SaaS.
+// Assistente de IA (Google Gemini) dentro do Golden SaaS.
 // - Qualquer usuário logado tira dúvidas de uso do sistema.
 // - Direção/Gerência que enxerga todas as lojas também recebe análises e
 //   sugestões com base nos dados reais: a IA consulta o banco SOMENTE LEITURA
 //   (conexão separada com PRAGMA query_only, só SELECT, colunas sensíveis bloqueadas).
-// Requer a variável de ambiente ANTHROPIC_API_KEY. IA_MODELO troca o modelo.
+// Requer a variável de ambiente GEMINI_API_KEY (chave grátis do Google AI Studio:
+// aistudio.google.com). IA_MODELO troca o modelo (padrão: gemini-2.0-flash, grátis).
 
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { db } = require('./db');
 const { hasManagementAccess, canSeeAllLojas } = require('./roles');
 
-const MODELO = process.env.IA_MODELO || 'claude-sonnet-5-5';
+const MODELO = process.env.IA_MODELO || 'gemini-2.0-flash';
 const MAX_VOLTAS = 8; // chamadas de ferramenta por pergunta
 const MAX_LINHAS = 200;
 const LIMITE_DIA_USUARIO = Number(process.env.IA_LIMITE_DIA || 60); // perguntas por usuário por dia
@@ -147,10 +148,19 @@ const FERRAMENTAS = [
   },
 ];
 
-async function chamarClaude(payload) {
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+// As mesmas ferramentas, no formato do Gemini (functionDeclarations).
+const FERRAMENTAS_GEMINI = {
+  functionDeclarations: FERRAMENTAS.map((f) => {
+    const temParams = f.input_schema && f.input_schema.properties && Object.keys(f.input_schema.properties).length > 0;
+    return { name: f.name, description: f.description, ...(temParams ? { parameters: f.input_schema } : {}) };
+  }),
+};
+
+async function chamarGemini(payload) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODELO)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
+  const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const json = await resp.json().catch(() => ({}));
@@ -160,33 +170,40 @@ async function chamarClaude(payload) {
 
 async function responder(user, historico) {
   const comDados = hasManagementAccess(user) && canSeeAllLojas(user);
-  const messages = historico.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 8000) }));
+  // Gemini usa "contents" com role user/model e "parts".
+  const contents = historico.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: String(m.content || '').slice(0, 8000) }],
+  }));
   let entrada = 0;
   let saida = 0;
   for (let volta = 0; volta < MAX_VOLTAS; volta++) {
-    const r = await chamarClaude({
-      model: MODELO,
-      max_tokens: 2000,
-      system: promptSistema(user, comDados),
-      messages,
-      ...(comDados ? { tools: FERRAMENTAS } : {}),
+    const r = await chamarGemini({
+      systemInstruction: { parts: [{ text: promptSistema(user, comDados) }] },
+      contents,
+      generationConfig: { maxOutputTokens: 2000, temperature: 0.3 },
+      ...(comDados ? { tools: [FERRAMENTAS_GEMINI] } : {}),
     });
-    entrada += (r.usage && r.usage.input_tokens) || 0;
-    saida += (r.usage && r.usage.output_tokens) || 0;
-    messages.push({ role: 'assistant', content: r.content });
-    const usos = (r.content || []).filter((b) => b.type === 'tool_use');
-    if (r.stop_reason !== 'tool_use' || !usos.length) {
-      const texto = (r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+    const uso = r.usageMetadata || {};
+    entrada += uso.promptTokenCount || 0;
+    saida += uso.candidatesTokenCount || 0;
+    const cand = (r.candidates && r.candidates[0]) || {};
+    const parts = (cand.content && cand.content.parts) || [];
+    const chamadas = parts.filter((p) => p.functionCall).map((p) => p.functionCall);
+    if (!chamadas.length) {
+      const texto = parts.filter((p) => p.text).map((p) => p.text).join('\n').trim();
       return { texto: texto || '(sem resposta)', entrada, saida };
     }
-    messages.push({
+    // Guarda a resposta do modelo (com as chamadas) e devolve o resultado de cada ferramenta.
+    contents.push({ role: 'model', parts });
+    contents.push({
       role: 'user',
-      content: usos.map((u) => {
+      parts: chamadas.map((fc) => {
         let out;
-        if (u.name === 'resumo_negocio') out = resumoNegocio();
-        else if (u.name === 'consultar_banco') out = consultarSql(u.input && u.input.sql);
+        if (fc.name === 'resumo_negocio') out = resumoNegocio();
+        else if (fc.name === 'consultar_banco') out = consultarSql(fc.args && fc.args.sql);
         else out = { erro: 'ferramenta desconhecida' };
-        return { type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(out).slice(0, 60000) };
+        return { functionResponse: { name: fc.name, response: { resultado: out } } };
       }),
     });
   }
@@ -202,8 +219,8 @@ async function handleIa(ctx) {
   if (pathname === '/ia/token') { json(user ? 200 : 401, { csrf: user ? session.csrfToken : null }); return true; }
   if (method !== 'POST') { json(405, { erro: 'Use POST' }); return true; }
   if (!user) { json(401, { erro: 'Faça login de novo.' }); return true; }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    json(200, { texto: 'O assistente ainda não está ligado: falta configurar a variável ANTHROPIC_API_KEY no Render (Environment).' });
+  if (!process.env.GEMINI_API_KEY) {
+    json(200, { texto: 'O assistente ainda não está ligado: falta configurar a variável GEMINI_API_KEY no Render (Environment).' });
     return true;
   }
   const usadas = db.prepare("SELECT COUNT(*) c FROM ia_log WHERE user_id=? AND date(created_at,'-3 hours')=?").get(user.id, hojeSP()).c;
