@@ -3140,7 +3140,7 @@ async function handler(req, res) {
 
     // ---------------- ORDENS DE SERVIÇO ----------------
     if (pathname === '/os' && method === 'GET') {
-      const statusFilter = url.searchParams.get('status') || '';
+      const statusFilter = url.searchParams.has('status') ? url.searchParams.get('status') : 'orcamento';
       const mostrarDesativadas = url.searchParams.get('desativadas') === '1';
       let query = `SELECT os.*, c.nome as cliente_nome, b.marca, b.modelo
                     FROM ordens_servico os

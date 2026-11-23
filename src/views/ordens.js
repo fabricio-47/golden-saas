@@ -80,7 +80,7 @@ function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas,
     .join('');
 
   const filterLink = (value, label) =>
-    `<a class="btn btn-sm ${statusFilter === value ? 'btn' : 'btn-secondary'}" href="/os${value ? `?status=${value}` : ''}">${label}</a>`;
+    `<a class="btn btn-sm ${statusFilter === value ? 'btn' : 'btn-secondary'}" href="/os?status=${value}">${label}</a>`;
 
   return layout({
     title: 'Ordens de Serviço',
@@ -96,11 +96,11 @@ function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas,
         ${podeCriarOS ? `<a class="btn" href="/os/novo">+ Nova Ordem de Serviço</a>` : ''}
       </div>
       <div class="actions-row" style="margin-top:0;margin-bottom:20px;">
-        ${filterLink('', 'Todas')}
         ${filterLink('orcamento', 'Orçamento')}
         ${filterLink('execucao', 'Execução')}
         ${filterLink('concluida', 'Concluídas')}
-        <a class="btn btn-sm ${mostrarDesativadas ? 'btn' : 'btn-secondary'}" href="/os?desativadas=${mostrarDesativadas ? '0' : '1'}${statusFilter ? `&status=${statusFilter}` : ''}">${mostrarDesativadas ? 'Ver ativas' : 'Ver desativadas'}</a>
+        ${filterLink('', 'Todas')}
+        <a class="btn btn-sm ${mostrarDesativadas ? 'btn' : 'btn-secondary'}" href="/os?desativadas=${mostrarDesativadas ? '0' : '1'}&status=${statusFilter}">${mostrarDesativadas ? 'Ver ativas' : 'Ver desativadas'}</a>
       </div>
       <div class="card">
         ${
