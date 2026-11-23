@@ -480,6 +480,14 @@ function bloqueiaAlterar(res, user) {
   return true;
 }
 
+// Bloqueia a CRIAÇÃO de O.S. quando o nível não tem acesso ao módulo de O.S.
+// Criar é liberado para quem enxerga o módulo; editar/excluir continua em bloqueiaAlterar.
+function bloqueiaCriarOS(res, user) {
+  if (userCanAccessModulo(user, 'os')) return false;
+  send(res, 403, '<h1>Sem permissão</h1><p>Seu nível não tem acesso às Ordens de Serviço. Fale com a gerência.</p><p><a href="javascript:history.back()">Voltar</a></p>');
+  return true;
+}
+
 // Bloqueia uma ação restrita à gerência (Direção/Gerência): criar produto e
 // dar entrada de estoque. Retorna true (e já responde) se bloqueou.
 function bloqueiaGerencia(res, user) {
@@ -1167,7 +1175,7 @@ async function handler(req, res) {
       const pecasBaixoEstoque = db
         .prepare('SELECT * FROM pecas WHERE quantidade <= estoque_minimo ORDER BY quantidade ASC LIMIT 10')
         .all();
-      return send(res, 200, dashboardPage({ user, flash: takeFlash(session.sessionId), counts, recentOS, lowBatteryBikes, pecasBaixoEstoque, podeAlterar: podeAlterarExcluir(user) }));
+      return send(res, 200, dashboardPage({ user, flash: takeFlash(session.sessionId), counts, recentOS, lowBatteryBikes, pecasBaixoEstoque, podeAlterar: podeAlterarExcluir(user), podeCriarOS: userCanAccessModulo(user, 'os') }));
     }
 
     // ---------------- CLIENTES ----------------
@@ -1390,7 +1398,7 @@ async function handler(req, res) {
       if (!bicicleta) return notFound(res);
       const ordensServico = db.prepare('SELECT * FROM ordens_servico WHERE bicicleta_id = ? ORDER BY created_at DESC').all(m.id);
       const midias = db.prepare('SELECT * FROM bicicleta_midias WHERE bicicleta_id = ?').all(m.id);
-      return send(res, 200, bicicletaShowPage({ user, flash: takeFlash(session.sessionId), bicicleta, ordensServico, midias, csrfToken: session.csrfToken, podeAlterar: podeAlterarExcluir(user) }));
+      return send(res, 200, bicicletaShowPage({ user, flash: takeFlash(session.sessionId), bicicleta, ordensServico, midias, csrfToken: session.csrfToken, podeAlterar: podeAlterarExcluir(user), podeCriarOS: userCanAccessModulo(user, 'os') }));
     }
 
     // ---------------- ESTOQUE ----------------
@@ -3146,7 +3154,7 @@ async function handler(req, res) {
       }
       query += ' ORDER BY os.created_at DESC';
       const ordens = db.prepare(query).all(...params);
-      return send(res, 200, ordensListPage({ user, flash: takeFlash(session.sessionId), ordens, statusFilter, mostrarDesativadas, podeAlterar: podeAlterarExcluir(user) }));
+      return send(res, 200, ordensListPage({ user, flash: takeFlash(session.sessionId), ordens, statusFilter, mostrarDesativadas, podeAlterar: podeAlterarExcluir(user), podeCriarOS: userCanAccessModulo(user, 'os') }));
     }
 
     if (pathname === '/os/painel' && method === 'GET') {
@@ -3179,11 +3187,11 @@ async function handler(req, res) {
            WHERE os.ativo = 1 GROUP BY os.tecnico_id ORDER BY total DESC`
         )
         .all();
-      return send(res, 200, ordemPainelPage({ user, flash: takeFlash(session.sessionId), abertas, fatur, faturTecnico, hoje, amanha, podeAlterar: podeAlterarExcluir(user) }));
+      return send(res, 200, ordemPainelPage({ user, flash: takeFlash(session.sessionId), abertas, fatur, faturTecnico, hoje, amanha, podeAlterar: podeAlterarExcluir(user), podeCriarOS: userCanAccessModulo(user, 'os') }));
     }
 
     if (pathname === '/os/novo' && method === 'GET') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaCriarOS(res, user)) return;
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       if (!clientes.length || !bicicletas.length) {
@@ -3208,7 +3216,7 @@ async function handler(req, res) {
     }
 
     if (pathname === '/os' && method === 'POST') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaCriarOS(res, user)) return;
       const clientes = db.prepare('SELECT * FROM clientes ORDER BY nome ASC').all();
       const bicicletas = db.prepare('SELECT b.*, c.nome as cliente_nome FROM bicicletas b JOIN clientes c ON c.id=b.cliente_id ORDER BY b.created_at DESC').all();
       if (!body.cliente_id || !body.bicicleta_id) {

@@ -9,7 +9,7 @@ const STATUS_LABELS = {
   concluida: 'Concluída',
 };
 
-function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBaixoEstoque, podeAlterar = true }) {
+function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBaixoEstoque, podeAlterar = true, podeCriarOS = true }) {
   const rows = recentOS
     .map(
       (os) => `
@@ -58,7 +58,7 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBa
           <h1>Dashboard</h1>
           <p class="subtitle">Visão geral da sua oficina</p>
         </div>
-        ${podeAlterar ? `<a class="btn" href="/os/novo">+ Nova Ordem de Serviço</a>` : ''}
+        ${podeCriarOS ? `<a class="btn" href="/os/novo">+ Nova Ordem de Serviço</a>` : ''}
       </div>
 
       <div class="stat-grid">
@@ -77,7 +77,7 @@ function dashboardPage({ user, flash, counts, recentOS, lowBatteryBikes, pecasBa
           <thead><tr><th>Número</th><th>Cliente</th><th>Veículo</th><th>Status</th><th>Entrada</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
-            : '<div class="empty">Nenhuma ordem de serviço ainda. <a class="link-btn" href="/os/novo">Criar a primeira</a></div>'
+            : `<div class="empty">Nenhuma ordem de serviço ainda.${podeCriarOS ? ' <a class="link-btn" href="/os/novo">Criar a primeira</a>' : ''}</div>`
         }
       </div>
 

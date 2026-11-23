@@ -62,7 +62,7 @@ function formaPagamentoLabel(os) {
   return base;
 }
 
-function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas, podeAlterar = true }) {
+function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas, podeAlterar = true, podeCriarOS = true }) {
   const rows = ordens
     .map(
       (os) => `
@@ -93,7 +93,7 @@ function ordensListPage({ user, flash, ordens, statusFilter, mostrarDesativadas,
           <h1>Ordens de Serviço</h1>
           <p class="subtitle">Acompanhe o fluxo de manutenção da oficina</p>
         </div>
-        ${podeAlterar ? `<a class="btn" href="/os/novo">+ Nova Ordem de Serviço</a>` : ''}
+        ${podeCriarOS ? `<a class="btn" href="/os/novo">+ Nova Ordem de Serviço</a>` : ''}
       </div>
       <div class="actions-row" style="margin-top:0;margin-bottom:20px;">
         ${filterLink('', 'Todas')}
@@ -770,7 +770,7 @@ function diasAtraso(previsao, hoje) {
   return Math.round((b - a) / 86400000);
 }
 
-function ordemPainelPage({ user, flash, abertas, fatur, faturTecnico, hoje, amanha, podeAlterar = true }) {
+function ordemPainelPage({ user, flash, abertas, fatur, faturTecnico, hoje, amanha, podeAlterar = true, podeCriarOS = true }) {
   // separa as O.S. abertas por prazo de entrega
   const bucket = { vencidas: [], hoje: [], amanha: [], futuras: [], sem: [] };
   for (const os of abertas) {
@@ -853,7 +853,7 @@ function ordemPainelPage({ user, flash, abertas, fatur, faturTecnico, hoje, aman
         </div>
         <div class="actions-row" style="margin-top:0;">
           <a class="btn btn-secondary" href="/os">Ver todas as O.S.</a>
-          ${podeAlterar ? `<a class="btn" href="/os/novo">+ Nova O.S.</a>` : ''}
+          ${podeCriarOS ? `<a class="btn" href="/os/novo">+ Nova O.S.</a>` : ''}
         </div>
       </div>
 
