@@ -2406,6 +2406,14 @@ async function handler(req, res) {
       const vendasTotal = vendas.reduce((s, v) => s + (Number(v.valor_total) || 0), 0);
       const recebido = receb.reduce((s, r) => s + (Number(r.valor) || 0), 0);
       const pago = pagam.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+      const porVendedor = {};
+      for (const v of vendas) {
+        const nome = v.vendedor_nome || '— sem vendedor —';
+        if (!porVendedor[nome]) porVendedor[nome] = { nome, qtd: 0, total: 0 };
+        porVendedor[nome].qtd += 1;
+        porVendedor[nome].total += Number(v.valor_total) || 0;
+      }
+      const vendasPorVendedor = Object.values(porVendedor).sort((a, b) => b.total - a.total);
       return send(res, 200, relatoriosPage({
         user,
         flash: takeFlash(session.sessionId),
@@ -2415,6 +2423,7 @@ async function handler(req, res) {
         osTotal,
         vendasList: vendas,
         vendasTotal,
+        vendasPorVendedor,
         recebido,
         pago,
         resultado: recebido - pago,

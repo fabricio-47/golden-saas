@@ -14,6 +14,7 @@ function relatoriosPage({
   osTotal,
   vendasList,
   vendasTotal,
+  vendasPorVendedor = [],
   recebido,
   pago,
   resultado,
@@ -45,6 +46,17 @@ function relatoriosPage({
       <td>${v.vendedor_nome ? escapeHtml(v.vendedor_nome) : '<span class="muted">—</span>'}</td>
       <td>${escapeHtml(v.status)}</td>
       <td style="text-align:right;">${formatMoney(v.valor_total)}</td>
+    </tr>`
+    )
+    .join('');
+
+  const vendedorRows = (vendasPorVendedor || [])
+    .map(
+      (vd) => `
+    <tr>
+      <td>${escapeHtml(vd.nome)}</td>
+      <td style="text-align:right;">${vd.qtd}</td>
+      <td style="text-align:right;">${formatMoney(vd.total)}</td>
     </tr>`
     )
     .join('');
@@ -97,6 +109,18 @@ function relatoriosPage({
           osList.length
             ? `<table><thead><tr><th>Número</th><th>Entrada</th><th>Cliente</th><th>Veículo</th><th>Técnico</th><th>Status</th><th style="text-align:right;">Valor</th></tr></thead><tbody>${osRows}</tbody></table>`
             : '<p class="muted">Nenhuma O.S. no período.</p>'
+        }
+      </div>
+
+      <div class="card" style="margin-top:4px;">
+        <div class="page-header" style="margin-bottom:12px;">
+          <div><h2 style="margin:0;">Vendas por vendedor</h2><p class="subtitle" style="margin:0;">Quanto cada vendedor vendeu no período.</p></div>
+        </div>
+        ${
+          vendedorRows
+            ? `<table><thead><tr><th>Vendedor</th><th style="text-align:right;">Vendas</th><th style="text-align:right;">Total</th></tr></thead><tbody>${vendedorRows}</tbody>
+               <tfoot><tr><td style="font-weight:700;">Total</td><td style="text-align:right;font-weight:700;">${vendasList.length}</td><td style="text-align:right;font-weight:700;">${formatMoney(vendasTotal)}</td></tr></tfoot></table>`
+            : '<p class="muted">Nenhuma venda no período.</p>'
         }
       </div>
 

@@ -6,17 +6,21 @@
 //   sugestões com base nos dados reais: a IA consulta o banco SOMENTE LEITURA
 //   (conexão separada com PRAGMA query_only, só SELECT, colunas sensíveis bloqueadas).
 // Requer a variável de ambiente GEMINI_API_KEY (chave grátis do Google AI Studio:
-// aistudio.google.com). IA_MODELO troca o modelo (padrão: gemini-2.0-flash, grátis).
+// aistudio.google.com). IA_MODELO troca o modelo (padrão: gemini-3.8-flash, grátis).
+// Quando o modelo grátis está lotado ("high demand"), o sistema tenta sozinho de
+// novo algumas vezes antes de mostrar erro (ver chamarGemini / MAX_TENTATIVAS).
 
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { db } = require('./db');
 const { hasManagementAccess, canSeeAllLojas } = require('./roles');
 
-const MODELO = process.env.IA_MODELO || 'gemini-2.0-flash';
+const MODELO = process.env.IA_MODELO || 'gemini-3.8-flash';
 const MAX_VOLTAS = 8; // chamadas de ferramenta por pergunta
 const MAX_LINHAS = 200;
 const LIMITE_DIA_USUARIO = Number(process.env.IA_LIMITE_DIA || 60); // perguntas por usuário por dia
+const MAX_TENTATIVAS = 3; // re-tentativas quando o modelo grátis está sobrecarregado
+const ESPERA_MS = [600, 1500, 3000]; // espera crescente entre as re-tentativas
 
 db.exec(`CREATE TABLE IF NOT EXISTS ia_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,16 +160,43 @@ const FERRAMENTAS_GEMINI = {
   }),
 };
 
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Erros que valem re-tentar: modelo lotado (503), limite por minuto (429),
+// erro interno passageiro (500) ou mensagem de "sobrecarga/tente de novo".
+function erroPassageiro(status, msg) {
+  if (status === 429 || status === 500 || status === 503) return true;
+  return /high demand|overloaded|unavailable|try again later|temporar|rate limit|quota/i.test(String(msg || ''));
+}
+
 async function chamarGemini(payload) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODELO)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const json = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error((json.error && json.error.message) || `Erro ${resp.status} na API da IA`);
-  return json;
+  let ultimoErro = null;
+  for (let tentativa = 0; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      // Falha de rede (conexão caiu): trata como passageiro e re-tenta.
+      ultimoErro = new Error('A conexão com a IA falhou. Tente de novo.');
+      if (tentativa < MAX_TENTATIVAS) { await dormir(ESPERA_MS[tentativa]); continue; }
+      throw ultimoErro;
+    }
+    const json = await resp.json().catch(() => ({}));
+    if (resp.ok) return json;
+    const msg = (json.error && json.error.message) || `Erro ${resp.status} na API da IA`;
+    if (erroPassageiro(resp.status, msg) && tentativa < MAX_TENTATIVAS) {
+      ultimoErro = new Error(msg);
+      await dormir(ESPERA_MS[tentativa]); // espera e tenta de novo (modelo lotado)
+      continue;
+    }
+    throw new Error(msg);
+  }
+  throw ultimoErro || new Error('Falha ao chamar a IA');
 }
 
 async function responder(user, historico) {
@@ -236,8 +267,14 @@ async function handleIa(ctx) {
     db.prepare('INSERT INTO ia_log (user_id, pergunta, tokens_entrada, tokens_saida) VALUES (?,?,?,?)').run(user.id, pergunta, r.entrada, r.saida);
     json(200, { texto: r.texto });
   } catch (e) {
-    db.prepare('INSERT INTO ia_log (user_id, pergunta, erro) VALUES (?,?,?)').run(user.id, pergunta, String(e.message || e));
-    json(200, { texto: 'Não consegui responder agora (' + String(e.message || e).slice(0, 200) + ').' });
+    const raw = String(e.message || e);
+    db.prepare('INSERT INTO ia_log (user_id, pergunta, erro) VALUES (?,?,?)').run(user.id, pergunta, raw);
+    // Lotação do modelo grátis vira uma mensagem amigável (sem inglês técnico).
+    const sobrecarga = /high demand|overloaded|unavailable|try again later|temporar|rate limit|quota|conexão com a ia/i.test(raw);
+    const texto = sobrecarga
+      ? 'O assistente está muito requisitado neste momento. Tenta de novo daqui a alguns segundos.'
+      : 'Não consegui responder agora (' + raw.slice(0, 200) + ').';
+    json(200, { texto });
   }
   return true;
 }
