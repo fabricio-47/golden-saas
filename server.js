@@ -3398,7 +3398,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/servicos', pathname)) && method === 'POST') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaCriarOS(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       const nomeServico = (body.nome_servico || '').trim();
@@ -3421,7 +3421,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/servicos/:itemId/excluir', pathname)) && method === 'POST') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaCriarOS(res, user)) return;
       const item = db.prepare('SELECT * FROM os_servicos WHERE id = ? AND ordem_servico_id = ?').get(m.itemId, m.id);
       if (item) {
         db.prepare('DELETE FROM os_servicos WHERE id = ?').run(item.id);
