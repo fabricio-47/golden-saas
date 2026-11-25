@@ -3316,7 +3316,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/midias', pathname)) && method === 'POST') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaCriarOS(res, user)) return;
       const os = db.prepare('SELECT * FROM ordens_servico WHERE id = ?').get(m.id);
       if (!os) return notFound(res);
       const categoria = body.categoria === 'servico' ? 'servico' : 'checklist';
@@ -3340,7 +3340,7 @@ async function handler(req, res) {
     }
 
     if ((m = matchRoute('/os/:id/midias/:midiaId/excluir', pathname)) && method === 'POST') {
-      if (bloqueiaAlterar(res, user)) return;
+      if (bloqueiaCriarOS(res, user)) return;
       const midia = db.prepare('SELECT * FROM os_midias WHERE id = ? AND ordem_servico_id = ?').get(m.midiaId, m.id);
       if (midia) {
         deleteUploadedFile(midia.caminho_arquivo);
