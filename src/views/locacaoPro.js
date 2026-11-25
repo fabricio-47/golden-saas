@@ -293,11 +293,12 @@ function unidadeEditarPage({ user, flash, u, modelos, despesas, locacoes, csrfTo
 }
 
 // ---------------------------------------------------------------- LOCAÇÕES (lista)
-function locacoesListPage({ user, flash, locacoes, filtro }) {
+function locacoesListPage({ user, flash, locacoes, filtro, modelos = [] }) {
   const linhas = locacoes.map((l) => {
     const d = diasAte(l.devolucao_prevista);
     let st = l.status === 'ativa' ? badge('locada', 'amarelo') : badge(l.status, 'cinza');
     if (l.status === 'ativa' && d !== null && d < 0) st = badge('atrasada', 'vermelho');
+    if (l.vencidas) st += ' ' + badge(l.vencidas + ' vencida(s)', 'vermelho');
     return [
       `<a href="/locacoes/${l.id}">#${l.id}</a>`,
       l.oc_pendentes ? badge(String(l.oc_pendentes), 'vermelho') : '0',
@@ -312,6 +313,8 @@ function locacoesListPage({ user, flash, locacoes, filtro }) {
     ];
   });
   const opt = (v, l) => `<option value="${v}" ${filtro.status === v ? 'selected' : ''}>${l}</option>`;
+  const optMod = (v, l) => `<option value="${v}" ${String(filtro.modelo) === String(v) ? 'selected' : ''}>${l}</option>`;
+  const optAtr = (v, l) => `<option value="${v}" ${filtro.atraso === v ? 'selected' : ''}>${l}</option>`;
   return page({
     title: 'Locações',
     user,
@@ -320,6 +323,8 @@ function locacoesListPage({ user, flash, locacoes, filtro }) {
     children: `
       <form method="GET" action="/locacoes" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
         <div class="field" style="margin:0;"><label>Status</label><select name="status">${opt('ativa', 'Locadas')}${opt('devolvida', 'Devolvidas')}${opt('quitada', 'Quitadas (compra garantida)')}${opt('todas', 'Todas')}</select></div>
+        <div class="field" style="margin:0;"><label>Modelo</label><select name="modelo">${optMod('', 'Todos os modelos')}${modelos.map((md) => optMod(md.id, esc(md.identificacao))).join('')}</select></div>
+        <div class="field" style="margin:0;"><label>Pagamento</label><select name="atraso">${optAtr('', 'Em dia + Atrasados')}${optAtr('atrasado', 'Só atrasados')}${optAtr('em_dia', 'Só em dia')}</select></div>
         <div class="field" style="margin:0;"><label>Busca</label><input type="text" name="q" value="${esc(filtro.q || '')}" placeholder="cliente, placa, chassi"></div>
         <div class="field" style="margin:0;"><label>Saída de</label><input type="date" name="de" value="${esc(filtro.de || '')}"></div>
         <div class="field" style="margin:0;"><label>até</label><input type="date" name="ate" value="${esc(filtro.ate || '')}"></div>

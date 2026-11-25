@@ -484,7 +484,10 @@ async function handleLocacaoPro(ctx) {
       q: url.searchParams.get('q') || '',
       de: url.searchParams.get('de') || '',
       ate: url.searchParams.get('ate') || '',
+      modelo: url.searchParams.get('modelo') || '',
+      atraso: url.searchParams.get('atraso') || '',
     };
+    const hojeStr = hoje();
     const w = [];
     const p = [];
     if (filtro.status !== 'todas') {
@@ -503,15 +506,28 @@ async function handleLocacaoPro(ctx) {
       w.push('l.data_saida <= ?');
       p.push(filtro.ate);
     }
+    if (filtro.modelo) {
+      w.push('l.frota_id = ?');
+      p.push(filtro.modelo);
+    }
+    if (filtro.atraso === 'atrasado') {
+      w.push('EXISTS (SELECT 1 FROM locacao_parcelas pp WHERE pp.locacao_id=l.id AND pp.pago=0 AND pp.vencimento < ?)');
+      p.push(hojeStr);
+    } else if (filtro.atraso === 'em_dia') {
+      w.push('NOT EXISTS (SELECT 1 FROM locacao_parcelas pp WHERE pp.locacao_id=l.id AND pp.pago=0 AND pp.vencimento < ?)');
+      p.push(hojeStr);
+    }
+    const modelos = db.prepare('SELECT id, identificacao FROM frota ORDER BY identificacao ASC').all();
     const locacoes = db
       .prepare(
         `SELECT l.*, c.nome cliente_nome, f.identificacao modelo,
            (SELECT COALESCE(SUM(valor),0) FROM locacao_parcelas p WHERE p.locacao_id=l.id AND p.pago=0) aberto,
+           (SELECT COUNT(*) FROM locacao_parcelas p WHERE p.locacao_id=l.id AND p.pago=0 AND p.vencimento < ?) vencidas,
            (SELECT COUNT(*) FROM locacao_ocorrencias o WHERE o.locacao_id=l.id AND o.concluido=0) oc_pendentes
          FROM locacoes l LEFT JOIN clientes c ON c.id=l.cliente_id LEFT JOIN frota f ON f.id=l.frota_id
          ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY l.id DESC`
       )
-      .all(...p);
+      .all(hojeStr, ...p);
     if (pathname.endsWith('.csv')) {
       return done(() =>
         enviarCsv(
@@ -522,7 +538,7 @@ async function handleLocacaoPro(ctx) {
         )
       );
     }
-    return done(() => send(res, 200, V.locacoesListPage({ user, flash: flash(), locacoes, filtro })));
+    return done(() => send(res, 200, V.locacoesListPage({ user, flash: flash(), locacoes, filtro, modelos })));
   }
 
   // ---------------- detalhe da locação
