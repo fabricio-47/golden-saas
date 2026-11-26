@@ -664,7 +664,7 @@ function vendaItensSection(venda, itens, pecasDisponiveis, servicosDisponiveis, 
       </div>`;
 }
 
-function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal, pagamentos, podeAlterar = true, senhaCaixaConfig = false }) {
+function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken, configFiscal, pagamentos, podeAlterar = true, senhaCaixaConfig = false, vendedores = [] }) {
   return layout({
     title: venda.numero,
     activeNav: 'vendas',
@@ -677,6 +677,7 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
           <p class="subtitle">
             Cliente: <a class="link-btn" href="/clientes/${venda.cliente_id}">${escapeHtml(venda.cliente_nome)}</a>
             &nbsp;·&nbsp; Loja: ${venda.loja_nome ? escapeHtml(venda.loja_nome) : '<span class="muted">Geral</span>'}
+            &nbsp;·&nbsp; Vendedor: ${venda.vendedor_nome ? escapeHtml(venda.vendedor_nome) : '<span class="muted">—</span>'}
             &nbsp;·&nbsp; Pagamento: ${formaPagamentoLabel(venda)}
           </p>
         </div>
@@ -691,6 +692,20 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
           }
         </div>
       </div>
+
+      ${podeAlterar ? `
+      <div class="card" style="margin-bottom:16px;">
+        <form method="POST" action="/vendas/${venda.id}/vendedor" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:0;">
+          <input type="hidden" name="csrf" value="${csrfToken}">
+          <div class="field" style="margin:0;"><label>Vendedor da venda</label>
+            <select name="vendedor_id">
+              <option value="">— sem vendedor —</option>
+              ${vendedores.map((vd) => `<option value="${vd.id}" ${String(venda.vendedor_id) === String(vd.id) ? 'selected' : ''}>${escapeHtml(vd.name)}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-sm btn-secondary" type="submit">Trocar vendedor</button>
+        </form>
+      </div>` : ''}
 
       ${(() => {
         if (venda.status === 'concluida') {

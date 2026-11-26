@@ -4208,8 +4208,8 @@ async function handler(req, res) {
     if ((m = matchRoute('/vendas/:id', pathname)) && method === 'GET') {
       const venda = db
         .prepare(
-          `SELECT v.*, c.nome as cliente_nome, l.nome as loja_nome FROM vendas v
-           JOIN clientes c ON c.id = v.cliente_id LEFT JOIN lojas l ON l.id = v.loja_id WHERE v.id = ?`
+          `SELECT v.*, c.nome as cliente_nome, l.nome as loja_nome, u.name as vendedor_nome FROM vendas v
+           JOIN clientes c ON c.id = v.cliente_id LEFT JOIN lojas l ON l.id = v.loja_id LEFT JOIN users u ON u.id = v.vendedor_id WHERE v.id = ?`
         )
         .get(m.id);
       if (!venda) return notFound(res);
@@ -4224,7 +4224,8 @@ async function handler(req, res) {
       );
       const servicosDisponiveis = db.prepare('SELECT * FROM tipos_servico WHERE ativo = 1 ORDER BY nome ASC').all();
       const pagamentosVenda = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ? ORDER BY id ASC').all(m.id);
-      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda, podeAlterar: podeAlterarExcluir(user), senhaCaixaConfig: senhaCaixaConfigurada() }));
+      const vendedoresVenda = db.prepare('SELECT id, name FROM users WHERE ativo = 1 ORDER BY name ASC').all();
+      return send(res, 200, vendaShowPage({ user, flash: takeFlash(session.sessionId), venda, itens, pecasDisponiveis, servicosDisponiveis, csrfToken: session.csrfToken, configFiscal: getConfigFiscal(), pagamentos: pagamentosVenda, podeAlterar: podeAlterarExcluir(user), senhaCaixaConfig: senhaCaixaConfigurada(), vendedores: vendedoresVenda }));
     }
 
     if ((m = matchRoute('/vendas/:id/itens', pathname)) && method === 'POST') {
@@ -4357,6 +4358,24 @@ async function handler(req, res) {
         }
         setFlash(session.sessionId, 'success', 'Item removido da venda e devolvido ao estoque.');
       }
+      return redirect(res, `/vendas/${m.id}`);
+    }
+
+    if ((m = matchRoute('/vendas/:id/vendedor', pathname)) && method === 'POST') {
+      if (bloqueiaAlterar(res, user)) return;
+      const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(m.id);
+      if (!venda) return notFound(res);
+      if (!canEditLoja(user, venda.loja_id)) return forbidden(res);
+      const novoVendedorId = body.vendedor_id ? toIntOrNull(body.vendedor_id) : null;
+      if (novoVendedorId !== null) {
+        const vOk = db.prepare('SELECT id FROM users WHERE id = ? AND ativo = 1').get(novoVendedorId);
+        if (!vOk) {
+          setFlash(session.sessionId, 'error', 'Vendedor inválido.');
+          return redirect(res, `/vendas/${m.id}`);
+        }
+      }
+      db.prepare('UPDATE vendas SET vendedor_id = ? WHERE id = ?').run(novoVendedorId, m.id);
+      setFlash(session.sessionId, 'success', 'Vendedor da venda atualizado.');
       return redirect(res, `/vendas/${m.id}`);
     }
 
