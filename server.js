@@ -2422,6 +2422,12 @@ async function handler(req, res) {
         porVendedor[nome].total += Number(v.valor_total) || 0;
       }
       const vendasPorVendedor = Object.values(porVendedor).sort((a, b) => b.total - a.total);
+      const locacoesRel = db.prepare(
+        `SELECT l.*, c.nome cliente_nome, f.identificacao modelo
+         FROM locacoes l LEFT JOIN clientes c ON c.id=l.cliente_id LEFT JOIN frota f ON f.id=l.frota_id
+         WHERE date(l.data_saida) BETWEEN ? AND ? ORDER BY l.data_saida ASC, l.id ASC`
+      ).all(de, ate);
+      const locacoesRelTotal = locacoesRel.reduce((s, l) => s + (Number(l.valor_combinado) || 0), 0);
       return send(res, 200, relatoriosPage({
         user,
         flash: takeFlash(session.sessionId),
@@ -2432,6 +2438,8 @@ async function handler(req, res) {
         vendasList: vendas,
         vendasTotal,
         vendasPorVendedor,
+        locacoesList: locacoesRel,
+        locacoesTotal: locacoesRelTotal,
         recebido,
         pago,
         resultado: recebido - pago,

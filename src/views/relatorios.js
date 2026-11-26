@@ -15,6 +15,8 @@ function relatoriosPage({
   vendasList,
   vendasTotal,
   vendasPorVendedor = [],
+  locacoesList = [],
+  locacoesTotal = 0,
   recebido,
   pago,
   resultado,
@@ -46,6 +48,21 @@ function relatoriosPage({
       <td>${v.vendedor_nome ? escapeHtml(v.vendedor_nome) : '<span class="muted">—</span>'}</td>
       <td>${escapeHtml(v.status)}</td>
       <td style="text-align:right;">${formatMoney(v.valor_total)}</td>
+    </tr>`
+    )
+    .join('');
+
+  const locacoesRows = locacoesList
+    .map(
+      (l) => `
+    <tr>
+      <td><a class="link-btn" href="/locacoes/${l.id}">#${l.id}</a></td>
+      <td>${formatDateOnly(l.data_saida)}</td>
+      <td>${escapeHtml(l.cliente_nome || '—')}</td>
+      <td>${escapeHtml(l.modelo || '')}</td>
+      <td>${escapeHtml(l.placa || l.chassi || '')}</td>
+      <td>${escapeHtml(l.status || '')}</td>
+      <td style="text-align:right;">${formatMoney(l.valor_combinado)}</td>
     </tr>`
     )
     .join('');
@@ -133,6 +150,17 @@ function relatoriosPage({
           vendasList.length
             ? `<table><thead><tr><th>Número</th><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Status</th><th style="text-align:right;">Valor</th></tr></thead><tbody>${vendasRows}</tbody></table>`
             : '<p class="muted">Nenhuma venda no período.</p>'
+        }
+      </div>
+
+      <div class="card" style="margin-top:4px;">
+        <div class="page-header" style="margin-bottom:12px;">
+          <div><h2 style="margin:0;">Locações no período</h2><p class="subtitle" style="margin:0;">${locacoesList.length} locação(ões) · total ${formatMoney(locacoesTotal)} · pela data de saída</p></div>
+        </div>
+        ${
+          locacoesList.length
+            ? `<table><thead><tr><th>Locação</th><th>Saída</th><th>Cliente</th><th>Modelo</th><th>Placa/chassi</th><th>Status</th><th style="text-align:right;">Valor total</th></tr></thead><tbody>${locacoesRows}</tbody></table>`
+            : '<p class="muted">Nenhuma locação no período.</p>'
         }
       </div>
 
