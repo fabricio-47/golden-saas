@@ -739,6 +739,23 @@ async function handleLocacaoPro(ctx) {
     return done(() => send(res, 200, V.agendaCobrancaPage({ user, flash: flash(), parcelas, hoje: hoje(), empresa, csrfToken })));
   }
 
+  // ---------------- recebidas (parcelas pagas)
+  if (pathname === '/frota/recebidas' && method === 'GET') {
+    if (!ger) return done(() => forbidden(res));
+    const filtro = {
+      q: url.searchParams.get('q') || '',
+      de: url.searchParams.get('de') || (hoje().slice(0, 8) + '01'),
+      ate: url.searchParams.get('ate') || hoje(),
+    };
+    const w = ['p.pago=1', 'p.data_pagamento IS NOT NULL'];
+    const pr = [];
+    if (filtro.de) { w.push('date(p.data_pagamento) >= ?'); pr.push(filtro.de); }
+    if (filtro.ate) { w.push('date(p.data_pagamento) <= ?'); pr.push(filtro.ate); }
+    if (filtro.q) { w.push('(c.nome LIKE ? OR l.placa LIKE ? OR l.chassi LIKE ?)'); pr.push(`%${filtro.q}%`, `%${filtro.q}%`, `%${filtro.q}%`); }
+    const recebidas = db.prepare(`SELECT p.id, p.valor, p.numero, p.data_pagamento, p.forma_pagamento, p.comprovante_caminho, p.locacao_id, c.nome cliente_nome, f.identificacao modelo FROM locacao_parcelas p JOIN locacoes l ON l.id=p.locacao_id LEFT JOIN clientes c ON c.id=l.cliente_id LEFT JOIN frota f ON f.id=l.frota_id WHERE ${w.join(' AND ')} ORDER BY p.data_pagamento DESC, p.id DESC`).all(...pr);
+    return done(() => send(res, 200, V.recebidasPage({ user, flash: flash(), recebidas, filtro })));
+  }
+
   // ---------------- despesas
   if (pathname === '/frota/despesas' && method === 'GET') {
     if (!ger) return done(() => forbidden(res));

@@ -60,6 +60,7 @@ function subnav(ativo) {
     ['agendamentos', '/frota/agendamentos', 'Agendamentos'],
     ['cobranca', '/frota/cobranca', 'Cobrança'],
     ['agenda-cobranca', '/frota/agenda-cobranca', 'Agenda de cobrança'],
+    ['recebidas', '/frota/recebidas', 'Recebidas'],
     ['despesas', '/frota/despesas', 'Despesas'],
     ['revisoes', '/frota/revisoes', 'Revisões'],
     ['documentos', '/frota/documentos', 'Contratos/Documentos'],
@@ -957,6 +958,34 @@ function revisoesPage({ user, flash, lista, total, filtro, csrfToken }) {
   });
 }
 
+function recebidasPage({ user, flash, recebidas, filtro }) {
+  const total = (recebidas || []).reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  const dataBR = (v) => String(v || '').slice(0, 10).split('-').reverse().join('/');
+  const rows = (recebidas || []).map((p) => `<tr><td>${dataBR(p.data_pagamento)}</td><td><a class="link-btn" href="/locacoes/${p.locacao_id}">${esc(p.cliente_nome || '—')}</a></td><td>${esc(p.modelo || '')}</td><td>${esc(String(p.numero))}</td><td style="text-align:right;">${money(p.valor)}</td><td>${esc(p.forma_pagamento || '—')}</td><td>${p.comprovante_caminho ? `<a class="link-btn" href="/uploads/${esc(p.comprovante_caminho)}" target="_blank" rel="noopener">ver</a>` : '<span class="muted">—</span>'}</td></tr>`).join('');
+  return page({
+    title: 'Recebidas',
+    user,
+    flash,
+    ativo: 'recebidas',
+    header: 'Parcelas pagas — busque por cliente e filtre pela data do pagamento.',
+    children: `
+      <form method="GET" action="/frota/recebidas" class="card" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="field" style="margin:0;"><label>Buscar cliente</label><input type="text" name="q" value="${esc(filtro.q || '')}" placeholder="cliente, placa, chassi"></div>
+        <div class="field" style="margin:0;"><label>Pago de</label><input type="date" name="de" value="${esc(filtro.de || '')}"></div>
+        <div class="field" style="margin:0;"><label>até</label><input type="date" name="ate" value="${esc(filtro.ate || '')}"></div>
+        <button class="btn btn-sm" type="submit">Filtrar</button>
+      </form>
+      <div class="card">
+        <h2 style="margin:0 0 10px;">Recebidas <span style="font-size:13px;color:#8a7f6d;font-weight:normal;">${(recebidas || []).length} parcela(s) · ${money(total)}</span></h2>
+        ${
+          (recebidas || []).length
+            ? `<div style="overflow-x:auto;"><table><thead><tr><th>Pago em</th><th>Cliente</th><th>Modelo</th><th>Parc.</th><th style="text-align:right;">Valor</th><th>Forma</th><th>Comprovante</th></tr></thead><tbody>${rows}</tbody></table></div>`
+            : '<p class="muted" style="margin:0;">Nenhuma parcela paga no período.</p>'
+        }
+      </div>`,
+  });
+}
+
 function agendaCobrancaPage({ user, flash, parcelas, hoje, empresa, csrfToken }) {
   const diff = (venc) => {
     const d = new Date(String(venc).slice(0, 10) + 'T00:00:00');
@@ -1015,6 +1044,7 @@ function agendaCobrancaPage({ user, flash, parcelas, hoje, empresa, csrfToken })
 }
 
 module.exports = {
+  recebidasPage,
   agendaCobrancaPage,
   revisoesPage,
   importarPage,
