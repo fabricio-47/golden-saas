@@ -702,8 +702,16 @@ async function handleLocacaoPro(ctx) {
       ok('Pagamento da parcela desfeito.');
     }
     const v = String(body.voltar || '');
-    const dest = v === 'cobranca' ? '/frota/cobranca' : v.startsWith('loc') ? `/locacoes/${int(v.slice(3))}` : v === 'painel' ? '/locacao' : '/frota';
+    const dest = v === 'cobranca' ? '/frota/cobranca' : v === 'agenda' ? '/frota/agenda-cobranca' : v.startsWith('loc') ? `/locacoes/${int(v.slice(3))}` : v === 'painel' ? '/locacao' : '/frota';
     return done(() => redirect(res, dest));
+  }
+
+  // ---------------- agenda de cobranca
+  if (pathname === '/frota/agenda-cobranca' && method === 'GET') {
+    if (!ger) return done(() => forbidden(res));
+    const parcelas = db.prepare(`SELECT p.id, p.valor, p.vencimento, p.numero, p.locacao_id, c.nome cliente_nome, c.telefone cliente_telefone, f.identificacao modelo FROM locacao_parcelas p JOIN locacoes l ON l.id=p.locacao_id LEFT JOIN clientes c ON c.id=l.cliente_id LEFT JOIN frota f ON f.id=l.frota_id WHERE p.pago=0 AND p.valor>0 ORDER BY p.vencimento ASC`).all();
+    const empresa = (db.prepare('SELECT catalogo_titulo t FROM config_geral WHERE id=1').get() || {}).t || 'Golden Motors';
+    return done(() => send(res, 200, V.agendaCobrancaPage({ user, flash: flash(), parcelas, hoje: hoje(), empresa, csrfToken })));
   }
 
   // ---------------- despesas

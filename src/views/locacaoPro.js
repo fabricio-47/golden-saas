@@ -59,6 +59,7 @@ function subnav(ativo) {
     ['locacoes', '/locacoes', 'Locações'],
     ['agendamentos', '/frota/agendamentos', 'Agendamentos'],
     ['cobranca', '/frota/cobranca', 'Cobrança'],
+    ['agenda-cobranca', '/frota/agenda-cobranca', 'Agenda de cobrança'],
     ['despesas', '/frota/despesas', 'Despesas'],
     ['revisoes', '/frota/revisoes', 'Revisões'],
     ['documentos', '/frota/documentos', 'Contratos/Documentos'],
@@ -946,7 +947,65 @@ function revisoesPage({ user, flash, lista, total, filtro, csrfToken }) {
   });
 }
 
+function agendaCobrancaPage({ user, flash, parcelas, hoje, empresa, csrfToken }) {
+  const diff = (venc) => {
+    const d = new Date(String(venc).slice(0, 10) + 'T00:00:00');
+    const h = new Date(String(hoje).slice(0, 10) + 'T00:00:00');
+    return Math.round((d - h) / 86400000);
+  };
+  const vencidas = [], hojeArr = [], aVencer = [];
+  (parcelas || []).forEach((p) => {
+    const d = diff(p.vencimento);
+    if (d < 0) vencidas.push({ ...p, d });
+    else if (d === 0) hojeArr.push({ ...p, d });
+    else if (d <= 7) aVencer.push({ ...p, d });
+  });
+  vencidas.sort((a, b) => a.d - b.d);
+  aVencer.sort((a, b) => a.d - b.d);
+  const dataBR = (v) => String(v).slice(0, 10).split('-').reverse().join('/');
+  const waLink = (p, tipo) => {
+    const tel = String(p.cliente_telefone || '').replace(/\D/g, '');
+    if (!tel) return null;
+    const num = tel.length >= 12 ? tel : '55' + tel;
+    const nome = String(p.cliente_nome || 'cliente').split(' ')[0];
+    const valor = money(p.valor);
+    const data = dataBR(p.vencimento);
+    const modelo = p.modelo || '';
+    let msg;
+    if (tipo === 'vencida') msg = `Olá ${nome}! Aqui é da ${empresa}. Sua parcela de ${valor} (locação ${modelo}) venceu dia ${data} e está em aberto. Consegue acertar pra gente? Qualquer coisa me chama por aqui.`;
+    else if (tipo === 'hoje') msg = `Olá ${nome}! Aqui é da ${empresa}. Passando pra lembrar que sua parcela de ${valor} (locação ${modelo}) vence hoje (${data}). Qualquer dúvida, é só chamar.`;
+    else msg = `Olá ${nome}! Aqui é da ${empresa}. Passando pra lembrar que sua parcela de ${valor} (locação ${modelo}) vence dia ${data}. Qualquer dúvida, é só chamar.`;
+    return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
+  };
+  const linha = (p, tipo) => {
+    const wa = waLink(p, tipo);
+    const waBtn = wa
+      ? `<a class="btn btn-sm" style="background:#25D366;border-color:#25D366;color:#fff;" href="${wa}" target="_blank" rel="noopener">WhatsApp</a>`
+      : '<span style="font-size:12px;color:#a1352a;">sem telefone</span>';
+    const receber = `<form method="POST" action="/parcelas/${p.id}/pagar" style="margin:0;display:inline-flex;gap:4px;vertical-align:middle;">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="agenda"><select name="forma_pagamento" style="width:auto;">${FORMAS_PGTO.map((f) => `<option>${f}</option>`).join('')}</select><button class="btn btn-sm btn-secondary" type="submit">Receber</button></form>`;
+    const dia = tipo === 'vencida' ? badge(`${-p.d}d atraso`, 'vermelho') : tipo === 'hoje' ? badge('hoje', 'amarelo') : badge(`em ${p.d}d`, 'cinza');
+    return `<tr><td><a class="link-btn" href="/locacoes/${p.locacao_id}">#${p.locacao_id}</a></td><td>${esc(p.cliente_nome || '—')}</td><td>${esc(p.cliente_telefone || '—')}</td><td>${esc(p.modelo || '')}</td><td>${dataBR(p.vencimento)} ${dia}</td><td style="text-align:right;">${money(p.valor)}</td><td style="white-space:nowrap;">${waBtn} ${receber}</td></tr>`;
+  };
+  const bloco = (titulo, arr, tipo) => {
+    const total = arr.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+    return `<div class="card" style="margin-top:12px;"><h2 style="margin:0 0 10px;">${titulo} <span style="font-size:13px;color:#8a7f6d;font-weight:normal;">${arr.length} parcela(s) · ${money(total)}</span></h2>${
+      arr.length
+        ? `<div style="overflow-x:auto;"><table><thead><tr><th>Loc.</th><th>Cliente</th><th>Telefone</th><th>Modelo</th><th>Vencimento</th><th style="text-align:right;">Valor</th><th>Ações</th></tr></thead><tbody>${arr.map((p) => linha(p, tipo)).join('')}</tbody></table></div>`
+        : '<p class="muted" style="margin:0;">Nada aqui.</p>'
+    }</div>`;
+  };
+  return page({
+    title: 'Agenda de cobrança',
+    user,
+    flash,
+    ativo: 'agenda-cobranca',
+    header: 'Quem cobrar — clique no WhatsApp e a mensagem já abre pronta pro cliente.',
+    children: `${bloco('Vencidas', vencidas, 'vencida')}${bloco('Vence hoje', hojeArr, 'hoje')}${bloco('A vencer (próximos 7 dias)', aVencer, 'avencer')}`,
+  });
+}
+
 module.exports = {
+  agendaCobrancaPage,
   revisoesPage,
   importarPage,
   painelLocacaoPage,
