@@ -216,6 +216,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
                 <div class="form-grid">
                   <div class="field fr-novocli">
                     <label>Cliente *</label>
+                    <input type="text" class="fr-cli-busca" placeholder="Buscar cliente por nome..." oninput="filtrarCli(this)" autocomplete="off" style="margin-bottom:4px;">
                     <select name="cliente_id" required><option value="">Selecione...</option>${clienteOptions}</select>
                     <a href="javascript:void(0)" class="link-btn" style="font-size:13px;display:inline-block;margin-top:4px;" onclick="frToggleNovoCli(this,true)">+ Cadastrar cliente novo aqui</a>
                     <div class="fr-nc-box" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--border);border-radius:8px;">
@@ -423,6 +424,21 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
         })();
 
         var FR_CSRF = ${JSON.stringify(csrfToken)};
+        var CLIENTES_FROTA = ${JSON.stringify((clientes || []).map((c) => ({ id: c.id, nome: c.nome })))};
+        function filtrarCli(input){
+          var form = input.closest('form'); if(!form) return;
+          var sel = form.querySelector('select[name=cliente_id]'); if(!sel) return;
+          var atual = sel.value;
+          var q = (input.value||'').toLowerCase().trim();
+          var ops = ['<option value="">Selecione...</option>'];
+          CLIENTES_FROTA.forEach(function(c){
+            if(!q || String(c.nome).toLowerCase().indexOf(q) >= 0){
+              var nm = String(c.nome).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              ops.push('<option value="'+c.id+'"'+(String(c.id)===String(atual)?' selected':'')+'>'+nm+'</option>');
+            }
+          });
+          sel.innerHTML = ops.join('');
+        }
         function frToggleNovoCli(el, show){
           var wrap = el.closest('.fr-novocli'); if(!wrap) return;
           var box = wrap.querySelector('.fr-nc-box'); if(box) box.style.display = show ? 'block' : 'none';
@@ -439,6 +455,7 @@ function frotaPainelPage({ user, flash, modelos, clientes, csrfToken, podeGerenc
             .then(function(d){
               btn.disabled=false; btn.textContent='Salvar cliente';
               if(!d || !d.ok){ alert((d && d.error) || 'Não deu pra cadastrar o cliente.'); return; }
+              if(!CLIENTES_FROTA.some(function(c){return String(c.id)===String(d.id);})) CLIENTES_FROTA.push({id:d.id, nome:nome});
               document.querySelectorAll('select[name=cliente_id]').forEach(function(sel){
                 if(!sel.querySelector('option[value="'+d.id+'"]')){ var o=document.createElement('option'); o.value=d.id; o.textContent=nome; sel.appendChild(o); }
               });
