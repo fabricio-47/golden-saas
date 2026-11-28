@@ -5,7 +5,7 @@ const { escapeHtml, formatDate } = require('../utils');
 const { STATUS_LABELS } = require('./dashboard');
 const { camposExtrasClienteHtml } = require('./camposExtras');
 
-function clientesListPage({ user, flash, clientes }) {
+function clientesListPage({ user, flash, clientes, q = '' }) {
   const rows = clientes
     .map(
       (c) => `
@@ -35,6 +35,11 @@ function clientesListPage({ user, flash, clientes }) {
           <a class="btn" href="/clientes/novo">+ Novo Cliente</a>
         </div>
       </div>
+      <form method="GET" action="/clientes" class="card" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:12px;">
+        <div class="field" style="margin:0;flex:1;"><label>Buscar cliente</label><input type="text" name="q" value="${escapeHtml(q)}" placeholder="nome, telefone, CPF/CNPJ ou e-mail" autofocus></div>
+        <button class="btn btn-sm" type="submit">Buscar</button>
+        ${q ? `<a class="btn btn-sm btn-secondary" href="/clientes">Limpar</a>` : ''}
+      </form>
       <div class="card">
         ${
           clientes.length
@@ -42,7 +47,7 @@ function clientesListPage({ user, flash, clientes }) {
           <thead><tr><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Veículos</th><th>Cadastrado em</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`
-            : '<div class="empty">Nenhum cliente cadastrado ainda. <a class="link-btn" href="/clientes/novo">Cadastrar o primeiro</a></div>'
+            : (q ? `<div class="empty">Nenhum cliente encontrado para "${escapeHtml(q)}". <a class="link-btn" href="/clientes">Limpar busca</a></div>` : '<div class="empty">Nenhum cliente cadastrado ainda. <a class="link-btn" href="/clientes/novo">Cadastrar o primeiro</a></div>')
         }
       </div>
     `,

@@ -1180,13 +1180,12 @@ async function handler(req, res) {
 
     // ---------------- CLIENTES ----------------
     if (pathname === '/clientes' && method === 'GET') {
-      const clientes = db
-        .prepare(
-          `SELECT c.*, (SELECT COUNT(*) FROM bicicletas b WHERE b.cliente_id = c.id) as total_bicicletas
-           FROM clientes c ORDER BY c.created_at DESC`
-        )
-        .all();
-      return send(res, 200, clientesListPage({ user, flash: takeFlash(session.sessionId), clientes }));
+      const qCli = (url.searchParams.get('q') || '').trim();
+      const baseCli = `SELECT c.*, (SELECT COUNT(*) FROM bicicletas b WHERE b.cliente_id = c.id) as total_bicicletas FROM clientes c`;
+      const clientes = qCli
+        ? db.prepare(`${baseCli} WHERE c.nome LIKE ? OR c.telefone LIKE ? OR c.cpf_cnpj LIKE ? OR c.email LIKE ? ORDER BY c.nome ASC`).all(`%${qCli}%`, `%${qCli}%`, `%${qCli}%`, `%${qCli}%`)
+        : db.prepare(`${baseCli} ORDER BY c.created_at DESC`).all();
+      return send(res, 200, clientesListPage({ user, flash: takeFlash(session.sessionId), clientes, q: qCli }));
     }
 
     if (pathname === '/clientes/exportar' && method === 'GET') {
