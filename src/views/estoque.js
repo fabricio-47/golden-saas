@@ -363,9 +363,16 @@ function pecaFormPage({ user, flash, peca, csrfToken, lojas, lojaFixaNome, forne
             </div>
           </div>
 
-          <details style="margin-top:20px;" ${peca && (peca.motor_serial || peca.controladora_serial || peca.bateria_serial || peca.chassi_numero) ? 'open' : ''}>
+          <details style="margin-top:20px;" ${peca && (peca.motor_serial || peca.controladora_serial || peca.bateria_serial || peca.chassi_numero || peca.e_veiculo) ? 'open' : ''}>
             <summary style="cursor:pointer;font-weight:600;font-size:16px;">Dados técnicos (opcional — para motos/scooters)</summary>
             <p class="muted" style="margin-top:6px;">Preencha quando o produto for uma moto ou scooter que você vende. Para peças comuns, pode deixar em branco.</p>
+            <div class="field full" style="margin:6px 0 14px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+                <input type="checkbox" name="e_veiculo" value="1" ${peca && peca.e_veiculo ? 'checked' : ''} style="width:auto;">
+                É um veículo (moto/scooter) — pedir o chassi na hora da venda
+              </label>
+              <small class="muted">Marcado: ao vender este produto, o sistema pede o número do chassi da unidade e cadastra a moto em Veículos no nome do cliente.</small>
+            </div>
             <div class="form-grid">
               <div class="field">
                 <label for="motor_serial">Número de série do motor</label>

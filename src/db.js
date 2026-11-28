@@ -469,6 +469,7 @@ ensureColumn('pecas', 'motor_serial', 'TEXT');
 ensureColumn('pecas', 'controladora_serial', 'TEXT');
 ensureColumn('pecas', 'bateria_serial', 'TEXT');
 ensureColumn('pecas', 'chassi_numero', 'TEXT');
+ensureColumn('pecas', 'e_veiculo', 'INTEGER');
 
 // Ficha técnica para o catálogo (motos/scooters). Texto livre: cada modelo varia.
 ensureColumn('pecas', 'ficha_motor', 'TEXT');

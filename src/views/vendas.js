@@ -161,6 +161,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
       estoque: p.quantidade,
       foto: p.foto_caminho ? '/uploads/' + p.foto_caminho : null,
       codigo: p.codigo_barras || null,
+      e_veiculo: p.e_veiculo ? 1 : 0,
       cores: (p.cores || []).map((c) => ({ cor: c.cor, qtd: c.quantidade })),
     }))
   );
@@ -237,6 +238,15 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
             <div class="field" id="nv_cor_campo" style="display:none;grid-column: span 2;">
               <label for="nv_cor">Cor (baixa do estoque desta cor) *</label>
               <select id="nv_cor"></select>
+            </div>
+            <div class="field" id="nv_chassi_campo" style="display:none;grid-column: span 2;">
+              <label for="nv_chassi">Chassi da moto (obrigatório) *</label>
+              <input type="text" id="nv_chassi" placeholder="Número do chassi desta unidade" autocomplete="off">
+              <small class="muted">Cada moto tem um chassi. Ela será cadastrada em Veículos no nome do cliente (pra garantia e O.S.).</small>
+            </div>
+            <div class="field" id="nv_bateria_campo" style="display:none;">
+              <label for="nv_bateria">Nº de série da bateria (opcional)</label>
+              <input type="text" id="nv_bateria" autocomplete="off">
             </div>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="nvAddEstoque()">+ Adicionar produto</button>
@@ -373,6 +383,15 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           } else {
             selCor.innerHTML = ''; campo.style.display = 'none';
           }
+          // Produto marcado como veículo (moto): pede o chassi e trava a quantidade em 1.
+          var ehVeic = !!(prod && prod.e_veiculo);
+          var campoChassi = document.getElementById('nv_chassi_campo');
+          var campoBateria = document.getElementById('nv_bateria_campo');
+          var qtdInp = document.getElementById('nv_qtd');
+          if (campoChassi) campoChassi.style.display = ehVeic ? '' : 'none';
+          if (campoBateria) campoBateria.style.display = ehVeic ? '' : 'none';
+          if (ehVeic) { qtdInp.value = 1; qtdInp.readOnly = true; } else { qtdInp.readOnly = false; }
+          if (!ehVeic) { var c0 = document.getElementById('nv_chassi'); var b0 = document.getElementById('nv_bateria'); if (c0) c0.value = ''; if (b0) b0.value = ''; }
         }
         function nvAddEstoque() {
           var sel = document.getElementById('nv_produto');
@@ -386,8 +405,17 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
             cor = document.getElementById('nv_cor').value;
             if (!cor) { alert('Escolha a cor que está saindo.'); return; }
           }
-          nvItens.push({ peca_id: prod.id, nome: prod.nome + (cor ? ' (' + cor + ')' : ''), preco: prod.preco, qtd: qtd, foto: prod.foto || null, cor: cor });
-          sel.value = ''; document.getElementById('nv_qtd').value = 1; nvProdChange();
+          var chassi = null, bateria = null;
+          if (prod.e_veiculo) {
+            chassi = (document.getElementById('nv_chassi').value || '').trim();
+            bateria = (document.getElementById('nv_bateria').value || '').trim();
+            if (!chassi) { alert('Informe o número do chassi desta moto.'); document.getElementById('nv_chassi').focus(); return; }
+            qtd = 1;
+          }
+          nvItens.push({ peca_id: prod.id, nome: prod.nome + (cor ? ' (' + cor + ')' : ''), preco: prod.preco, qtd: qtd, foto: prod.foto || null, cor: cor, e_veiculo: prod.e_veiculo ? 1 : 0, chassi: chassi, bateria_serial: bateria });
+          sel.value = ''; document.getElementById('nv_qtd').value = 1;
+          var cc = document.getElementById('nv_chassi'); var bb = document.getElementById('nv_bateria'); if (cc) cc.value = ''; if (bb) bb.value = '';
+          nvProdChange();
           nvRender();
         }
         function nvBarcodeKey(e) {
@@ -400,6 +428,11 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           var prod = NV_PRODUTOS.find(function (p) { return p.codigo && String(p.codigo) === cod; });
           if (!prod) {
             msg.innerHTML = '<span style="color:#a1352a;">Nenhum produto com o código ' + cod + '.</span>';
+            inp.select();
+            return;
+          }
+          if (prod.e_veiculo) {
+            msg.innerHTML = '<span style="color:#a1352a;">' + nvEsc(prod.nome) + ' é moto — escolha pela lista acima pra informar o chassi.</span>';
             inp.select();
             return;
           }
@@ -435,7 +468,8 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
             corpo.innerHTML = nvItens.map(function (it, i) {
               var sub = it.preco * it.qtd;
               var thumb = it.foto ? '<img src="' + it.foto + '" alt="" style="width:30px;height:30px;object-fit:cover;border-radius:5px;border:1px solid var(--border);vertical-align:middle;margin-right:8px;">' : '';
-              return '<tr><td>' + thumb + nvEsc(it.nome) + '</td>' +
+              var chassiTxt = it.chassi ? '<div class="muted" style="font-size:12px;">Chassi: ' + nvEsc(it.chassi) + '</div>' : '';
+              return '<tr><td>' + thumb + nvEsc(it.nome) + chassiTxt + '</td>' +
                 '<td style="text-align:center;">' + it.qtd + '</td>' +
                 '<td style="text-align:right;">' + nvMoney(it.preco) + '</td>' +
                 '<td style="text-align:right;font-weight:600;">' + nvMoney(sub) + '</td>' +
@@ -443,7 +477,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
             }).join('');
           }
           document.getElementById('nv_itens_json').value = JSON.stringify(nvItens.map(function (it) {
-            return { peca_id: it.peca_id, nome: it.nome, preco: it.preco, qtd: it.qtd, cor: it.cor || null };
+            return { peca_id: it.peca_id, nome: it.nome, preco: it.preco, qtd: it.qtd, cor: it.cor || null, chassi: it.chassi || null, bateria_serial: it.bateria_serial || null };
           }));
           nvRecalc();
         }

@@ -1502,8 +1502,8 @@ async function handler(req, res) {
           `INSERT INTO pecas (nome, categoria, numero_serie, quantidade, estoque_minimo, custo_unitario, preco_venda, preco_pix, preco_cartao, observacoes, loja_id, fornecedor_id,
                               ncm, cfop, csosn, origem_mercadoria, unidade_comercial, codigo_barras,
                               motor_serial, controladora_serial, bateria_serial, chassi_numero,
-                              ficha_motor, ficha_autonomia, ficha_velocidade, ficha_bateria, ficha_pneu, ficha_peso, ficha_recarga, catalogo_visivel, catalogo_destaque)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                              ficha_motor, ficha_autonomia, ficha_velocidade, ficha_bateria, ficha_pneu, ficha_peso, ficha_recarga, catalogo_visivel, catalogo_destaque, e_veiculo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.nome.trim(), body.categoria || '', body.numero_serie || '',
@@ -1512,7 +1512,7 @@ async function handler(req, res) {
           (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
           origemPeca, (body.unidade_comercial || '').trim() || null, codigoBarras,
           (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null,
-          (body.ficha_motor || '').trim() || null, (body.ficha_autonomia || '').trim() || null, (body.ficha_velocidade || '').trim() || null, (body.ficha_bateria || '').trim() || null, (body.ficha_pneu || '').trim() || null, (body.ficha_peso || '').trim() || null, (body.ficha_recarga || '').trim() || null, body.catalogo_visivel === '1' ? 1 : 0, (body.catalogo_destaque || '').trim() || null
+          (body.ficha_motor || '').trim() || null, (body.ficha_autonomia || '').trim() || null, (body.ficha_velocidade || '').trim() || null, (body.ficha_bateria || '').trim() || null, (body.ficha_pneu || '').trim() || null, (body.ficha_peso || '').trim() || null, (body.ficha_recarga || '').trim() || null, body.catalogo_visivel === '1' ? 1 : 0, (body.catalogo_destaque || '').trim() || null, (body.e_veiculo === '1' ? 1 : 0)
         );
       salvarCoresPeca(info.lastInsertRowid, cores);
       salvarFotoPeca(info.lastInsertRowid, files, body);
@@ -1685,7 +1685,7 @@ async function handler(req, res) {
         `UPDATE pecas SET nome=?, categoria=?, numero_serie=?, quantidade=?, estoque_minimo=?, custo_unitario=?, preco_venda=?, preco_pix=?, preco_cartao=?, observacoes=?, loja_id=?, fornecedor_id=?,
            ncm=?, cfop=?, csosn=?, origem_mercadoria=?, unidade_comercial=?, codigo_barras=?,
            motor_serial=?, controladora_serial=?, bateria_serial=?, chassi_numero=?,
-           ficha_motor=?, ficha_autonomia=?, ficha_velocidade=?, ficha_bateria=?, ficha_pneu=?, ficha_peso=?, ficha_recarga=?, catalogo_visivel=?, catalogo_destaque=?, updated_at=datetime('now') WHERE id=?`
+           ficha_motor=?, ficha_autonomia=?, ficha_velocidade=?, ficha_bateria=?, ficha_pneu=?, ficha_peso=?, ficha_recarga=?, catalogo_visivel=?, catalogo_destaque=?, e_veiculo=?, updated_at=datetime('now') WHERE id=?`
       ).run(
         body.nome.trim(), body.categoria || '', body.numero_serie || '',
         quantidadeTotal, toIntOrNull(body.estoque_minimo) || 0,
@@ -1693,7 +1693,7 @@ async function handler(req, res) {
         (body.ncm || '').trim() || null, (body.cfop || '').trim() || null, (body.csosn || '').trim() || null,
         origemPecaUp, (body.unidade_comercial || '').trim() || null, codigoBarrasUp,
         (body.motor_serial || '').trim() || null, (body.controladora_serial || '').trim() || null, (body.bateria_serial || '').trim() || null, (body.chassi_numero || '').trim() || null,
-        (body.ficha_motor || '').trim() || null, (body.ficha_autonomia || '').trim() || null, (body.ficha_velocidade || '').trim() || null, (body.ficha_bateria || '').trim() || null, (body.ficha_pneu || '').trim() || null, (body.ficha_peso || '').trim() || null, (body.ficha_recarga || '').trim() || null, body.catalogo_visivel === '1' ? 1 : 0, (body.catalogo_destaque || '').trim() || null, m.id
+        (body.ficha_motor || '').trim() || null, (body.ficha_autonomia || '').trim() || null, (body.ficha_velocidade || '').trim() || null, (body.ficha_bateria || '').trim() || null, (body.ficha_pneu || '').trim() || null, (body.ficha_peso || '').trim() || null, (body.ficha_recarga || '').trim() || null, body.catalogo_visivel === '1' ? 1 : 0, (body.catalogo_destaque || '').trim() || null, (body.e_veiculo === '1' ? 1 : 0), m.id
       );
       salvarCoresPeca(m.id, cores);
       salvarFotoPeca(m.id, files, body);
@@ -4183,14 +4183,32 @@ async function handler(req, res) {
         if (it.peca_id) {
           const peca = db.prepare('SELECT * FROM pecas WHERE id = ?').get(it.peca_id);
           if (!peca) continue;
+          const ehVeiculo = !!peca.e_veiculo;
+          const chassiItem = ehVeiculo ? (it.chassi || '').toString().trim() : '';
+          const bateriaItem = ehVeiculo ? (it.bateria_serial || '').toString().trim() : '';
+          // Moto = 1 unidade por chassi: trava a quantidade em 1.
+          const qtdItem = ehVeiculo ? 1 : qtd;
           const cor = (it.cor || '').toString().trim() || null;
           const nomeItem = peca.nome + (cor ? ' (' + cor + ')' : '');
-          db.prepare('INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario, cor) VALUES (?, ?, ?, ?, ?, ?)')
-            .run(vendaNovaId, peca.id, nomeItem, qtd, peca.preco_venda, cor);
-          const nova = peca.quantidade - qtd;
+          const itemInfo = db.prepare('INSERT INTO venda_itens (venda_id, peca_id, nome_peca, quantidade, preco_unitario, cor) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(vendaNovaId, peca.id, nomeItem, qtdItem, peca.preco_venda, cor);
+          const nova = peca.quantidade - qtdItem;
           db.prepare("UPDATE pecas SET quantidade = ?, updated_at = datetime('now') WHERE id = ?").run(nova, peca.id);
-          if (cor) ajustaEstoqueCor(peca.id, cor, qtd);
+          if (cor) ajustaEstoqueCor(peca.id, cor, qtdItem);
           if (nova < 0) estoqueNegativo = true;
+          // Produto marcado como veículo + chassi informado: cadastra a moto em
+          // Veículos (no nome do cliente) e liga ao item, pra garantia/O.S. acharem.
+          if (ehVeiculo && chassiItem) {
+            try {
+              const infoBici = db.prepare(
+                `INSERT INTO bicicletas (cliente_id, tipo_veiculo, marca, modelo, bateria_serial, chassi_numero, observacoes)
+                 VALUES (?, 'moto', '', ?, ?, ?, ?)`
+              ).run(body.cliente_id, peca.nome, bateriaItem, chassiItem, `Cadastrado automaticamente pela Venda ${numero}.`);
+              db.prepare('UPDATE venda_itens SET bicicleta_id = ? WHERE id = ?').run(infoBici.lastInsertRowid, itemInfo.lastInsertRowid);
+            } catch (err) {
+              console.error('[venda] Falha ao cadastrar veículo a partir da venda:', err);
+            }
+          }
         } else if (it.nome && String(it.nome).trim()) {
           const preco = Number(it.preco) || 0;
           db.prepare('INSERT INTO venda_itens (venda_id, nome_peca, quantidade, preco_unitario) VALUES (?, ?, ?, ?)')
