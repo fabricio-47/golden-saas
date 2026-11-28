@@ -372,7 +372,17 @@ function locacaoDetalhePage({ user, flash, loc, parcelas, ocorrencias, modelosCo
     const acao = !podeGerenciar
       ? ''
       : p.pago
-      ? `<form method="POST" action="/parcelas/${p.id}/estornar" style="margin:0;" onsubmit="return confirm('Desfazer o pagamento?');">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="loc${loc.id}"><button class="btn btn-sm btn-secondary">Desfazer</button></form>`
+      ? `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            ${p.comprovante_caminho ? `<a class="link-btn" href="/uploads/${esc(p.comprovante_caminho)}" target="_blank" rel="noopener">comprovante</a>` : ''}
+            <form method="POST" action="/parcelas/${p.id}/estornar" style="margin:0;" onsubmit="return confirm('Desfazer o pagamento?');">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="loc${loc.id}"><button class="btn btn-sm btn-secondary">Desfazer</button></form>
+          </div>
+          <details style="font-size:12px;">
+            <summary style="cursor:pointer;color:#8a6d00;">Editar / anexar comprovante</summary>
+            <form method="POST" action="/parcelas/${p.id}/editar-recebimento" style="margin:6px 0;display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;">${csrfInput(csrfToken)}<label style="font-size:11px;">Data<br><input type="date" name="data_pagamento" value="${esc(String(p.data_pagamento || '').slice(0, 10))}" style="width:auto;"></label><label style="font-size:11px;">Valor recebido (R$)<br><input type="number" name="valor" step="0.01" min="0" value="${Number(p.valor) || 0}" style="width:110px;"></label><button class="btn btn-sm" type="submit">Salvar</button></form>
+            <form method="POST" action="/parcelas/${p.id}/comprovante" enctype="multipart/form-data" style="margin:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">${csrfInput(csrfToken)}<input type="file" name="comprovante" accept="image/*,application/pdf" required style="font-size:11px;"><button class="btn btn-sm btn-secondary" type="submit">Anexar comprovante</button></form>
+          </details>
+        </div>`
       : `<form method="POST" action="/parcelas/${p.id}/pagar" style="margin:0;display:flex;gap:6px;">${csrfInput(csrfToken)}<input type="hidden" name="voltar" value="loc${loc.id}"><select name="forma_pagamento" style="width:auto;">${FORMAS_PGTO.map((f) => `<option>${f}</option>`).join('')}</select><button class="btn btn-sm">Receber</button></form>`;
     return [String(p.numero) + (p.origem ? ' ' + badge(p.origem === 'entrada' ? 'entrada' : p.origem.startsWith('ocorrencia:') ? TIPOS_OCORRENCIA[p.origem.slice(11)] || 'ocorrência' : 'avulsa', p.origem === 'entrada' ? 'verde' : 'cinza') : ''), dt(p.vencimento), money(p.valor), st + (p.forma_pagamento ? ' ' + esc(p.forma_pagamento) : ''), acao];
   });

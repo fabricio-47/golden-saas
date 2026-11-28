@@ -706,6 +706,31 @@ async function handleLocacaoPro(ctx) {
     return done(() => redirect(res, dest));
   }
 
+  if ((m = matchRoute('/parcelas/:id/comprovante', pathname)) && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    const pc = db.prepare('SELECT * FROM locacao_parcelas WHERE id=?').get(m.id);
+    if (!pc) return done(() => notFound(res));
+    const f = (ctx.files || []).find((x) => x.fieldName === 'comprovante' && x.data && x.data.length);
+    if (!f) { erro('Escolha um arquivo do comprovante.'); return done(() => redirect(res, `/locacoes/${pc.locacao_id}`)); }
+    if (pc.comprovante_caminho) { try { deleteUploadedFile(pc.comprovante_caminho); } catch (e) {} }
+    const salvo = saveReceiptFile('parcela-comprovante', m.id, f);
+    db.prepare('UPDATE locacao_parcelas SET comprovante_caminho=? WHERE id=?').run(salvo.caminho_arquivo, m.id);
+    ok('Comprovante anexado.');
+    return done(() => redirect(res, `/locacoes/${pc.locacao_id}`));
+  }
+
+  if ((m = matchRoute('/parcelas/:id/editar-recebimento', pathname)) && method === 'POST') {
+    if (!ger) return done(() => forbidden(res));
+    const pc = db.prepare('SELECT * FROM locacao_parcelas WHERE id=?').get(m.id);
+    if (!pc) return done(() => notFound(res));
+    const novoValor = num(body.valor);
+    if (novoValor === null || novoValor < 0) { erro('Valor inválido.'); return done(() => redirect(res, `/locacoes/${pc.locacao_id}`)); }
+    const novaData = txt(body.data_pagamento) || pc.data_pagamento;
+    db.prepare('UPDATE locacao_parcelas SET valor=?, data_pagamento=? WHERE id=?').run(novoValor, novaData, m.id);
+    ok('Recebimento atualizado (valor/data).');
+    return done(() => redirect(res, `/locacoes/${pc.locacao_id}`));
+  }
+
   // ---------------- agenda de cobranca
   if (pathname === '/frota/agenda-cobranca' && method === 'GET') {
     if (!ger) return done(() => forbidden(res));

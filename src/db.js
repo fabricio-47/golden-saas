@@ -1013,6 +1013,7 @@ ensureColumn('frota', 'marca', 'TEXT');
 ensureColumn('garantias', 'data_ultima_revisao', 'TEXT');
 // Parcela criada fora do plano (multa, avaria, cobrança avulsa): não entra no valor do contrato.
 ensureColumn('locacao_parcelas', 'origem', 'TEXT');
+ensureColumn('locacao_parcelas', 'comprovante_caminho', 'TEXT');
 ensureColumn('locacoes', 'unidade_id', 'INTEGER REFERENCES frota_unidades(id) ON DELETE SET NULL');
 ensureColumn('locacoes', 'hora_saida', 'TEXT');
 ensureColumn('locacoes', 'hora_retorno', 'TEXT');
