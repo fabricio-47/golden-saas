@@ -4114,7 +4114,7 @@ async function handler(req, res) {
       return send(res, 200, vendaFormPage({
         user, flash: takeFlash(session.sessionId), clientes, csrfToken: session.csrfToken,
         lojas, lojaFixaNome: canSeeAllLojas(user) ? null : (lojaPropria ? lojaPropria.nome : null),
-        pecasDisponiveis: pecasNovaVenda,
+        pecasDisponiveis: pecasNovaVenda, senhaCaixaConfig: senhaCaixaConfigurada(),
       }));
     }
 
@@ -4129,7 +4129,7 @@ async function handler(req, res) {
         : db.prepare('SELECT * FROM pecas WHERE loja_id = ? ORDER BY nome ASC').all(user.loja_id));
 
       if (!body.cliente_id) {
-        return send(res, 400, vendaFormPage({ user, flash: { type: 'error', message: 'Selecione um cliente.' }, clientes, csrfToken: session.csrfToken, lojas, lojaFixaNome, pecasDisponiveis: pecasNovaVenda }));
+        return send(res, 400, vendaFormPage({ user, flash: { type: 'error', message: 'Selecione um cliente.' }, clientes, csrfToken: session.csrfToken, lojas, lojaFixaNome, pecasDisponiveis: pecasNovaVenda, senhaCaixaConfig: senhaCaixaConfigurada() }));
       }
       // Pagamentos (misto) vindos da tela única. Deriva a forma/parcelas-resumo
       // que fica na venda (compat + exibição) e guarda cada pagamento à parte.
@@ -4201,6 +4201,57 @@ async function handler(req, res) {
       const descontoVenda = Math.max(0, toFloatOrNull(body.desconto) || 0);
       const totalNovo = Math.max(0, subtotalItens - descontoVenda);
       db.prepare('UPDATE vendas SET valor_total = ?, desconto = ? WHERE id = ?').run(totalNovo, descontoVenda || null, vendaNovaId);
+
+      // "Criar e receber": dá baixa no mesmo passo (mesma regra do /vendas/:id/finalizar).
+      // Se faltar senha do caixa ou comprovante, a venda fica criada (aberta) e o
+      // usuário completa a baixa na tela da venda — nada se perde.
+      if (body.receber_agora) {
+        const itemCountBaixa = db.prepare('SELECT COUNT(*) c FROM venda_itens WHERE venda_id = ?').get(vendaNovaId).c;
+        if (itemCountBaixa === 0) {
+          setFlash(session.sessionId, 'error', `Venda ${numero} criada, mas sem itens — adicione itens para dar baixa.`);
+          return redirect(res, `/vendas/${vendaNovaId}`);
+        }
+        if (senhaCaixaConfigurada() && !validarSenhaCaixa(body.senha_caixa)) {
+          setFlash(session.sessionId, 'error', `Venda ${numero} criada. Senha do caixa incorreta — confirme o recebimento na tela da venda.`);
+          return redirect(res, `/vendas/${vendaNovaId}`);
+        }
+        const pagamentosBaixa = db.prepare('SELECT * FROM venda_pagamentos WHERE venda_id = ?').all(vendaNovaId);
+        const temDigital = pagamentosBaixa.some((p) => ['pix', 'debito', 'credito'].includes(p.forma));
+        let compSaved = null;
+        if (temDigital) {
+          const compFile = (files || []).find((f) => f.fieldName === 'comprovante' && f.data && f.data.length > 0);
+          if (!compFile) {
+            setFlash(session.sessionId, 'error', `Venda ${numero} criada. Pagamento digital (pix/cartão) precisa de comprovante — anexe na tela da venda para dar baixa.`);
+            return redirect(res, `/vendas/${vendaNovaId}`);
+          }
+          compSaved = saveReceiptFile('venda', vendaNovaId, compFile);
+          if (!compSaved) {
+            setFlash(session.sessionId, 'error', `Venda ${numero} criada, mas o comprovante é inválido (envie PDF, JPG ou PNG) — anexe na tela da venda.`);
+            return redirect(res, `/vendas/${vendaNovaId}`);
+          }
+        }
+        db.prepare("UPDATE vendas SET status='concluida', finalizada_at=datetime('now') WHERE id = ?").run(vendaNovaId);
+        if (compSaved) {
+          db.prepare('UPDATE vendas SET comprovante_caminho = ?, comprovante_nome = ? WHERE id = ?').run(compSaved.caminho_arquivo, compSaved.nome_arquivo, vendaNovaId);
+        }
+        for (const p of pagamentosBaixa) {
+          if (p.forma === 'dinheiro') registrarEntradaCaixa(p.valor, vendaNovaId, `Venda ${numero}`, user.id);
+        }
+        const vendaRecebida = db.prepare('SELECT * FROM vendas WHERE id = ?').get(vendaNovaId);
+        try {
+          gerarContasReceberDaVenda(vendaRecebida, user);
+        } catch (err) {
+          console.error('[contas-receber] Falha ao gerar parcelas a partir da Venda:', err);
+        }
+        setFlash(
+          session.sessionId,
+          estoqueNegativo ? 'error' : 'success',
+          estoqueNegativo
+            ? `Venda ${numero} criada e recebida, mas algum estoque ficou negativo — confira.`
+            : `Venda ${numero} criada e recebida. Agora é só emitir a NF-e, se precisar.`
+        );
+        return redirect(res, `/vendas/${vendaNovaId}`);
+      }
 
       setFlash(
         session.sessionId,

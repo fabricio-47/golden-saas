@@ -150,7 +150,7 @@ function vendasListPage({ user, flash, vendas, lojas, lojaFiltroId, mostrarColun
   });
 }
 
-function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, pecasDisponiveis = [] }) {
+function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, pecasDisponiveis = [], senhaCaixaConfig = false }) {
   const clienteOptions = clientes.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
   const temMultiLoja = (lojas || []).length > 1;
   const produtosJson = JSON.stringify(
@@ -200,7 +200,7 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
       </div>
       ${semLojaAtivaHtml}
       <div class="card">
-        <form method="POST" action="/vendas">
+        <form method="POST" action="/vendas" enctype="multipart/form-data">
           <input type="hidden" name="csrf" value="${csrfToken}">
           <div class="form-grid">
             <div class="field">
@@ -302,8 +302,25 @@ function vendaFormPage({ user, flash, clientes, lojas, lojaFixaNome, csrfToken, 
           </table>
           <input type="hidden" name="pagamentos_json" id="pg_json" value="[]">
 
+          <div class="card" style="margin-top:16px;background:#f7faf8;border:1px dashed #b9c6bf;">
+            <h2 style="margin-top:0;">Receber agora <span class="muted" style="font-weight:normal;">(opcional)</span></h2>
+            <p class="muted" style="margin-top:-6px;">Clique em <strong>"Criar e receber"</strong> pra já dar baixa no pagamento sem precisar abrir a venda depois. Se o pagamento for pix ou cartão, anexe o comprovante aqui.</p>
+            <div class="form-grid">
+              ${senhaCaixaConfig ? `<div class="field">
+                <label for="nv_senha_caixa">Senha do caixa</label>
+                <input type="password" name="senha_caixa" id="nv_senha_caixa" autocomplete="off" placeholder="Só pra receber agora">
+              </div>` : ''}
+              <div class="field">
+                <label for="nv_comprovante">Comprovante (pix/cartão)</label>
+                <input type="file" name="comprovante" id="nv_comprovante" accept="image/*,application/pdf">
+                <small class="muted">Obrigatório só quando houver pagamento digital.</small>
+              </div>
+            </div>
+          </div>
+
           <div class="actions-row">
-            <button class="btn" type="submit">Salvar venda</button>
+            <button class="btn" type="submit" name="receber_agora" value="1" onclick="return confirm('Confirmar o recebimento do pagamento desta venda agora? Isso dá baixa na venda.');">✔ Criar e receber</button>
+            <button class="btn btn-secondary" type="submit">Só criar (recebo depois)</button>
             <a class="btn btn-secondary" href="/vendas">Cancelar</a>
           </div>
         </form>
@@ -712,7 +729,22 @@ function vendaShowPage({ user, flash, venda, itens, pecasDisponiveis, servicosDi
           const compLink = venda.comprovante_caminho
             ? ` · <a class="link-btn" href="/uploads/${escapeHtml(venda.comprovante_caminho)}" target="_blank" rel="noopener">ver comprovante</a>`
             : '';
-          return `<div class="flash flash-success">Pagamento confirmado (baixa) em ${formatDate(venda.finalizada_at)}.${compLink}</div>`;
+          const cfgNfe = configFiscal || {};
+          const ambNfe = cfgNfe.ambiente === 'producao' ? 'producao' : 'homologacao';
+          const temTokenNfe = ambNfe === 'producao' ? !!cfgNfe.focus_token_producao : !!cfgNfe.focus_token_homologacao;
+          const stNfe = venda.nfe_status;
+          const podeEmitirNfe = temTokenNfe && (!stNfe || stNfe === 'erro' || stNfe === 'erro_autorizacao' || stNfe === 'denegado');
+          const nfeCta = podeEmitirNfe
+            ? `<div class="card" style="border-left:4px solid #1f6d3a;background:#f2fbf5;">
+                 <h2 style="margin-top:0;">Falta só a nota</h2>
+                 <p class="muted" style="margin-top:-4px;">A venda já foi recebida. Emita a NF-e agora, se precisar — só as mercadorias entram na nota.</p>
+                 <form method="POST" action="/vendas/${venda.id}/nfe/emitir" onsubmit="return confirm('Emitir NF-e desta venda no ambiente ${ambNfe}?');" style="margin:0;">
+                   <input type="hidden" name="csrf" value="${csrfToken}">
+                   <button class="btn" type="submit">📄 ${stNfe ? 'Tentar emitir a NF-e de novo' : 'Emitir NF-e agora'}</button>
+                 </form>
+               </div>`
+            : '';
+          return `<div class="flash flash-success">Pagamento confirmado (baixa) em ${formatDate(venda.finalizada_at)}.${compLink}</div>${nfeCta}`;
         }
         if (venda.status === 'cancelada') {
           return '<div class="flash flash-error">Venda cancelada — os itens voltaram pro estoque.</div>';
